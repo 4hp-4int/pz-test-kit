@@ -144,20 +144,18 @@ Step 4 is what `build_runtime_jar.py` automates — it iteratively scans bytecod
 
 ## Kahlua Runner (PZ's Actual Lua VM)
 
-The Kahlua runner uses PZ's actual `se.krka.kahlua` Lua interpreter — the same bytecode VM that runs in-game. This catches Kahlua-specific behavior that LuaJIT might miss (string patterns, number coercion, metatable edge cases).
+> **For most modders, the Python/lupa runner above is all you need.** The Kahlua runner is an advanced option for catching Lua VM behavioral differences.
 
-```bash
-cd kahlua
-javac -cp kahlua-runtime.jar TestPlatform.java YourTestRunner.java
-java -cp kahlua-runtime.jar:. YourTestRunner /path/to/your/mod
-```
+PZ doesn't use standard Lua or LuaJIT — it uses [Kahlua](https://github.com/krka/kahlua2), a Lua 5.1 implementation in Java that TIS patched. String patterns, number coercion, metatable resolution, and pcall behavior can all differ between LuaJIT and Kahlua. The Kahlua runner catches these.
 
-The `kahlua-runtime.jar` (610KB) contains:
+The `kahlua-runtime.jar` (613KB) contains:
 - Kahlua VM + compiler (`se.krka.kahlua.*`)
 - LuaJ compiler fork (`org.luaj.kahluafork.*`)
-- Minimal PZ stubs (3 classes) to satisfy KahluaTableImpl's debug assertions
+- Minimal PZ stubs (3 classes) to satisfy `KahluaTableImpl`'s debug assertions
 
 No game assets, no rendering, no networking. Just the Lua runtime.
+
+Writing a Kahlua test runner requires Java — see [VorpallySauced's implementation](https://github.com/4hp-4int/VPS/tree/main/tools/kahlua-harness) for a working example that runs 502 tests on Kahlua.
 
 ## What's Mocked
 
@@ -191,7 +189,7 @@ name: Tests
 on: [push, pull_request]
 
 jobs:
-  test-lupa:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -199,16 +197,9 @@ jobs:
         with: { python-version: '3.11' }
       - run: pip install lupa
       - run: python run_tests.py
-
-  test-kahlua:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { distribution: 'temurin', java-version: '25' }
-      - run: javac -cp kahlua/kahlua-runtime.jar kahlua/TestPlatform.java kahlua/YourRunner.java
-      - run: java -cp kahlua/kahlua-runtime.jar:kahlua YourRunner .
 ```
+
+That's it — one job, runs your test script on every push. See the [Getting Started guide](docs/GETTING_STARTED.md) for the Kahlua CI job setup (requires Java 25).
 
 ## Script Parser
 
@@ -235,17 +226,31 @@ pz-test-kit/
 │   ├── mock_environment.lua    # PZ API mocks (player, weapons, globals)
 │   └── Assert.lua              # Assertion library
 ├── kahlua/
-│   ├── kahlua-runtime.jar      # 610KB standalone Kahlua VM
-│   ├── TestPlatform.java       # Minimal Platform (no PZ game deps)
-│   ├── stdlib.lua              # Kahlua standard library
-│   └── serialize.lua           # Kahlua serialization
+│   ├── kahlua-runtime.jar      # 613KB standalone Kahlua VM
+│   ├── TestPlatform.java       # Minimal Platform impl (no PZ game deps)
+│   ├── build_runtime_jar.py    # Rebuild jar from your PZ install
+│   ├── stdlib.lua              # Kahlua standard library (from PZ)
+│   ├── serialize.lua           # Kahlua serialization lib (from PZ)
+│   └── stubs/                  # 3 Java stubs that make standalone Kahlua work
+│       └── zombie/
+│           ├── core/Core.java
+│           └── debug/DebugOptions.java, BooleanDebugOption.java
 ├── lib/
 │   ├── pz_test_runner.py       # Python/lupa test runner
 │   └── pz_script_parser.py     # PZ script file parser
+├── docs/
+│   └── GETTING_STARTED.md      # Step-by-step guide with examples
 ├── examples/
-│   └── MyMod/                  # Example mod with 10 passing tests
+│   └── MyMod/                  # Working example mod with 10 passing tests
+│       ├── media/lua/shared/MyMod/Core.lua
+│       ├── tests/test_core.lua
+│       └── run_tests.py
 └── README.md
 ```
+
+## Documentation
+
+- **[Getting Started Guide](docs/GETTING_STARTED.md)** — step-by-step walkthrough from zero to passing tests, mock environment reference, Assert API, weapon data options, CI setup, tips
 
 ## License
 
