@@ -1,161 +1,164 @@
 # PZ Test Kit
 
-Offline test framework for Project Zomboid Build 42 mods. Run your mod's Lua tests in seconds without launching the game — on the **exact same Lua VM** PZ uses.
+Offline test framework for Project Zomboid Build 42 mods. Run your mod's Lua tests in seconds without launching the game — **on PZ's actual Kahlua Lua VM**.
 
-## What This Is
+Not a simulation. Not a different Lua implementation. The same `se.krka.kahlua` bytecode interpreter that runs inside the game, extracted into a 613KB self-contained jar.
 
-- **Mock PZ API**: Player, weapons, items, inventory, events, sandbox vars, GameTime — all mocked as Lua tables with the same method signatures the game exposes
-- **Assert library**: `equal`, `nearEqual`, `greater`, `notNil`, `isTrue`, etc. with auto-generated failure messages
-- **Two test runners**:
-  - **Python/lupa** (LuaJIT) — fast, great for CI
-  - **Java/Kahlua** (PZ's actual Lua VM) — catches Kahlua-specific behavior differences
-- **Script parser**: Reads weapon stats from PZ's `.txt` script files so your mocks match real game data
-- **610KB self-contained Kahlua jar** — no PZ install needed, no Steam auth
+## Why This Exists
+
+PZ doesn't use standard Lua or LuaJIT. It uses **Kahlua** — a custom Lua 5.1 interpreter written in Java, patched by The Indie Stone. String patterns, number coercion, metatable behavior, pcall semantics — all of these can differ between Kahlua and any standard Lua you test against. If you're testing your mod against LuaJIT or standard Lua 5.1, you're testing against *a different language runtime* than the game uses.
+
+PZ Test Kit gives you:
+- **PZ's actual Lua VM** in a 613KB jar — no game install needed
+- **Mock PZ API** — player, weapons (60+ getters/setters), items, inventory, events, sandbox vars, GameTime
+- **Assert library** — `equal`, `nearEqual`, `greater`, `notNil`, `isTrue`, etc. with auto-generated failure messages
+- **Script parser** — reads weapon stats from PZ's actual `.txt` script files
 
 ## Quick Start
 
-### 1. Install
+### Prerequisites
+
+- Java 17+ (`java -version` to check)
+- Your PZ mod with Lua code in `media/lua/`
+
+### 1. Clone the kit
 
 ```bash
-pip install lupa
+git clone https://github.com/4hp-4int/pz-test-kit.git
 ```
 
 ### 2. Write a test
 
+Create `YourMod/tests/test_core.lua`:
+
 ```lua
--- tests/test_mymod.lua
 local Assert = PZTestKit.Assert
 
 local tests = {}
 
-tests["my_weapon_check"] = function()
+tests["weapon_validates"] = function()
     local weapon = instanceItem("Base.Axe")
     if not Assert.notNil(weapon, "spawn Axe") then return false end
-    return Assert.isTrue(MyMod.isValidWeapon(weapon), "Axe is valid")
+    return Assert.isTrue(YourMod.isValidWeapon(weapon), "Axe is valid")
 end
 
-tests["my_buff_calculation"] = function()
-    return Assert.equal(MyMod.getBuffAmount(100), 0.5, "100 kills = 0.5 buff")
+tests["buff_at_100_kills"] = function()
+    return Assert.equal(YourMod.getBuffAmount(100), 0.5, "100 kills = 0.5")
 end
 
 return tests
 ```
 
-### 3. Write a runner
+### 3. Add weapon data
 
-```python
-# run_tests.py
-import sys
-from pathlib import Path
+Create `YourMod/weapon_scripts.lua` with the weapons your tests need:
 
-sys.path.insert(0, str(Path("path/to/pz-test-kit/lib")))
-from pz_test_runner import PZTestRunner
-
-WEAPONS = {
-    "Base.Axe": {
-        "minDamage": 0.8, "maxDamage": 2.0, "criticalChance": 20.0,
-        "conditionMax": 13, "_isRanged": False, "_name": "Axe",
-        "_hasSharpness": True, "_headConditionMax": 13,
-        "_hasHeadCondition": True,
-    },
+```lua
+_pz_weapon_scripts["Base.Axe"] = {
+    minDamage = 0.8, maxDamage = 2.0, criticalChance = 20.0,
+    critDmgMultiplier = 5.0, maxRange = 1.2, baseSpeed = 1.0,
+    conditionMax = 13, conditionLowerChance = 35,
+    pushBackMod = 0.3, maxHitCount = 2,
+    _isRanged = false, _name = "Axe", _displayName = "Axe",
+    _hasSharpness = true, _hasHeadCondition = true, _headConditionMax = 13,
 }
 
-runner = PZTestRunner(mod_root=".")
-runner.add_weapon_scripts(WEAPONS)
-runner.load_module("media/lua/shared/MyMod/Core.lua")
-sys.exit(runner.run())
+_pz_weapon_scripts["Base.Pistol"] = {
+    minDamage = 0.6, maxDamage = 1.0, hitChance = 50,
+    recoilDelay = 12, clipSize = 15, maxAmmo = 15,
+    conditionMax = 10, _isRanged = true, _name = "Pistol",
+}
 ```
 
-### 4. Run
+Or use the included script parser to read from PZ's actual game files (see [Weapon Data](#weapon-data) below).
+
+### 4. Compile and run
 
 ```bash
-python run_tests.py
+cd pz-test-kit/kahlua
+javac -cp kahlua-runtime.jar TestPlatform.java KahluaTestRunner.java
+java -cp kahlua-runtime.jar:. KahluaTestRunner /path/to/YourMod \
+    media/lua/shared/YourMod/Core.lua \
+    -- tests/test_core.lua
 ```
 
-```
-[PZTestKit] Mock environment loaded
-[MyMod] Core loaded v1.0.0
-
---- test_mymod.lua (2 tests) ---
-  [PASS] my_weapon_check
-  [PASS] my_buff_calculation
-
-TOTAL: 2 tests, 2 passed, 0 failed, 0 errors
+On Windows use `;` instead of `:` for the classpath:
+```cmd
+java -cp kahlua-runtime.jar;. KahluaTestRunner C:\path\to\YourMod ^
+    media/lua/shared/YourMod/Core.lua ^
+    -- tests/test_core.lua
 ```
 
-## Building the Kahlua Runtime Jar
+Output:
 
-The repo ships a pre-built `kahlua-runtime.jar`, but you can rebuild it from your own PZ install. This extracts the Kahlua Lua VM classes from `projectzomboid.jar`, resolves PZ dependencies, and bakes in the debug stubs.
+```
+====================================================
+PZ Test Kit — Kahlua Runner (PZ's actual Lua VM)
+====================================================
+Mod root:  C:\path\to\YourMod
+Modules:   1
+Tests:     1
 
-### Automatic (recommended)
+--- tests/test_core.lua (10 tests) ---
+
+====================================================
+KAHLUA TOTAL: 10 tests, 10 passed, 0 failed, 0 errors
+====================================================
+```
+
+That's it. Your mod's Lua running on PZ's actual VM, in under a second.
+
+### Auto-discovery
+
+If you don't specify test files after `--`, the runner auto-discovers all `tests/test_*.lua` files:
 
 ```bash
-cd kahlua
-python build_runtime_jar.py
+java -cp kahlua-runtime.jar:. KahluaTestRunner /path/to/YourMod \
+    media/lua/shared/YourMod/Core.lua
 ```
 
-It auto-discovers your PZ Steam install. Override with:
+## How It Works
 
-```bash
-python build_runtime_jar.py --pz-dir "D:/Steam/steamapps/common/ProjectZomboid"
-# or
-PZ_INSTALL_DIR="/path/to/ProjectZomboid" python build_runtime_jar.py
+### The Kahlua Runtime Jar
+
+PZ ships `projectzomboid.jar` (~40MB) containing the entire game. Inside it, `se/krka/kahlua/` is the Kahlua Lua VM — an open-source (Apache 2.0) Lua 5.1 implementation in Java.
+
+We extract the VM classes and package them with 3 stub classes that disable PZ's debug assertions:
+
+```java
+// zombie/core/Core.java — disables debug checks in KahluaTableImpl.rawset()
+public class Core { public static boolean debug = false; }
 ```
 
-This also copies `stdlib.lua` and `serialize.lua` from your PZ install (required by Kahlua's standard library).
+TIS patched `KahluaTableImpl.rawset()` to check `Core.debug` on every Lua table write. Without the stub, this pulls in PZ's entire debug infrastructure. Setting `debug = false` short-circuits the check.
 
-### What the build does
+Result: **613KB jar** that runs PZ's Lua VM standalone. No rendering, no networking, no world simulation. Just the bytecode interpreter.
 
-1. Opens `projectzomboid.jar` (~40MB) from your PZ install
-2. Extracts all `se/krka/kahlua/` and `org/luaj/kahluafork/` classes (the Lua VM + compiler)
-3. Resolves transitive PZ class dependencies (BoxedStaticValues, DebugLog, ConfigOption, etc.)
-4. Removes `DebugOptions` and `Core` classes (replaced by our stubs)
-5. Bakes in 3 stub classes that disable PZ's debug assertions in `KahluaTableImpl.rawset()`
-6. Outputs a ~610KB self-contained jar
+### The Mock Layer
 
-### Why stubs are needed
+Mocks replace the **data source**, not the **runtime**. Instead of spawning a real `HandWeapon` Java object in a loaded world, we create a Lua table with the same getter/setter interface:
 
-TIS patched `KahluaTableImpl.rawset()` to check `zombie.core.Core.debug` and `zombie.debug.DebugOptions` on every Lua table write. Without stubs, this pulls in PZ's debug infrastructure → config system → rendering → LWJGL → half the game. The stubs set `Core.debug = false` which short-circuits all debug checks (the real code does `if (Core.debug) { ... }`).
-
-### Manual build (if you want to understand it)
-
-```bash
-# 1. Extract Kahlua classes
-python -c "
-import zipfile
-with zipfile.ZipFile('path/to/projectzomboid.jar') as z:
-    for name in z.namelist():
-        if name.startswith('se/krka/kahlua/') or name.startswith('org/luaj/kahluafork/'):
-            z.extract(name, 'extracted/')
-"
-
-# 2. Compile stubs
-javac stubs/zombie/core/Core.java
-javac stubs/zombie/debug/BooleanDebugOption.java
-javac stubs/zombie/debug/DebugOptions.java
-
-# 3. Package (stubs + extracted classes)
-jar cf kahlua-runtime.jar -C stubs . -C extracted .
-
-# 4. Run, hit NoClassDefFoundError, add missing class, repeat until clean
+```lua
+local weapon = instanceItem("Base.Axe")
+weapon:setMaxDamage(2.5)
+weapon:getMaxDamage()    -- 2.5
+weapon:getModData().foo = "bar"
+instanceof(weapon, "HandWeapon")  -- true
 ```
 
-Step 4 is what `build_runtime_jar.py` automates — it iteratively scans bytecode for `zombie/` class references and pulls them in.
+From Lua's perspective, this is indistinguishable from the real Java object. The Lua code calls the same methods, gets the same types back. The difference is that `getMaxDamage()` reads from a Lua table field instead of a Java field — but the *Lua VM behavior* (how it resolves the call, handles the return value, does arithmetic with it) is identical because it IS the same VM.
 
-## Kahlua Runner (PZ's Actual Lua VM)
+### Sharpness Fidelity
 
-> **For most modders, the Python/lupa runner above is all you need.** The Kahlua runner is an advanced option for catching Lua VM behavioral differences.
+The weapon mock matches PZ's actual Java implementation (verified from decompiled `HandWeapon.java`):
 
-PZ doesn't use standard Lua or LuaJIT — it uses [Kahlua](https://github.com/krka/kahlua2), a Lua 5.1 implementation in Java that TIS patched. String patterns, number coercion, metatable resolution, and pcall behavior can all differ between LuaJIT and Kahlua. The Kahlua runner catches these.
+- `getMinDamage()` → returns raw value, NO sharpness adjustment
+- `getMaxDamage()` → `minDmg + (maxDmg - minDmg) * sharpnessMultiplier` (only the delta)
+- `getCriticalChance()` → `raw * sharpness`
+- `getCriticalDamageMultiplier()` → `raw * sharpnessMultiplier`
+- `getDoorDamage()` / `getTreeDamage()` → `floor(raw * sharpnessMultiplier)`, min 1
 
-The `kahlua-runtime.jar` (613KB) contains:
-- Kahlua VM + compiler (`se.krka.kahlua.*`)
-- LuaJ compiler fork (`org.luaj.kahluafork.*`)
-- Minimal PZ stubs (3 classes) to satisfy `KahluaTableImpl`'s debug assertions
-
-No game assets, no rendering, no networking. Just the Lua runtime.
-
-Writing a Kahlua test runner requires Java — see [VorpallySauced's implementation](https://github.com/4hp-4int/VPS/tree/main/tools/kahlua-harness) for a working example that runs 502 tests on Kahlua.
+Where `sharpnessMultiplier = (sharpness + 1.0) / 2.0`
 
 ## What's Mocked
 
@@ -165,24 +168,89 @@ Writing a Kahlua test runner requires Java — see [VorpallySauced's implementat
 | **HandWeapon** | 60+ getter/setter pairs — damage, crit, condition, sharpness, range, speed, recoil, clip, ammo, fire starting, sound, knockdown, door/tree damage |
 | **InventoryItem** | `getFullType`, `getID`, `getModData`, `getMaxAmmo`, `getClipSize`, `getName`, `getScriptItem` |
 | **Inventory** | `AddItem`, `removeAllItems`, `containsTypeRecurse`, `getItems` |
-| **Globals** | `instanceof`, `ZombRand`, `getText`, `getDebug`, `isServer`, `isClient`, `sendServerCommand`, `syncItemModData`, `getFileWriter` |
+| **Globals** | `instanceof`, `ZombRand`, `getText`, `getDebug`, `isServer`, `isClient`, `sendServerCommand`, `syncItemModData`, `getFileWriter`, `table.wipe` |
 | **Events** | Auto-creating event tables with `Add`/`Remove` |
 | **GameTime** | `getInstance().getWorldAgeHours()`, `getHour()` — controllable via `_pz_world_hours` / `_pz_hour_of_day` globals |
-| **SandboxVars** | Settable per-mod via `runner.set_sandbox_vars("MyMod", {...})` |
+| **SandboxVars** | Set directly: `SandboxVars.YourMod = { Setting = value }` |
 
-### Sharpness Fidelity
+### Adding Your Own Mocks
 
-The weapon mock matches PZ's actual Java implementation (verified from decompiled `HandWeapon.java`):
+It's just Lua tables. Add methods to the player, create new item types, whatever your mod needs:
 
-- `getMinDamage()` → returns raw value, NO sharpness adjustment
-- `getMaxDamage()` → `minDmg + (maxDmg - minDmg) * sharpnessMultiplier` (sharpness only affects the delta)
-- `getCriticalChance()` → `raw * sharpness`
-- `getCriticalDamageMultiplier()` → `raw * sharpnessMultiplier`
-- `getDoorDamage()` / `getTreeDamage()` → `floor(raw * sharpnessMultiplier)`, min 1
+```lua
+-- In weapon_scripts.lua or a setup file loaded before tests:
+_pz_player.getUsername = function(self) return "MyTestPlayer" end
+_pz_player.hasTrait = function(self, trait) return trait == "Lucky" end
 
-Where `sharpnessMultiplier = (sharpness + 1.0) / 2.0`
+_pz_item_scripts["MyMod.CustomItem"] = {
+    maxAmmo = 10, _name = "Custom Thing",
+}
+```
 
-## CI Integration (GitHub Actions)
+## Weapon Data
+
+### Option A: Define in weapon_scripts.lua
+
+```lua
+_pz_weapon_scripts["Base.Axe"] = {
+    minDamage = 0.8, maxDamage = 2.0, criticalChance = 20.0,
+    conditionMax = 13, _isRanged = false, _name = "Axe",
+    _hasSharpness = true,
+}
+```
+
+### Option B: Parse from PZ script files
+
+```python
+# Requires Python: pip install lupa (for the parser, not for running tests)
+from pz_script_parser import parse_weapon_scripts
+from pathlib import Path
+
+weapons = parse_weapon_scripts([
+    Path("C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/scripts/generated/items/weapon.txt")
+])
+# Generates all 409 vanilla weapons with correct stats
+```
+
+Save as JSON for CI, or generate `weapon_scripts.lua` from it.
+
+## Assert Library
+
+All methods return `true` on pass, `false` on fail, and print a descriptive message.
+
+```lua
+local Assert = PZTestKit.Assert
+
+Assert.equal(actual, expected, "label")
+Assert.notEqual(actual, unexpected, "label")
+Assert.nearEqual(actual, expected, 0.01, "label")
+
+Assert.greater(actual, threshold, "label")
+Assert.greaterEq(actual, threshold, "label")
+Assert.less(actual, threshold, "label")
+Assert.lessEq(actual, threshold, "label")
+
+Assert.notNil(value, "label")
+Assert.isNil(value, "label")
+Assert.isTrue(value, "label")
+Assert.isFalse(value, "label")
+
+Assert.tableHas(tbl, key, "label")
+Assert.tableNotHas(tbl, key, "label")
+```
+
+**Pattern: early-return on failure**
+
+```lua
+tests["multi_step"] = function()
+    local weapon = instanceItem("Base.Axe")
+    if not Assert.notNil(weapon, "spawn") then return false end
+    if not Assert.equal(weapon:getConditionMax(), 13, "condMax") then return false end
+    return Assert.isTrue(weapon:hasSharpness(), "sharpenable")
+end
+```
+
+## CI Integration
 
 ```yaml
 name: Tests
@@ -193,71 +261,62 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install lupa
-      - run: python run_tests.py
+      - uses: actions/setup-java@v4
+        with: { distribution: 'temurin', java-version: '25' }
+      - name: Compile test runner
+        working-directory: path/to/pz-test-kit/kahlua
+        run: javac -cp kahlua-runtime.jar TestPlatform.java KahluaTestRunner.java
+      - name: Run tests on PZ's Kahlua VM
+        working-directory: path/to/pz-test-kit/kahlua
+        run: java -cp kahlua-runtime.jar:. KahluaTestRunner /path/to/YourMod media/lua/shared/YourMod/Core.lua
 ```
 
-That's it — one job, runs your test script on every push. See the [Getting Started guide](docs/GETTING_STARTED.md) for the Kahlua CI job setup (requires Java 25).
+No PZ install. No Steam auth. Just Java + the 613KB jar.
 
-## Script Parser
+## Building the Runtime Jar
 
-Parse weapon stats from PZ's actual `.txt` script files instead of hardcoding values:
+The repo ships a pre-built `kahlua-runtime.jar`. To rebuild from your own PZ install:
 
-```python
-from pz_script_parser import parse_weapon_scripts
-from pathlib import Path
-
-weapons = parse_weapon_scripts([
-    Path("C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/scripts/generated/items/weapon.txt")
-])
-
-# weapons["Base.Axe"] == {"maxDamage": 2.0, "minDamage": 0.8, ...}
+```bash
+cd kahlua
+python build_runtime_jar.py
 ```
 
-Falls back to a committed JSON fixture for CI (no PZ install).
+Auto-discovers your PZ Steam install. Override with `--pz-dir` or `PZ_INSTALL_DIR` env var. See [Getting Started](docs/GETTING_STARTED.md) for the full build explanation.
 
 ## Project Structure
 
 ```
 pz-test-kit/
-├── lua/
-│   ├── mock_environment.lua    # PZ API mocks (player, weapons, globals)
-│   └── Assert.lua              # Assertion library
 ├── kahlua/
-│   ├── kahlua-runtime.jar      # 613KB standalone Kahlua VM
+│   ├── kahlua-runtime.jar      # 613KB — PZ's Kahlua VM, self-contained
+│   ├── KahluaTestRunner.java   # Generic test runner for any mod
 │   ├── TestPlatform.java       # Minimal Platform impl (no PZ game deps)
 │   ├── build_runtime_jar.py    # Rebuild jar from your PZ install
 │   ├── stdlib.lua              # Kahlua standard library (from PZ)
 │   ├── serialize.lua           # Kahlua serialization lib (from PZ)
 │   └── stubs/                  # 3 Java stubs that make standalone Kahlua work
-│       └── zombie/
-│           ├── core/Core.java
-│           └── debug/DebugOptions.java, BooleanDebugOption.java
+├── lua/
+│   ├── mock_environment.lua    # PZ API mocks (player, weapons, globals)
+│   └── Assert.lua              # Assertion library
 ├── lib/
-│   ├── pz_test_runner.py       # Python/lupa test runner
+│   ├── pz_test_runner.py       # Python/lupa runner (alternative if no Java)
 │   └── pz_script_parser.py     # PZ script file parser
 ├── docs/
-│   └── GETTING_STARTED.md      # Step-by-step guide with examples
+│   └── GETTING_STARTED.md      # Detailed walkthrough with examples
 ├── examples/
-│   └── MyMod/                  # Working example mod with 10 passing tests
-│       ├── media/lua/shared/MyMod/Core.lua
-│       ├── tests/test_core.lua
-│       └── run_tests.py
+│   └── MyMod/                  # Working example: 10 tests, both runners
 └── README.md
 ```
 
-## Documentation
-
-- **[Getting Started Guide](docs/GETTING_STARTED.md)** — step-by-step walkthrough from zero to passing tests, mock environment reference, Assert API, weapon data options, CI setup, tips
-
 ## License
 
-The mock environment, test runner, Assert library, and script parser are MIT licensed.
+Mock environment, test runner, Assert library, and script parser are MIT licensed.
 
-The `kahlua-runtime.jar` contains Kahlua (Apache 2.0) plus minimal PZ debug stubs. It contains no game assets, game logic, or copyrightable creative content.
+`kahlua-runtime.jar` contains Kahlua (Apache 2.0) plus minimal stubs. No game assets, game logic, or copyrightable creative content.
 
 ## Credits
 
 Built by [Dark Sauce](https://github.com/4hp-4int) for the PZ modding community.
+
+Powered by [Kahlua](https://github.com/krka/kahlua2) — the Lua VM that powers Project Zomboid.
