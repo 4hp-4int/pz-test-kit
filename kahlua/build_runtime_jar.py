@@ -62,15 +62,33 @@ SEED_CLASSES = [
     "zombie/util/StringUtils",
 ]
 
-# Broader packages where we need everything
+# Broader packages where we need most/all classes
 BROAD_PACKAGES = [
     "zombie/config/",
-    "zombie/debug/options/",
-    "zombie/debug/DebugOptions",
+    "zombie/debug/",          # DebugOptions, DebugLog, LogSeverity, etc.
     "org/lwjgl/util/vector/",
-    "org/lwjglx/",
+    "org/lwjglx/LWJGLException",
+    "org/lwjglx/opengl/OpenGLException",
     "org/joml/Matrix4f",
-    "gnu/trove/",
+    "org/joml/Matrix4fc",
+    # Only the specific gnu/trove classes KahluaTableImpl needs:
+    "gnu/trove/set/hash/THashSet",
+    "gnu/trove/impl/hash/TObjectHash",
+    "gnu/trove/impl/hash/THash",
+    "gnu/trove/impl/hash/TIntHash",
+    "gnu/trove/impl/hash/TPrimitiveHash",
+    "gnu/trove/impl/HashFunctions",
+    "gnu/trove/impl/PrimeFinder",
+    "gnu/trove/impl/Constants",
+    "gnu/trove/map/hash/TIntObjectHashMap",
+    "gnu/trove/map/TIntObjectMap",
+    "gnu/trove/set/TIntSet",
+    "gnu/trove/TIntCollection",
+    "gnu/trove/iterator/TIntObjectIterator",
+    "gnu/trove/iterator/TAdvancingIterator",
+    "gnu/trove/iterator/TIterator",
+    "gnu/trove/procedure/TObjectProcedure",
+    "gnu/trove/procedure/TIntObjectProcedure",
 ]
 
 
@@ -119,30 +137,12 @@ def collect_entries(zin: zipfile.ZipFile) -> set[str]:
             if name.startswith(prefix) and name.endswith(".class"):
                 needed.add(name)
 
-    # 4. Iteratively resolve zombie/ deps from what we have
-    scanned = set()
-    for round_num in range(10):
-        to_scan = [e for e in needed if e.endswith(".class") and e not in scanned]
-        if not to_scan:
-            break
-
-        new_refs = set()
-        for entry in to_scan:
-            scanned.add(entry)
-            data = zin.read(entry)
-            refs = re.findall(rb"zombie/[\w/]+", data)
-            for ref in refs:
-                cf = ref.decode() + ".class"
-                if cf in all_names and cf not in needed:
-                    new_refs.add(cf)
-                base = ref.decode()
-                for name in all_names:
-                    if name.startswith(base + "$") and name.endswith(".class") and name not in needed:
-                        new_refs.add(name)
-
-        if not new_refs:
-            break
-        needed.update(new_refs)
+    # 4. Add inner classes for everything we already have
+    bases = {n.replace(".class", "") for n in needed if n.endswith(".class")}
+    for base in bases:
+        for name in all_names:
+            if name.startswith(base + "$") and name.endswith(".class"):
+                needed.add(name)
 
     return needed
 
