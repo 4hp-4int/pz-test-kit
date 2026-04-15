@@ -83,6 +83,65 @@ python run_tests.py
 TOTAL: 2 tests, 2 passed, 0 failed, 0 errors
 ```
 
+## Building the Kahlua Runtime Jar
+
+The repo ships a pre-built `kahlua-runtime.jar`, but you can rebuild it from your own PZ install. This extracts the Kahlua Lua VM classes from `projectzomboid.jar`, resolves PZ dependencies, and bakes in the debug stubs.
+
+### Automatic (recommended)
+
+```bash
+cd kahlua
+python build_runtime_jar.py
+```
+
+It auto-discovers your PZ Steam install. Override with:
+
+```bash
+python build_runtime_jar.py --pz-dir "D:/Steam/steamapps/common/ProjectZomboid"
+# or
+PZ_INSTALL_DIR="/path/to/ProjectZomboid" python build_runtime_jar.py
+```
+
+This also copies `stdlib.lua` and `serialize.lua` from your PZ install (required by Kahlua's standard library).
+
+### What the build does
+
+1. Opens `projectzomboid.jar` (~40MB) from your PZ install
+2. Extracts all `se/krka/kahlua/` and `org/luaj/kahluafork/` classes (the Lua VM + compiler)
+3. Resolves transitive PZ class dependencies (BoxedStaticValues, DebugLog, ConfigOption, etc.)
+4. Removes `DebugOptions` and `Core` classes (replaced by our stubs)
+5. Bakes in 3 stub classes that disable PZ's debug assertions in `KahluaTableImpl.rawset()`
+6. Outputs a ~610KB self-contained jar
+
+### Why stubs are needed
+
+TIS patched `KahluaTableImpl.rawset()` to check `zombie.core.Core.debug` and `zombie.debug.DebugOptions` on every Lua table write. Without stubs, this pulls in PZ's debug infrastructure → config system → rendering → LWJGL → half the game. The stubs set `Core.debug = false` which short-circuits all debug checks (the real code does `if (Core.debug) { ... }`).
+
+### Manual build (if you want to understand it)
+
+```bash
+# 1. Extract Kahlua classes
+python -c "
+import zipfile
+with zipfile.ZipFile('path/to/projectzomboid.jar') as z:
+    for name in z.namelist():
+        if name.startswith('se/krka/kahlua/') or name.startswith('org/luaj/kahluafork/'):
+            z.extract(name, 'extracted/')
+"
+
+# 2. Compile stubs
+javac stubs/zombie/core/Core.java
+javac stubs/zombie/debug/BooleanDebugOption.java
+javac stubs/zombie/debug/DebugOptions.java
+
+# 3. Package (stubs + extracted classes)
+jar cf kahlua-runtime.jar -C stubs . -C extracted .
+
+# 4. Run, hit NoClassDefFoundError, add missing class, repeat until clean
+```
+
+Step 4 is what `build_runtime_jar.py` automates — it iteratively scans bytecode for `zombie/` class references and pulls them in.
+
 ## Kahlua Runner (PZ's Actual Lua VM)
 
 The Kahlua runner uses PZ's actual `se.krka.kahlua` Lua interpreter — the same bytecode VM that runs in-game. This catches Kahlua-specific behavior that LuaJIT might miss (string patterns, number coercion, metatable edge cases).
