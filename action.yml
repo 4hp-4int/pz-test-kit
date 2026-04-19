@@ -12,9 +12,9 @@ inputs:
     required: false
     default: '${{ github.workspace }}'
   java-version:
-    description: 'Java version to use (17+ required; 21 recommended).'
+    description: 'Java version to use. Must be 25+ — kahlua-runtime.jar ships class-file version 69 (Java 25) matching PZ''s bundled JDK.'
     required: false
-    default: '17'
+    default: '25'
   filter:
     description: 'Lua pattern; only tests whose name matches run.'
     required: false

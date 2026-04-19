@@ -13,7 +13,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        java: ['17', '21']
+        # kahlua-runtime.jar ships class-file version 69 (Java 25) matching
+        # PZ's bundled JDK. Older JDKs can't compile against it.
+        java: ['25']
     steps:
       - uses: actions/checkout@v4
 
