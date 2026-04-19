@@ -1,0 +1,86 @@
+name: 'PZ Test Kit'
+description: 'Run Project Zomboid Build 42 mod tests on PZ''s actual Kahlua VM.'
+author: '4hp-4int'
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  mod-root:
+    description: 'Path to the mod directory being tested. Defaults to the workspace root.'
+    required: false
+    default: '${{ github.workspace }}'
+  java-version:
+    description: 'Java version to use (17+ required; 21 recommended).'
+    required: false
+    default: '17'
+  filter:
+    description: 'Lua pattern; only tests whose name matches run.'
+    required: false
+    default: ''
+  junit-xml:
+    description: 'Write JUnit XML report to this path for CI test result integration.'
+    required: false
+    default: 'pz-test-results.xml'
+  kit-ref:
+    description: 'Git ref (tag / branch / SHA) of pz-test-kit to use. Defaults to the action ref.'
+    required: false
+    default: ''
+
+outputs:
+  junit-xml:
+    description: 'Path to the JUnit XML report written by the run.'
+    value: ${{ steps.run.outputs.junit-xml }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ inputs.java-version }}
+
+    - name: Fetch pz-test-kit
+      shell: bash
+      run: |
+        KIT_REF="${{ inputs.kit-ref }}"
+        if [ -z "$KIT_REF" ]; then
+          KIT_REF="${{ github.action_ref || 'main' }}"
+        fi
+        # Clone into a sibling directory if not already present.
+        if [ ! -d "$RUNNER_TEMP/pz-test-kit" ]; then
+          git clone --depth 1 --branch "$KIT_REF" \
+            https://github.com/4hp-4int/pz-test-kit.git \
+            "$RUNNER_TEMP/pz-test-kit" \
+            || git clone --depth 1 \
+               https://github.com/4hp-4int/pz-test-kit.git \
+               "$RUNNER_TEMP/pz-test-kit"
+        fi
+        echo "PZTEST_KIT_DIR=$RUNNER_TEMP/pz-test-kit" >> "$GITHUB_ENV"
+
+    - name: Compile pz-test-kit
+      shell: bash
+      run: |
+        cd "$PZTEST_KIT_DIR/kahlua"
+        javac -cp kahlua-runtime.jar \
+          TestPlatform.java \
+          KahluaTestRunner.java \
+          DualVMSim.java \
+          StubbingClassLoader.java \
+          PZTestKitLauncher.java
+
+    - name: Run tests
+      id: run
+      shell: bash
+      run: |
+        chmod +x "$PZTEST_KIT_DIR/pztest"
+        JUNIT_PATH="${{ inputs.junit-xml }}"
+        FILTER="${{ inputs.filter }}"
+        FLAGS=("--junit-xml" "$JUNIT_PATH")
+        if [ -n "$FILTER" ]; then
+          FLAGS+=("--filter" "$FILTER")
+        fi
+        "$PZTEST_KIT_DIR/pztest" "${{ inputs.mod-root }}" "${FLAGS[@]}"
+        echo "junit-xml=$JUNIT_PATH" >> "$GITHUB_OUTPUT"

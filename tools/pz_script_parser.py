@@ -248,27 +248,113 @@ def _parse_file(path: Path) -> dict[str, dict]:
 
 
 # ============================================================================
-# CLI: parse and print summary
+# Output generators
+# ============================================================================
+
+def to_lua(weapons: dict[str, dict], header: str = "") -> str:
+    """Generate a weapon_scripts.lua file from parsed weapon data."""
+    lines = [
+        "-- Auto-generated from PZ script files by pz_script_parser.py",
+        "-- Reload with: python pz_script_parser.py --lua <script_file.txt> > weapon_scripts.lua",
+    ]
+    if header:
+        lines.append(f"-- {header}")
+    lines.append("")
+
+    for full_type in sorted(weapons.keys()):
+        stats = weapons[full_type]
+        lines.append(f'_pz_weapon_scripts["{full_type}"] = {{')
+        for k in sorted(stats.keys()):
+            v = stats[k]
+            if isinstance(v, bool):
+                lines.append(f"    {k} = {'true' if v else 'false'},")
+            elif isinstance(v, str):
+                lines.append(f'    {k} = "{v}",')
+            elif isinstance(v, (int, float)):
+                lines.append(f"    {k} = {v},")
+        lines.append("}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def to_json(weapons: dict[str, dict]) -> str:
+    """Generate JSON from parsed weapon data."""
+    import json
+    return json.dumps(weapons, indent=2, default=str)
+
+
+# ============================================================================
+# CLI
 # ============================================================================
 
 if __name__ == "__main__":
     import sys
     import json
+    import os
 
-    if len(sys.argv) < 2:
-        print("Usage: python pz_script_parser.py <script_file.txt> [...]")
+    # Parse args
+    output_format = "summary"
+    filter_types = None
+    script_paths = []
+
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        if args[i] == "--lua":
+            output_format = "lua"
+        elif args[i] == "--json":
+            output_format = "json"
+        elif args[i] == "--filter":
+            i += 1
+            filter_types = set(args[i].split(","))
+        elif args[i] in ("-h", "--help"):
+            print("Usage: python pz_script_parser.py [--lua|--json] [--filter Type1,Type2] <script_file.txt> [...]")
+            print()
+            print("  --lua       Output weapon_scripts.lua (for Kahlua test runner)")
+            print("  --json      Output JSON (for fixtures or inspection)")
+            print("  --filter    Comma-separated list of weapon types to include")
+            print()
+            print("Examples:")
+            print('  python pz_script_parser.py --lua weapon.txt > weapon_scripts.lua')
+            print('  python pz_script_parser.py --json --filter "Base.Axe,Base.Pistol" weapon.txt')
+            print()
+            print("Auto-discovers PZ install if no script file given:")
+            print("  python pz_script_parser.py --lua > weapon_scripts.lua")
+            sys.exit(0)
+        else:
+            script_paths.append(Path(args[i]))
+        i += 1
+
+    # Auto-discover PZ weapon.txt if no paths given
+    if not script_paths:
+        candidates = [
+            Path("C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/scripts/generated/items/weapon.txt"),
+            Path("C:/Program Files/Steam/steamapps/common/ProjectZomboid/media/scripts/generated/items/weapon.txt"),
+            Path(os.path.expanduser("~/.steam/steam/steamapps/common/ProjectZomboid/media/scripts/generated/items/weapon.txt")),
+        ]
+        env = os.environ.get("PZ_INSTALL_DIR")
+        if env:
+            candidates.insert(0, Path(env) / "media/scripts/generated/items/weapon.txt")
+        for c in candidates:
+            if c.exists():
+                script_paths.append(c)
+                break
+
+    if not script_paths:
+        print("ERROR: No script files found. Pass a path or set PZ_INSTALL_DIR.", file=sys.stderr)
         sys.exit(1)
 
-    paths = [Path(p) for p in sys.argv[1:]]
-    weapons = parse_weapon_scripts(paths)
+    weapons = parse_weapon_scripts(script_paths, filter_types=filter_types)
 
-    print(f"Parsed {len(weapons)} weapons:")
-    for full_type in sorted(weapons.keys()):
-        stats = weapons[full_type]
-        ranged = "ranged" if stats.get("_isRanged") else "melee"
-        sharp = " sharp" if stats.get("_hasSharpness") else ""
-        head = " head" if stats.get("_hasHeadCondition") else ""
-        print(f"  {full_type} ({ranged}{sharp}{head})")
-
-    # Also dump JSON for inspection
-    print(json.dumps(weapons, indent=2, default=str))
+    if output_format == "lua":
+        print(to_lua(weapons))
+    elif output_format == "json":
+        print(to_json(weapons))
+    else:
+        print(f"Parsed {len(weapons)} weapons from {[str(p) for p in script_paths]}:")
+        for full_type in sorted(weapons.keys()):
+            stats = weapons[full_type]
+            ranged = "ranged" if stats.get("_isRanged") else "melee"
+            sharp = " sharp" if stats.get("_hasSharpness") else ""
+            head = " head" if stats.get("_hasHeadCondition") else ""
+            print(f"  {full_type} ({ranged}{sharp}{head})")

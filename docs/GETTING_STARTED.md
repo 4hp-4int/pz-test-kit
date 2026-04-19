@@ -1,32 +1,54 @@
 # Getting Started with PZ Test Kit
 
-This guide walks you through adding offline tests to your PZ mod from scratch. By the end, you'll have tests running in under 30 seconds on every code change — no game launch required.
+This guide walks you through adding offline tests to your PZ mod. By the end, you'll have tests running on PZ's actual Lua VM in under a second — no game launch required.
 
 ## Prerequisites
 
-- Python 3.8+ with `pip install lupa`
+- Java 17+ (`java -version` — Java 25 recommended to match PZ B42)
 - Your PZ mod with Lua code in `media/lua/`
-- (Optional) Java 25 for the Kahlua runner
+- (Optional) Python 3 for the weapon script parser
 
 ## Step 1: Get the Kit
 
-Clone or download pz-test-kit alongside your mod:
+Clone pz-test-kit alongside your mod:
 
 ```
 your-mods/
-├── pz-test-kit/          ← this repo
+├── pz-test-kit/
 └── YourMod/
-    ├── media/
-    │   └── lua/
-    │       ├── shared/YourMod/Core.lua
-    │       ├── client/YourMod/...
-    │       └── server/YourMod/...
+    ├── media/lua/shared/YourMod/Core.lua
     ├── tests/
-    │   └── test_core.lua     ← you'll create this
-    └── run_tests.py          ← you'll create this
+    │   └── test_core.lua
+    └── weapon_scripts.lua
 ```
 
-## Step 2: Write Your First Test
+## Step 2: Add Weapon Data
+
+If your mod touches weapons, create `YourMod/weapon_scripts.lua` with the weapons your tests need:
+
+```lua
+_pz_weapon_scripts["Base.Axe"] = {
+    minDamage = 0.8, maxDamage = 2.0, criticalChance = 20.0,
+    critDmgMultiplier = 5.0, maxRange = 1.2, baseSpeed = 1.0,
+    conditionMax = 13, conditionLowerChance = 35,
+    pushBackMod = 0.3, maxHitCount = 2,
+    _isRanged = false, _name = "Axe", _displayName = "Axe",
+    _hasSharpness = true, _hasHeadCondition = true, _headConditionMax = 13,
+}
+```
+
+Or generate it from PZ's actual game files (real stats, not guesswork):
+
+```bash
+python pz-test-kit/tools/pz_script_parser.py --lua > weapon_scripts.lua
+
+# Only specific weapons:
+python pz-test-kit/tools/pz_script_parser.py --lua --filter "Base.Axe,Base.Pistol" > weapon_scripts.lua
+```
+
+If your mod doesn't touch weapons, skip this — the mock environment works without weapon data.
+
+## Step 3: Write a Test
 
 Create `YourMod/tests/test_core.lua`:
 
@@ -35,18 +57,18 @@ local Assert = PZTestKit.Assert
 
 local tests = {}
 
--- Test that your mod loaded
 tests["mod_loads"] = function()
     return Assert.notNil(YourMod, "YourMod namespace exists")
 end
 
--- Test a function
 tests["validates_weapon"] = function()
     local weapon = instanceItem("Base.Axe")
     if not Assert.notNil(weapon, "spawn Axe") then return false end
+    return Assert.isTrue(YourMod.isValidWeapon(weapon), "Axe is valid")
+end
 
-    local result = YourMod.isValidWeapon(weapon)
-    return Assert.isTrue(result, "Axe is valid weapon")
+tests["buff_calculation"] = function()
+    return Assert.equal(YourMod.getBuffAmount(100), 0.5, "100 kills = 0.5")
 end
 
 return tests
@@ -55,96 +77,91 @@ return tests
 **Key points:**
 - Each test is a function in a table
 - Return `true` for pass, `false` for fail
-- Use `Assert.*` methods — they auto-generate descriptive messages
-- `instanceItem("Base.Axe")` creates a mock weapon with real stats
+- Use `Assert.*` for auto-generated pass/fail messages
+- `return tests` at the end — the runner reads this table
 
-## Step 3: Write the Runner
-
-Create `YourMod/run_tests.py`:
-
-```python
-import sys
-from pathlib import Path
-
-# Point to wherever you cloned pz-test-kit
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pz-test-kit" / "lib"))
-from pz_test_runner import PZTestRunner
-
-# Weapon stats your tests need (see "Weapon Data" section below)
-WEAPONS = {
-    "Base.Axe": {
-        "minDamage": 0.8, "maxDamage": 2.0, "criticalChance": 20.0,
-        "critDmgMultiplier": 5.0, "maxRange": 1.2, "baseSpeed": 1.0,
-        "conditionMax": 13, "conditionLowerChance": 35,
-        "pushBackMod": 0.3, "maxHitCount": 2,
-        "_isRanged": False, "_name": "Axe",
-        "_hasSharpness": True, "_hasHeadCondition": True,
-        "_headConditionMax": 13,
-    },
-}
-
-runner = PZTestRunner(mod_root=Path(__file__).parent)
-runner.add_weapon_scripts(WEAPONS)
-
-# Load your mod's Lua files in dependency order
-runner.load_module("media/lua/shared/YourMod/Core.lua")
-
-# Run all test files in tests/
-sys.exit(runner.run())
-```
-
-## Step 4: Run It
+## Step 4: Compile and Run
 
 ```bash
-cd YourMod
-python run_tests.py
+cd pz-test-kit/kahlua
+
+# Compile (one time)
+javac -cp kahlua-runtime.jar TestPlatform.java KahluaTestRunner.java
+
+# Run your tests
+java -cp kahlua-runtime.jar:. KahluaTestRunner /path/to/YourMod \
+    media/lua/shared/YourMod/Core.lua
 ```
 
-```
-[PZTestKit] Mock environment loaded
-[YourMod] Core loaded
-
---- test_core.lua (2 tests) ---
-  [PASS] mod_loads
-  [PASS] validates_weapon
-
-TOTAL: 2 tests, 2 passed, 0 failed, 0 errors
+On Windows use `;` instead of `:`:
+```cmd
+java -cp kahlua-runtime.jar;. KahluaTestRunner C:\path\to\YourMod ^
+    media/lua/shared/YourMod/Core.lua
 ```
 
-That's it. Under 1 second, no game launch.
+Output:
+```
+====================================================
+PZ Test Kit — Kahlua Runner (PZ's actual Lua VM)
+====================================================
+Mod root:  C:\path\to\YourMod
+Modules:   1
+Tests:     1
+
+--- test_core.lua (3 tests) ---
+
+====================================================
+KAHLUA TOTAL: 3 tests, 3 passed, 0 failed, 0 errors
+====================================================
+```
+
+Under a second. No game launch.
 
 ---
 
-## Understanding the Mock Environment
+## How the Runner Works
 
-When your test runs, the mock environment provides everything PZ's Lua layer normally provides. Here's what's available and how it works:
+The runner has four parts, each a separate file you can read and modify:
+
+| File | What it does |
+|------|-------------|
+| `KahluaTestRunner.java` | CLI, creates a fresh Kahlua runtime per test file, loads mocks → modules → tests, collects results |
+| `TestPlatform.java` | Minimal Kahlua Platform implementation — no PZ game dependencies |
+| `mock_environment.lua` | All the PZ API mocks — player, weapons, inventory, events, time, globals |
+| `test_executor.lua` | Runs each test function with state reset between tests, collects pass/fail/error |
+| `Assert.lua` | Assertion library with auto-generated messages |
+
+**Per-file isolation:** Each test file gets its own fresh Kahlua runtime. Test file A can't leak state into test file B. Within a file, `test_executor.lua` resets the player (hands, inventory, ModData, traits) between each test.
+
+**Module loading:** The runner strips `require()` calls and context guards (`if isServer() then return end`) automatically. Load your files in dependency order — just like PZ does.
+
+---
+
+## The Mock Environment
+
+When your test runs, `mock_environment.lua` provides everything PZ's Lua layer normally provides.
 
 ### Weapons and Items
 
 ```lua
--- Spawn a weapon (uses the stats you provided in WEAPONS dict)
+-- Spawn a weapon (stats from weapon_scripts.lua)
 local weapon = instanceItem("Base.Axe")
-
--- All the getters/setters work like in-game
-weapon:getMaxDamage()        -- returns 2.0
-weapon:setMaxDamage(3.0)     -- stores the value
-weapon:getMaxDamage()        -- returns 3.0
-
--- ModData works too
-local md = weapon:getModData()
-md.myField = "hello"
-print(md.myField)            -- "hello"
-
--- Type checking works
+weapon:getMaxDamage()          -- 2.0 (from script data)
+weapon:setMaxDamage(3.0)
+weapon:getMaxDamage()          -- 3.0
+weapon:getModData().myField = "hello"
 instanceof(weapon, "HandWeapon")  -- true
-weapon:isRanged()                 -- false (it's an Axe)
+weapon:isRanged()                 -- false
 ```
 
-The mock faithfully reproduces PZ's sharpness behavior (verified from decompiled Java source):
-- `getMinDamage()` returns raw value — no sharpness
-- `getMaxDamage()` applies sharpness only to the delta above min
-- `getCriticalChance()` multiplied by sharpness
-- `getCriticalDamageMultiplier()` multiplied by sharpness multiplier
+The weapon mock faithfully reproduces PZ's sharpness behavior (verified from decompiled `HandWeapon.java`):
+
+```lua
+weapon:setSharpness(0.5)
+-- getMinDamage()  → raw value (no sharpness adjustment)
+-- getMaxDamage()  → minDmg + (maxDmg - minDmg) * sharpnessMult
+-- getCriticalChance() → raw * sharpness
+```
 
 ### Player
 
@@ -154,110 +171,242 @@ local player = getSpecificPlayer(0)
 -- Inventory
 player:getInventory():AddItem(weapon)
 player:setPrimaryHandItem(weapon)
-player:getPrimaryHandItem()  -- returns the weapon
+player:getPrimaryHandItem()     -- the weapon
 
--- ModData (persists within a test)
+-- ModData
 player:getModData().myKey = "value"
 
--- Player info
-player:getPlayerNum()    -- 0
-player:getUsername()     -- "TestPlayer"
-player:hasTrait("Lucky") -- false (override in your test if needed)
+-- Info
+player:getUsername()             -- "TestPlayer"
+player:getPlayerNum()           -- 0
+instanceof(player, "IsoPlayer") -- true
+
+-- Traits (configurable per test)
+player._traits["Lucky"] = true
+player:hasTrait("Lucky")        -- true
+player._traits = {}             -- reset
+
+-- Stats (matches real PZ API: get/set with CharacterStat enum)
+local stats = player:getStats()
+stats:get(CharacterStat.ENDURANCE)              -- 1.0
+stats:set(CharacterStat.ENDURANCE, 0.5)
+stats:remove(CharacterStat.ENDURANCE, 0.1)      -- subtract
+
+-- Skills
+local xp = player:getXp()
+xp:setLevel("Aiming", 5)
+xp:getLevel("Aiming")          -- 5
+xp:getLevel("Carpentry")       -- 0 (default)
+
+-- Position / indoors
+player._isOutside = true
+player:getCurrentSquare():isOutside()  -- true
+player._isOutside = false              -- reset
 ```
 
-### Globals
+### Zombies
 
 ```lua
--- All of these work as expected:
-instanceof(obj, "HandWeapon")     -- checks obj._type field
-ZombRand(1, 10)                   -- returns 5 (deterministic midpoint)
-getText("UI_MyKey")               -- returns "UI_MyKey" (identity function)
-isServer()                        -- false
-isClient()                        -- true
-sendServerCommand(...)            -- no-op
-syncItemModData(...)              -- no-op
+local zombie = _pz_create_mock_zombie({ health = 2.5 })
+zombie:getHealth()               -- 2.5
+zombie:setStaggerBack(true)
+zombie:isStaggerBack()           -- true
+zombie:SetOnFire()
+zombie:isOnFire()                -- true
+instanceof(zombie, "IsoZombie")  -- true
 ```
 
-### Events
+### World / Weather
 
 ```lua
--- Events auto-create and support Add/Remove
-Events.OnWeaponSwing.Add(function(player, weapon)
-    -- your handler
-end)
-Events.OnWeaponSwing.Remove(myHandler)
+local world = getWorld()
+local cm = world:getClimateManager()
+cm:getRainIntensity()           -- 0.0 (default)
+cm:getTemperature()             -- 20.0 (default)
+
+-- Control in tests:
+_pz_rain_intensity = 0.8
+cm:getRainIntensity()           -- 0.8
+_pz_rain_intensity = 0.0       -- reset
+```
+
+### Grid Squares
+
+```lua
+local sq = _pz_create_mock_square({ isOutside = true, x = 100, y = 200 })
+sq:isOutside()    -- true
+sq:getRoom()      -- nil (outside)
+sq:getX()         -- 100
+
+local indoor = _pz_create_mock_square({ isOutside = false, room = "bedroom" })
+indoor:getRoom():getName()  -- "bedroom"
 ```
 
 ### Game Time
 
 ```lua
--- Controllable via globals:
-_pz_world_hours = 500.0   -- world age in hours
-_pz_hour_of_day = 22      -- current hour (0-23)
+-- Controllable globals:
+_pz_world_hours = 500.0
+_pz_hour_of_day = 3             -- 3am
 
-GameTime.getInstance():getWorldAgeHours()  -- returns 500.0
-GameTime.getInstance():getHour()           -- returns 22
+GameTime.getInstance():getWorldAgeHours()  -- 500.0
+GameTime.getInstance():getHour()           -- 3
+
+-- Reset after test:
+_pz_world_hours = 100.0
+_pz_hour_of_day = 14
+```
+
+### Events
+
+```lua
+Events.OnWeaponSwing.Add(function(player, weapon)
+    -- your handler gets registered
+end)
+Events.OnWeaponSwing.Remove(handler)
+-- Auto-creates any event name on first access
 ```
 
 ### Sandbox Variables
 
-```python
-# In your runner:
-runner.set_sandbox_vars("YourMod", {
-    "EnableFeature": True,
-    "DamageMultiplier": 1.5,
-    "KillThreshold": 50,
-})
+```lua
+SandboxVars.YourMod = {
+    EnableFeature = true,
+    DamageMultiplier = 1.5,
+    KillThreshold = 50,
+}
+SandboxVars.YourMod.EnableFeature  -- true
 ```
 
+### Globals
+
 ```lua
--- In your Lua code:
-SandboxVars.YourMod.EnableFeature     -- true
-SandboxVars.YourMod.DamageMultiplier  -- 1.5
+instanceof(obj, "HandWeapon")         -- checks obj._type
+ZombRand(0, 10)                       -- 5 (deterministic midpoint)
+getText("UI_MyKey")                   -- "UI_MyKey" (identity)
+isServer()                            -- false
+isClient()                            -- true
+sendServerCommand(...)                -- no-op (safe)
+syncItemModData(...)                  -- no-op
 ```
 
 ---
 
-## Weapon Data
+## Building Your Own Mocks
 
-### Option A: Hardcode what you need
+Every PZ Java class is just a Lua table with methods. Mock what your code calls:
 
-If your mod only touches a few weapons, just define them in Python:
-
-```python
-WEAPONS = {
-    "Base.Axe": {"minDamage": 0.8, "maxDamage": 2.0, ...},
-    "Base.Pistol": {"minDamage": 0.6, "maxDamage": 1.0, "_isRanged": True, ...},
-}
-runner.add_weapon_scripts(WEAPONS)
+```lua
+-- IsoZombie: your mod calls getHealth() and setStaggerBack()
+function _pz_create_mock_zombie(opts)
+    opts = opts or {}
+    local z = { _type = "IsoZombie", _health = opts.health or 1.8 }
+    z.getHealth = function(self) return self._health end
+    z.setStaggerBack = function(self, v) self._staggerBack = v end
+    return z
+end
 ```
 
-### Option B: Parse from PZ scripts
+When a test fails with `attempt to call nil`, that tells you which method to add — one line.
 
-Use the included script parser to read actual game data:
+See the README for examples of mocking `IsoGridSquare`, `IsoWorld`, weather, and vehicles.
 
-```python
-sys.path.insert(0, str(Path("path/to/pz-test-kit/lib")))
-from pz_script_parser import parse_weapon_scripts
+---
 
-weapons = parse_weapon_scripts([
-    Path("C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid/media/scripts/generated/items/weapon.txt")
-])
-runner.add_weapon_scripts(weapons)
+## Assert Library
+
+```lua
+local Assert = PZTestKit.Assert
+
+-- Equality
+Assert.equal(actual, expected, "label")
+Assert.notEqual(actual, unexpected, "label")
+Assert.nearEqual(actual, expected, 0.01, "label")
+
+-- Comparison
+Assert.greater(actual, threshold, "label")
+Assert.greaterEq(actual, threshold, "label")
+Assert.less(actual, threshold, "label")
+Assert.lessEq(actual, threshold, "label")
+
+-- Nil / Boolean
+Assert.notNil(value, "label")
+Assert.isNil(value, "label")
+Assert.isTrue(value, "label")
+Assert.isFalse(value, "label")
+
+-- Tables
+Assert.tableHas(tbl, key, "label")
+Assert.tableNotHas(tbl, key, "label")
 ```
 
-This gives you all 409 vanilla weapons with correct stats. For CI (no PZ install), save the output as JSON:
+**Pattern: early-return on failure**
 
-```python
-import json
-with open("weapon_fixtures.json", "w") as f:
-    json.dump(weapons, f, indent=2)
+```lua
+tests["multi_step"] = function()
+    local weapon = instanceItem("Base.Axe")
+    if not Assert.notNil(weapon, "spawn") then return false end
+    if not Assert.equal(weapon:getConditionMax(), 13, "condMax") then return false end
+    return Assert.isTrue(weapon:hasSharpness(), "sharpenable")
+end
 ```
 
-### Stat field reference
+---
 
-| Python Key | Lua Getter | Type | Notes |
-|-----------|-----------|------|-------|
+## Loading Your Mod's Files
+
+Pass module paths as arguments before `--`:
+
+```bash
+java -cp kahlua-runtime.jar:. KahluaTestRunner /path/to/YourMod \
+    media/lua/shared/YourMod/Core.lua \
+    media/lua/shared/YourMod/Combat.lua \
+    media/lua/shared/YourMod/Buffs.lua \
+    -- tests/test_core.lua tests/test_combat.lua
+```
+
+**Load order matters** — list dependencies before the files that use them.
+
+The runner strips `require()` and context guards automatically. If your code uses `local X = require "Mod/Module"`, that becomes `local X = nil`. Your module should already be loaded as a global by the time it's referenced.
+
+If you omit test files after `--`, the runner auto-discovers all `tests/test_*.lua` files.
+
+---
+
+## CI Integration (GitHub Actions)
+
+```yaml
+name: Tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true  # if pz-test-kit is a submodule
+
+      - uses: actions/setup-java@v4
+        with: { distribution: 'temurin', java-version: '25' }
+
+      - name: Compile
+        working-directory: pz-test-kit/kahlua
+        run: javac -cp kahlua-runtime.jar TestPlatform.java KahluaTestRunner.java
+
+      - name: Run tests on PZ's Kahlua VM
+        working-directory: pz-test-kit/kahlua
+        run: java -cp kahlua-runtime.jar:. KahluaTestRunner ../../ media/lua/shared/YourMod/Core.lua
+```
+
+No PZ install. No Steam auth. Just Java + the 613KB jar.
+
+---
+
+## Weapon Data Reference
+
+| Lua Key | Getter | Type | Notes |
+|---------|--------|------|-------|
 | `minDamage` | `getMinDamage()` | float | No sharpness adjustment |
 | `maxDamage` | `getMaxDamage()` | float | Sharpness affects delta only |
 | `criticalChance` | `getCriticalChance()` | float | × sharpness |
@@ -281,137 +430,24 @@ with open("weapon_fixtures.json", "w") as f:
 
 ---
 
-## Assert Library Reference
-
-All methods return `true` on pass, `false` on fail, and print a descriptive message.
-
-```lua
-local Assert = PZTestKit.Assert
-
--- Equality
-Assert.equal(actual, expected, "label")        -- exact ==
-Assert.notEqual(actual, unexpected, "label")   -- exact ~=
-Assert.nearEqual(actual, expected, 0.01, "label") -- |a-e| <= tolerance
-
--- Comparison
-Assert.greater(actual, threshold, "label")     -- >
-Assert.greaterEq(actual, threshold, "label")   -- >=
-Assert.less(actual, threshold, "label")        -- <
-Assert.lessEq(actual, threshold, "label")      -- <=
-
--- Nil / Boolean
-Assert.notNil(value, "label")
-Assert.isNil(value, "label")
-Assert.isTrue(value, "label")     -- strict: must be boolean true
-Assert.isFalse(value, "label")    -- strict: must be boolean false
-
--- Tables
-Assert.tableHas(tbl, key, "label")
-Assert.tableNotHas(tbl, key, "label")
-```
-
-**Pattern: early-return on failure**
-
-```lua
-tests["multi_step_test"] = function()
-    local weapon = instanceItem("Base.Axe")
-    if not Assert.notNil(weapon, "spawn") then return false end
-
-    local data = getModData(weapon)
-    if not Assert.notNil(data, "moddata") then return false end
-
-    return Assert.equal(data.kills, 0, "fresh weapon has 0 kills")
-end
-```
-
----
-
-## Loading Your Mod's Files
-
-The runner strips `require()` calls and context guards automatically:
-
-```python
-# These are stripped:
-#   require "YourMod/Core"           → commented out
-#   if isServer() then return end    → commented out
-
-runner.load_module("media/lua/shared/YourMod/Core.lua")
-runner.load_module("media/lua/shared/YourMod/WeaponSystem.lua")
-runner.load_module("media/lua/shared/YourMod/BuffManager.lua")
-```
-
-**Load order matters** — load dependencies before the files that use them, just like PZ does.
-
-If your files use `require` with assignment (`local X = require "Mod/Module"`), you can set up a custom require map:
-
-```python
-# In the Lua environment after loading mocks:
-runner.lua.execute('''
-    -- Make require resolve to already-loaded globals
-    function require(path)
-        if path == "YourMod/Core" then return YourMod end
-        return nil
-    end
-''')
-```
-
----
-
-## CI Integration
-
-### GitHub Actions (Python/lupa)
-
-```yaml
-name: Tests
-on: [push]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install lupa
-      - run: python run_tests.py
-```
-
-### GitHub Actions (Kahlua — PZ's actual VM)
-
-```yaml
-  test-kahlua:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { distribution: 'temurin', java-version: '25' }
-      - working-directory: path/to/kahlua
-        run: |
-          javac -cp kahlua-runtime.jar TestPlatform.java YourKahluaRunner.java
-          java -cp kahlua-runtime.jar:. YourKahluaRunner /path/to/mod
-```
-
----
-
 ## Tips
 
-**Start small.** Add tests for the functions that have burned you before. The mod function that calculates damage wrong every other release? Test that first.
+**Start small.** Test the function that keeps breaking first.
 
-**Test the logic, not the plumbing.** You don't need to test that `sendServerCommand` fires — that's PZ's job. Test that your code *calls* it with the right arguments, or test the logic that runs before/after.
+**Test logic, not plumbing.** Don't test that `sendServerCommand` fires — test the logic before and after it.
 
-**Use `_pz_world_hours` and `_pz_hour_of_day`** to control time in tests. But remember: these only work in the offline mock. In-game, `GameTime` is the real Java object. If your test depends on specific time values, guard it:
+**When a test passes offline but fails in-game**, the mock is wrong about something. That's valuable — fix the mock and you've prevented a whole class of bugs.
+
+**When a test fails with `attempt to call nil`**, you're calling a PZ method that isn't mocked yet. Add it to `mock_environment.lua` — it's one line.
+
+**Reset state in tests that modify globals.** The runner resets the player between tests, but if your mod uses custom globals, reset them yourself:
 
 ```lua
-local function isOffline()
-    return _pz_world_hours ~= nil
-end
-
-tests["night_detection"] = function()
-    if not isOffline() then return true end  -- skip in-game
-    _pz_hour_of_day = 2
-    return Assert.isTrue(MyMod.isNight(), "2am is night")
+tests["my_test"] = function()
+    local saved = SandboxVars.MyMod.Setting
+    SandboxVars.MyMod.Setting = 999
+    -- ... test ...
+    SandboxVars.MyMod.Setting = saved
+    return Assert.isTrue(result, "worked")
 end
 ```
-
-**Fresh state per test.** The runner resets the mock player (hands, inventory, ModData) between tests. If your mod stores state on custom globals, reset them yourself at the start of each test.
-
-**When a test fails in-game but passes offline**, the mock is wrong about something. That's valuable — it means you found a behavioral difference between your mock and the real game. Fix the mock, fix the test, and you've prevented a whole class of bugs.

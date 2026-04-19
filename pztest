@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# PZ Test Kit — run tests for a PZ Build 42 mod on PZ's actual Kahlua VM.
+#
+# Usage (from mod root):
+#     pztest                        # run all auto-discovered tests
+#     pztest --filter validation    # run only matching tests (TODO)
+#     pztest some/Tests/foo.lua     # run a specific test file
+#
+# Usage (from elsewhere):
+#     pztest /path/to/MyMod         # explicit mod root
+#     pztest /path/to/MyMod some/Tests/foo.lua
+#
+# The script auto-compiles Java sources on first run or when they change.
+# On subsequent runs it just invokes the JVM.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KAHLUA_DIR="$SCRIPT_DIR/kahlua"
+JAR="$KAHLUA_DIR/kahlua-runtime.jar"
+STUBS="$KAHLUA_DIR/stubs"
+
+if [ ! -f "$JAR" ]; then
+    echo "pz-test-kit: cannot find $JAR" >&2
+    echo "pz-test-kit: did you clone the repo with LFS or extract the release zip?" >&2
+    exit 1
+fi
+
+# Classpath separator: ; on Windows (cygwin/msys/gitbash), : elsewhere.
+# Also convert POSIX paths to Windows paths when invoking native Java, since
+# msys won't auto-translate components of a composite -cp argument.
+case "${OSTYPE:-}" in
+    msys*|cygwin*|win32)
+        CPSEP=';'
+        winpath() { cygpath -w "$1"; }
+        ;;
+    *)
+        CPSEP=':'
+        winpath() { echo "$1"; }
+        ;;
+esac
+
+SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher)
+
+# Recompile when any .java is newer than its .class.
+need_compile=0
+for src in "${SOURCES[@]}"; do
+    src_file="$KAHLUA_DIR/$src.java"
+    class_file="$KAHLUA_DIR/$src.class"
+    if [ -f "$src_file" ] && { [ ! -f "$class_file" ] || [ "$src_file" -nt "$class_file" ]; }; then
+        need_compile=1
+        break
+    fi
+done
+
+if [ "$need_compile" = "1" ]; then
+    echo "[pztest] compiling Java sources..." >&2
+    (cd "$KAHLUA_DIR" && javac -cp "$JAR" "${SOURCES[@]/%/.java}")
+fi
+
+# Init subcommand — scaffolds pz-test.lua + a starter test in the current mod.
+if [ "${1:-}" = "init" ]; then
+    shift
+    target="$(pwd)"
+    if [ -f "$target/pz-test.lua" ]; then
+        echo "[pztest] $target/pz-test.lua already exists; refusing to overwrite." >&2
+        exit 1
+    fi
+    modname="$(basename "$target")"
+    mkdir -p "$target/tests"
+    cat > "$target/pz-test.lua" <<EOF
+-- pz-test-kit configuration for $modname
+-- See https://github.com/4hp-4int/pz-test-kit for the full schema.
+return {
+    preload = {
+        -- "$modname/Core",
+    },
+    sandbox = {
+        -- $modname = { EnableMod = true },
+    },
+    -- extra_scripts    = { "weapon_scripts.lua" },
+    -- test_file_excludes = { "LegacyHub.lua" },
+    -- strict_mocks     = true,
+}
+EOF
+    cat > "$target/tests/test_example.lua" <<'EOF'
+-- Starter test — delete or replace with your own.
+-- `pztest` auto-discovers tests/test_*.lua and media/lua/client/<Mod>/Tests/*.lua.
+local Assert = PZTestKit.Assert
+local tests = {}
+
+tests["example_truthy"] = function()
+    return Assert.isTrue(1 + 1 == 2, "math still works")
+end
+
+return tests
+EOF
+    echo "[pztest] scaffolded $target/pz-test.lua + tests/test_example.lua"
+    echo "[pztest] run 'pztest' from this directory to try it."
+    exit 0
+fi
+
+CP="$(winpath "$JAR")$CPSEP$(winpath "$STUBS")$CPSEP$(winpath "$KAHLUA_DIR")"
+CWD_ABS="$(winpath "$(pwd)")"
+
+# KahluaTestRunner's resolveKahluaDir() checks cwd for mock_environment.lua.
+# We cd into the kit's kahlua/ directory before invoking java. The mod root
+# is passed as an absolute path, so the relative cd doesn't hurt discovery.
+cd "$KAHLUA_DIR"
+
+# Dispatch: if no args or first arg is a flag, use original cwd as mod root.
+if [ $# -eq 0 ] || [[ "$1" == -* ]]; then
+    exec java -cp "$CP" PZTestKitLauncher "$CWD_ABS" "$@"
+fi
+
+# If first arg looks like a path (directory exists), use as-is. Otherwise
+# treat it as a test-file path relative to cwd and insert cwd as mod root.
+if [ -d "$(echo "$1" | sed 's/\\/\//g')" ] || [ -d "$1" ]; then
+    root="$(winpath "$1")"; shift
+    exec java -cp "$CP" PZTestKitLauncher "$root" "$@"
+else
+    exec java -cp "$CP" PZTestKitLauncher "$CWD_ABS" "$@"
+fi

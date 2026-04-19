@@ -1,0 +1,4 @@
+name=MyMod Example
+id=MyModExample
+description=PZ Test Kit example mod — demonstrates offline + in-game testing
+pzversion=42.15.0

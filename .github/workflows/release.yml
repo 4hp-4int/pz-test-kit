@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to build (e.g. v1.0.0)'
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Compile Java sources
+        working-directory: kahlua
+        run: |
+          javac -cp kahlua-runtime.jar \
+            TestPlatform.java \
+            KahluaTestRunner.java \
+            DualVMSim.java \
+            StubbingClassLoader.java \
+            PZTestKitLauncher.java
+
+      - name: Run example tests (sanity check)
+        working-directory: examples/MyMod
+        run: ../../pztest
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package release
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          stage="pz-test-kit-${tag}"
+          mkdir -p "$stage"
+          cp -r pztest pztest.ps1 pztest.bat README.md LICENSE* \
+                kahlua docs examples tools \
+                "$stage/" 2>/dev/null || true
+          # Drop any local Python venv that shouldn't ship
+          rm -rf "$stage/tools/.venv"
+          zip -r "pz-test-kit-${tag}.zip" "$stage"
+          tar -czf "pz-test-kit-${tag}.tar.gz" "$stage"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: 'PZ Test Kit ${{ steps.version.outputs.tag }}'
+          generate_release_notes: true
+          files: |
+            pz-test-kit-${{ steps.version.outputs.tag }}.zip
+            pz-test-kit-${{ steps.version.outputs.tag }}.tar.gz

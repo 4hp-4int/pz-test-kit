@@ -13,7 +13,21 @@
 ]]
 
 PZTestKit = PZTestKit or {}
+PZTestKit._testFiles = PZTestKit._testFiles or {}
 PZTestKit.Assert = {}
+
+-- No-op registerTests for offline — Kahlua runner uses _pz_last_return instead
+if not PZTestKit.registerTests then
+    function PZTestKit.registerTests() end
+end
+
+--- Let a mod hand the kit a function that returns the test table on demand.
+--- Use for TestRunner.registerSync-style mods that don't `return tests`.
+--- Call ONCE from your mod's TestRunner bridge.
+---@param fn function Returns the test-name → test-fn table
+function PZTestKit.adoptRegistry(fn)
+    PZTestKit._adoptedRegistry = fn
+end
 
 local Assert = PZTestKit.Assert
 

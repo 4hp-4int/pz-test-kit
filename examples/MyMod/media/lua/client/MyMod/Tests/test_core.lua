@@ -1,11 +1,18 @@
--- Example test file for MyMod using PZ Test Kit
+--[[
+    MyMod Core Tests — runs offline (Kahlua) and in-game (real PZ)
+]]
+
+if isServer() and not isClient() then return end
+
+require "MyMod/Core"
+
 local Assert = PZTestKit.Assert
+
+local tests = {}
 
 -- ============================================================================
 -- VALIDATION TESTS
 -- ============================================================================
-
-local tests = {}
 
 tests["mymod_validates_melee_weapon"] = function()
     local weapon = instanceItem("Base.Axe")
@@ -68,5 +75,9 @@ tests["mymod_apply_buff_rejects_ranged"] = function()
     if not Assert.notNil(weapon, "spawn Pistol") then return false end
     return Assert.isFalse(MyMod.applyDamageBuff(weapon, 0.5), "ranged weapon rejected")
 end
+
+-- Self-register
+PZTestKit.registerTests("test_core", tests)
+print("[MyMod] test_core registered (" .. #tests .. " tests)")
 
 return tests

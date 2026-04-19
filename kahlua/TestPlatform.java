@@ -40,6 +40,9 @@ public class TestPlatform implements Platform {
 
         MathLib.register(this, env);
         BaseLib.register(env);
+        // Wire Lua's print() to stdout so test diagnostics show. Without this,
+        // Kahlua's print callback is null and all prints are silently dropped.
+        BaseLib.setPrintCallback(System.out::println);
         StringLib.register(this, env);
         CoroutineLib.register(this, env);
         OsLib.register(this, env);
