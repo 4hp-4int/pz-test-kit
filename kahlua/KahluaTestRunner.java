@@ -463,6 +463,14 @@ public class KahluaTestRunner {
             loadFile(thread, env, kahluaDir.resolve("context/sandbox_auto.lua"));
         }
 
+        // 3c. Vanilla requires — for mods that want to exercise real vanilla
+        //     PZ Lua (ISTransferAction, ISBaseTimedAction, etc.) instead of
+        //     hand-written mocks. Reads `vanilla_requires` list from pz-test.lua
+        //     and loads each file from $PZ_INSTALL/media/lua/<path>.lua. On
+        //     load failure, logs a warning and continues — the hand-written
+        //     mock from mock_environment.lua remains as fallback.
+        loadVanillaRequires(thread, env);
+
         // 4. Scripts
         List<String> scriptPaths = new ArrayList<>();
         scriptPaths.add("weapon_scripts.lua");
@@ -735,6 +743,105 @@ public class KahluaTestRunner {
             System.out.println("  WARNING: failed to read pz-test.lua: " + e.getMessage());
             return null;
         }
+    }
+
+    /** Read the `vanilla_requires` list from the env's loaded config and
+     *  execute each referenced file from the PZ install's media/lua tree.
+     *  On any failure (PZ install not found, file missing, load exception)
+     *  a warning is logged and the entry is skipped — the hand-written
+     *  mock in mock_environment.lua stays as the fallback. */
+    private static void loadVanillaRequires(KahluaThread thread, KahluaTable env) {
+        Object cfgRaw = env.rawget("_pz_config");
+        if (!(cfgRaw instanceof KahluaTable)) return;
+        Object list = ((KahluaTable) cfgRaw).rawget("vanilla_requires");
+        if (!(list instanceof KahluaTable)) return;
+
+        List<String> entries = new ArrayList<>();
+        KahluaTable t = (KahluaTable) list;
+        int i = 1;
+        while (true) {
+            Object v = t.rawget(i);
+            if (v == null) break;
+            if (v instanceof String) entries.add((String) v);
+            i++;
+        }
+        if (entries.isEmpty()) return;
+
+        Path pzInstall = resolvePZInstall();
+        if (pzInstall == null) {
+            System.out.println("[PZTestKit] vanilla_requires: PZ install not found — set PZ_INSTALL_DIR env var or add to common Steam paths. Falling back to mocks for "
+                + entries.size() + " entries.");
+            return;
+        }
+        Path luaRoot = pzInstall.resolve("media/lua");
+        System.out.println("[PZTestKit] vanilla_requires: loading " + entries.size()
+            + " file(s) from " + luaRoot);
+
+        // Make the install location visible to Lua so tests or mocks can
+        // reason about it if needed.
+        env.rawset("_pz_install_dir", pzInstall.toString());
+
+        for (String entry : entries) {
+            // Entry is a path relative to media/lua/, without the .lua
+            // extension: e.g. "shared/TimedActions/ISTransferAction"
+            Path file = luaRoot.resolve(entry + ".lua");
+            if (!Files.exists(file)) {
+                System.out.println("  [vanilla_requires] MISS (" + entry + "): file not found at " + file);
+                continue;
+            }
+            try {
+                String src = Files.readString(file);
+                LuaClosure c = LuaCompiler.loadstring(src, "vanilla:" + entry, env);
+                Object[] res = thread.pcall(c, new Object[0]);
+                if (res != null && res.length >= 1 && Boolean.FALSE.equals(res[0])) {
+                    String err = res.length >= 2 ? String.valueOf(res[1]) : "unknown";
+                    System.out.println("  [vanilla_requires] FAIL (" + entry + "): " + err + " — falling back to mock");
+                } else {
+                    System.out.println("  [vanilla_requires] OK   (" + entry + ")");
+                }
+            } catch (Exception e) {
+                System.out.println("  [vanilla_requires] EXC  (" + entry + "): " + e.getMessage() + " — falling back to mock");
+            }
+        }
+    }
+
+    /** Locate the PZ install directory. Checks, in order:
+     *  1. $PZ_INSTALL_DIR environment variable.
+     *  2. Common Steam-library paths for Windows, Linux, macOS.
+     *  Returns null if none contain media/lua/shared. */
+    private static Path resolvePZInstall() {
+        String env = System.getenv("PZ_INSTALL_DIR");
+        if (env != null && !env.isEmpty()) {
+            Path p = Paths.get(env);
+            if (Files.isDirectory(p.resolve("media/lua/shared"))) return p.normalize();
+            System.out.println("[PZTestKit] PZ_INSTALL_DIR=" + env + " does not contain media/lua/shared");
+        }
+
+        String[] candidates;
+        String userHome = System.getProperty("user.home", "");
+        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            candidates = new String[] {
+                "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid",
+                "C:/Program Files/Steam/steamapps/common/ProjectZomboid",
+                "D:/SteamLibrary/steamapps/common/ProjectZomboid",
+                "E:/SteamLibrary/steamapps/common/ProjectZomboid",
+            };
+        } else if (System.getProperty("os.name", "").toLowerCase().contains("mac")) {
+            candidates = new String[] {
+                userHome + "/Library/Application Support/Steam/steamapps/common/Project Zomboid",
+            };
+        } else {
+            candidates = new String[] {
+                userHome + "/.steam/steam/steamapps/common/ProjectZomboid",
+                userHome + "/.local/share/Steam/steamapps/common/ProjectZomboid",
+            };
+        }
+
+        for (String c : candidates) {
+            Path p = Paths.get(c);
+            if (Files.isDirectory(p.resolve("media/lua/shared"))) return p.normalize();
+        }
+        return null;
     }
 
     /** Find the kahlua/ directory (where mocks and executor live). */

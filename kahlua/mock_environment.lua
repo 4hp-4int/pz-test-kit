@@ -140,7 +140,7 @@ ISTimedActionQueue = { getTimedActionQueue = function(player) return nil end }
 -- ISBASETIMEDACTION (stub for mods that define timed actions)
 -- ============================================================================
 ISBaseTimedAction = ISBaseTimedAction or {}
-ISBaseTimedAction.Type = ISBaseTimedAction
+ISBaseTimedAction.Type = "ISBaseTimedAction"
 function ISBaseTimedAction:new() return setmetatable({}, { __index = self }) end
 function ISBaseTimedAction:isValid() return true end
 function ISBaseTimedAction:start() end
@@ -148,6 +148,76 @@ function ISBaseTimedAction:update() end
 function ISBaseTimedAction:stop() end
 function ISBaseTimedAction:perform() end
 function ISBaseTimedAction:getDuration() return 100 end
+function ISBaseTimedAction:setActionAnim() end
+function ISBaseTimedAction:setAnimVariable() end
+function ISBaseTimedAction:getJobDelta() return 0 end
+-- Standard PZ pattern: ISBaseTimedAction:derive("ChildName") creates a
+-- subclass with the given Type. Mods define timed actions with
+-- `MyAction = ISBaseTimedAction:derive("MyAction")`.
+function ISBaseTimedAction:derive(name)
+    local child = setmetatable({}, { __index = self })
+    child.Type = name
+    return child
+end
+
+-- ============================================================================
+-- ISTRANSFERACTION (mock for mods that delegate to vanilla transferItem)
+-- ============================================================================
+-- Real PZ provides ISTransferAction at shared/TimedActions/ISTransferAction.lua.
+-- It's the canonical helper for moving an item between containers, handling
+-- unequip, worn-items removal, OnClothingUpdated dispatch, and the special
+-- item swaps (radio, lit candle/lantern). Mods that delegate to it for
+-- MP-safe moves need it present in the offline harness too.
+--
+-- This mock covers the observable surface: DoRemoveItem/Remove on source,
+-- AddItem on destination, removeItemOnCharacter if the dest isn't the
+-- character's own inventory. Full visual behaviour (animations, device
+-- data preservation) isn't simulated.
+
+ISTransferAction = ISTransferAction or {}
+
+--- Remove an item from a character: attached items, then hand/worn slots.
+--- Fires OnClothingUpdated via triggerEvent if equipped state changed,
+--- matching vanilla's observable contract.
+function ISTransferAction:removeItemOnCharacter(character, item)
+    if not character or not item then return true end
+    if character.removeAttachedItem then character:removeAttachedItem(item) end
+    if character.isEquipped and character:isEquipped(item) then
+        if character.removeFromHands then character:removeFromHands(item) end
+        if character.removeWornItem then character:removeWornItem(item, false) end
+        if triggerEvent then triggerEvent("OnClothingUpdated", character) end
+    end
+    return true
+end
+
+--- Move an item between containers. dropSquare is the floor square when
+--- destContainer is the floor; nil otherwise. The mock doesn't implement
+--- the radio / CandleLit / Lantern_HurricaneLit item-type swaps —
+--- tests that need those should use real PZ.
+function ISTransferAction:transferItem(character, item, srcContainer, destContainer, dropSquare)
+    if srcContainer then
+        if srcContainer.DoRemoveItem then
+            srcContainer:DoRemoveItem(item)
+        elseif srcContainer.Remove then
+            srcContainer:Remove(item)
+        end
+        if sendRemoveItemFromContainer then
+            sendRemoveItemFromContainer(srcContainer, item)
+        end
+    end
+
+    if destContainer and destContainer.AddItem then
+        destContainer:AddItem(item)
+    end
+
+    if character and destContainer and character.getInventory
+        and character:getInventory() ~= destContainer
+    then
+        self:removeItemOnCharacter(character, item)
+    end
+
+    return item
+end
 
 -- ============================================================================
 -- WORLD / CELL / GRIDSQUARE MOCKS
@@ -396,6 +466,13 @@ _pz_player = {
     isAsleep = function(self) return false end,
     IsRunning = function(self) return false end,  -- capital I matches PZ
     isSprinting = function(self) return false end,
+
+    -- MP ModData broadcast. Inherited from IsoObject in real PZ; in-game this
+    -- sends the ObjectModData packet and triggers a save flag. In tests we
+    -- just no-op — the mock env has no network, no save pipeline. Mods that
+    -- use transmitModData for client→server sync (vs sendClientCommand) need
+    -- this to exist as a callable method, or the test harness crashes.
+    transmitModData = function(self) end,
 }
 
 function getSpecificPlayer(index) return _pz_player end
