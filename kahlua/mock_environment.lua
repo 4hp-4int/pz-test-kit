@@ -141,7 +141,22 @@ ISTimedActionQueue = { getTimedActionQueue = function(player) return nil end }
 -- ============================================================================
 ISBaseTimedAction = ISBaseTimedAction or {}
 ISBaseTimedAction.Type = "ISBaseTimedAction"
-function ISBaseTimedAction:new() return setmetatable({}, { __index = self }) end
+-- Match vanilla ISBaseTimedAction.new(character) — sets o.character + the
+-- default stop/walk/run/aim flags subclass constructors rely on. Previously
+-- ignored args, which left o.character nil and broke any derived action's
+-- :isValid() that reads self.character.
+function ISBaseTimedAction:new(character)
+    local o = {}
+    setmetatable(o, self)
+    self.__index = self
+    o.character = character
+    o.stopOnWalk = true
+    o.stopOnRun = true
+    o.stopOnAim = true
+    o.caloriesModifier = 1
+    o.maxTime = -1
+    return o
+end
 function ISBaseTimedAction:isValid() return true end
 function ISBaseTimedAction:start() end
 function ISBaseTimedAction:update() end
