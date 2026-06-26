@@ -7,6 +7,7 @@
 ]]
 
 local Assert = PZTestKit.Assert
+local T = require "palette/pal_theme"
 -- load the family providers so their specs are registered
 local SP = require "palette/pal_families"
 require "palette/pal_loot"
@@ -48,6 +49,33 @@ tests["family_key_never_errors"] = function()
         local ok, k = pcall(s.key, {})
         if not Assert.isTrue(ok and (k == nil or type(k) == "string"),
             tostring(s.id) .. ": key() returns string|nil without error") then return false end
+    end
+    return true
+end
+
+-- ── VISUAL conformance (aesthetic parity) ───────────────────────────────────
+tests["declared_family_category_is_a_real_chip"] = function()
+    -- a family that declares a category must map to a registered theme chip, so its
+    -- rows render with a real colour + label, never the grey "action" fallback.
+    for _, s in ipairs(F.specs) do
+        if s.category then
+            if not Assert.notNil(T.color.category[s.category],
+                tostring(s.id) .. ": category '" .. tostring(s.category) .. "' is a registered theme chip") then return false end
+        end
+    end
+    return true
+end
+
+tests["declared_chips_are_visually_complete"] = function()
+    -- each declared chip must carry { LABEL, r, g, b } so the row renders a full
+    -- coloured chip with text (no half-defined chip).
+    for _, s in ipairs(F.specs) do
+        if s.category then
+            local chip = T.color.category[s.category]
+            local ok = chip ~= nil and type(chip[1]) == "string"
+                and type(chip[2]) == "number" and type(chip[3]) == "number" and type(chip[4]) == "number"
+            if not Assert.isTrue(ok, tostring(s.id) .. ": chip is { LABEL, r, g, b }") then return false end
+        end
     end
     return true
 end
