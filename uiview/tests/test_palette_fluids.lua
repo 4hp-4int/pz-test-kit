@@ -35,7 +35,8 @@ end
 
 -- run collect with a set of fluid items in the player inventory. `compat` = function
 -- (srcFc, tgtFc) -> bool for the global CanTransfer stub (default: always true).
-local function collect(items, compat)
+-- `waterSq` (optional) = a grid square the player stands on, for world-source tests.
+local function collect(items, compat, waterSq)
     _G.ISFluidContainer = _G.ISFluidContainer or { new = function() return {} end }
     _G.ISFluidTransferAction = _G.ISFluidTransferAction or {}
     _G.ISFluidEmptyAction = _G.ISFluidEmptyAction or {}
@@ -43,9 +44,26 @@ local function collect(items, compat)
     _G.FluidContainer = { CanTransfer = compat or function() return true end,
                           GetTransferReason = function() return "incompatible" end }
     local inv = { getItems = function() return list(items) end }
-    local p = { _type = "IsoPlayer", getInventory = function() return inv end }
+    local p = { _type = "IsoPlayer", getInventory = function() return inv end,
+                getCurrentSquare = function() return waterSq end }
     _G._pz_player = p
     for _, s in ipairs(SP.sources) do if s.id == "fluids" then return s.collect(0) end end
+end
+
+-- a grid cell containing one water-source object, reachable via getCell()/getGridSquare.
+-- Returns (square, sink, restore) — call restore() to undo the global stubs so they
+-- don't leak into other test files (which also use getCell()).
+local function waterWorld()
+    local sink = { _type = "IsoObject", hasWater = function() return true end,
+                   isTaintedWater = function() return false end }
+    local sq = { getX = function() return 0 end, getY = function() return 0 end, getZ = function() return 0 end,
+                 getObjects = function() return list({ sink }) end }
+    local oCell, oMenu, oText = _G.getCell, _G.ISWorldObjectContextMenu, _G.getText
+    _G.getCell = function() return { getGridSquare = function(_, x, y) if x == 0 and y == 0 then return sq end end } end
+    _G.ISWorldObjectContextMenu = { onTakeWater = function() end }
+    _G.getText = _G.getText or function(k) return k end
+    local function restore() _G.getCell, _G.ISWorldObjectContextMenu, _G.getText = oCell, oMenu, oText end
+    return sq, sink, restore
 end
 
 local function find(cmds, sub)
@@ -105,6 +123,36 @@ tests["rows_are_fluid_category"] = function()
     local bucket = fluidItem("Bucket", 5.0, 10.0)
     return Assert.equal(find(collect({ bottle, bucket }), "Fill from Bucket").category, "fluid",
         "fluid rows carry the fluid category")
+end
+
+tests["fill_from_world_water_source"] = function()
+    local sq, sink, restore = waterWorld()
+    local bottle = fluidItem("Water Bottle", 0.0, 2.0)
+    bottle.canStoreWater = function() return true end
+    local r = Assert.notNil(find(collect({ bottle }, nil, sq), "Fill from"),
+        "a water container near a sink can Fill from the world source")
+    restore()
+    return r
+end
+
+tests["world_source_is_default_and_highlights"] = function()
+    local sq, sink, restore = waterWorld()
+    local bottle = fluidItem("Water Bottle", 0.0, 2.0)
+    bottle.canStoreWater = function() return true end
+    local row = find(collect({ bottle }, nil, sq), "Fill from")
+    local r = row and row.flTier == 0 and row.hl == sink
+    restore()
+    return Assert.isTrue(r, "world-source fill is the default (tier 0) and highlights the source")
+end
+
+tests["non_water_container_ignores_world_source"] = function()
+    local sq, sink, restore = waterWorld()
+    local gas = fluidItem("Gas Can", 0.0, 10.0)
+    gas.canStoreWater = function() return false end   -- not a water container
+    local r = Assert.isTrue(find(collect({ gas }, nil, sq), "Fill from") == nil,
+        "a non-water container gets no world-source fill")
+    restore()
+    return r
 end
 
 tests["family_collapses_per_container"] = function()
