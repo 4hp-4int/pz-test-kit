@@ -19,12 +19,15 @@ local function node(name) return { _type = "IsoObject", getObjectName = function
 
 -- set up: a centre square with optional tree/ore/stump; an inventory that "carries"
 -- the tools named in `tools` (a set of predicate-passing fake items). Returns cmds.
+-- shared spies, reset each collect, so a run-test can prove equip + the action fire.
+local spy = { equippedWith = nil, queued = 0 }
 local function collect(opts)
     opts = opts or {}
-    _G.ISTimedActionQueue = _G.ISTimedActionQueue or {}
-    _G.ISWorldObjectContextMenu = _G.ISWorldObjectContextMenu or { equip = function() end }
-    _G.ISChopTreeAction = _G.ISChopTreeAction or { new = function() return {} end }
-    _G.ISPickAxeGroundCoverItem = _G.ISPickAxeGroundCoverItem or { new = function() return {} end }
+    spy.equippedWith, spy.queued = nil, 0
+    _G.ISTimedActionQueue = { add = function() spy.queued = spy.queued + 1 end }
+    _G.ISWorldObjectContextMenu = { equip = function(_, _, pred) spy.equippedWith = pred end }
+    _G.ISChopTreeAction = { new = function() return {} end }
+    _G.ISPickAxeGroundCoverItem = { new = function() return {} end }
     _G.ItemTag = _G.ItemTag or { CHOP_TREE = "ChopTree", PICK_AXE = "PickAxe", STONE_MAUL = "StoneMaul",
                                  SLEDGEHAMMER = "Sledgehammer", CLUB_HAMMER = "ClubHammer", REMOVE_STUMP = "RemoveStump" }
     local sq = { getX = function() return 0 end, getY = function() return 0 end, getZ = function() return 0 end,
@@ -97,6 +100,19 @@ tests["all_three_nodes_distinct_rows"] = function()
                            tags = { "ChopTree", "PickAxe", "RemoveStump" } })
     return Assert.isTrue(find(cmds, "Chop Tree") ~= nil and find(cmds, "Mine Flint") ~= nil and find(cmds, "Dig up Stump") ~= nil,
         "tree + ore + stump each get their own verb")
+end
+
+tests["run_equips_the_tool_then_queues_the_action"] = function()
+    local cmds = collect({ ore = node("Flint"), tags = { "PickAxe" } })
+    local row = find(cmds, "Mine Flint")
+    if not Assert.notNil(row, "Mine Flint row") then return false end
+    local ok = row.run()
+    if not Assert.isTrue(ok == true, "run succeeds (reachable)") then return false end
+    if not Assert.notNil(spy.equippedWith, "run EQUIPS a tool (vanilla equip helper called)") then return false end
+    -- the equip predicate is the pickaxe matcher: it should accept a pickaxe, reject an axe
+    if not Assert.isTrue(spy.equippedWith({ isBroken = function() return false end,
+        hasTag = function(_, t) return t == "PickAxe" end }), "equip predicate accepts a pickaxe") then return false end
+    return Assert.equal(spy.queued, 1, "and queues the mining action")
 end
 
 tests["empty_area_no_rows"] = function()
