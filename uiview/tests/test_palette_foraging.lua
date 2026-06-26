@@ -14,13 +14,24 @@ local function foragingCollect()
     for _, s in ipairs(SP.sources) do if s.id == "foraging" then return s.collect end end
 end
 
--- stub the search manager. `on` = current mode, `cant` = checkShouldDisable result.
-local function withManager(on, cant)
-    local mgr = { isSearchMode = on, _toggledTo = nil }
+-- a spotted forage icon: name via itemObj, grabbed via onClickContext (records it).
+local function forageIcon(name)
+    local icon = { _grabbed = false, itemType = "Base." .. name,
+                   itemObj = { getName = function() return name end, getTexture = function() return nil end } }
+    icon.onClickContext = function(self) self._grabbed = true end
+    return icon
+end
+
+-- stub the search manager. `on` = current mode, `cant` = checkShouldDisable result,
+-- `icons` = a list of spotted forage icons within reach (manager.closeIcons).
+local function withManager(on, cant, icons)
+    local mgr = { isSearchMode = on, _toggledTo = nil, closeIcons = {} }
+    for i, ic in ipairs(icons or {}) do mgr.closeIcons[i] = ic end
     mgr.checkShouldDisable = function() return cant or false end
     mgr.toggleSearchMode   = function(self, v) self._toggledTo = v end
     _G.ISSearchManager = { getManager = function() return mgr end }
     _G.ISSearchWindow  = { showWindow = function() end }
+    _G.getItemNameFromFullType = _G.getItemNameFromFullType or function(ft) return ft end
     _G._pz_player = { _type = "IsoPlayer" }
     return mgr
 end
@@ -67,6 +78,33 @@ end
 tests["forage_rows_are_forage_category"] = function()
     withManager(false, false)
     return Assert.equal(find(foragingCollect()(0), "Enable Foraging").category, "forage", "rows carry the forage category")
+end
+
+tests["spotted_items_become_grab_rows_when_on"] = function()
+    withManager(true, false, { forageIcon("Wild Garlic"), forageIcon("Sage") })
+    local cmds = foragingCollect()(0)
+    if not Assert.notNil(find(cmds, "Forage Wild Garlic"), "a spotted item -> Forage <item> row") then return false end
+    return Assert.notNil(find(cmds, "Forage Sage"), "each spotted item gets a row")
+end
+
+tests["no_grab_rows_when_off"] = function()
+    withManager(false, false, { forageIcon("Wild Garlic") })
+    -- search OFF: closeIcons is stale/irrelevant; we only surface grabs while on
+    return Assert.isNil(find(foragingCollect()(0), "Forage Wild Garlic"), "off -> no spotted-item grabs")
+end
+
+tests["grab_row_dedupes_by_item"] = function()
+    withManager(true, false, { forageIcon("Wild Garlic"), forageIcon("Wild Garlic") })
+    local n = 0
+    for _, c in ipairs(foragingCollect()(0)) do if tostring(c.label):find("Wild Garlic", 1, true) then n = n + 1 end end
+    return Assert.equal(n, 1, "two garlic spots collapse to one row")
+end
+
+tests["grab_run_replays_the_icon_grab"] = function()
+    local icon = forageIcon("Wild Garlic")
+    withManager(true, false, { icon })
+    find(foragingCollect()(0), "Forage Wild Garlic").run()
+    return Assert.isTrue(icon._grabbed == true, "running the row calls the icon's own grab (onClickContext)")
 end
 
 tests["family_collapses_under_one_node"] = function()
