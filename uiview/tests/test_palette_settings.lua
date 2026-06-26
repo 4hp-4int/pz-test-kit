@@ -22,6 +22,21 @@ tests["apply_returns_defaults_headless"] = function()
     return Assert.equal(loc.id, "upper", "default location = Upper")
 end
 
+tests["location_grid_resolves_by_index"] = function()
+    S._loc = { getValue = function() return 10 end }   -- 10th item = Bottom Right
+    local _, loc = S.apply()
+    S._loc = nil
+    if not Assert.equal(loc.id, "bottom-right", "combo index 10 -> bottom-right") then return false end
+    return Assert.isTrue(loc.ax == 1 and loc.ay == 1, "bottom-right anchors at (1,1)")
+end
+
+tests["location_center_resolves"] = function()
+    S._loc = { getValue = function() return 6 end }    -- 6th item = Center
+    local _, loc = S.apply()
+    S._loc = nil
+    return Assert.isTrue(loc.id == "center" and loc.ax == 0.5 and loc.ay == 0.5, "index 6 -> center (0.5,0.5)")
+end
+
 tests["register_is_safe_without_pzapi"] = function()
     _G.PZAPI = nil
     local ok = pcall(S.register)
