@@ -193,12 +193,28 @@ end
 -- ── decoration pre-filter (grass/blends never yield verbs) ──────────────────
 tests["isDecor_matches_only_decoration"] = function()
     local function spr(s) return { getSprite = function() return { getName = function() return s end } end } end
-    if not Assert.isTrue(W._isDecor(spr("vegetation_groundcover_01_22")), "groundcover is decoration") then return false end
-    if not Assert.isTrue(W._isDecor(spr("blends_natural_01_5")), "ground blend is decoration") then return false end
-    if not Assert.isTrue(not W._isDecor(spr("vegetation_trees_01_3")), "a TREE is NOT decoration (chop/forage)") then return false end
-    if not Assert.isTrue(not W._isDecor(spr("floors_exterior_01_0")), "a FLOOR is NOT filtered (possible verbs)") then return false end
-    if not Assert.isTrue(not W._isDecor({ getSprite = function() return nil end }), "no sprite -> not decoration") then return false end
-    return true
+    -- FILTERED — provably inert per ISDestroyCursor + the verb-gate audit
+    for _, s in ipairs({
+        "vegetation_groundcover_01_22", "blends_natural_01_5", "blends_grassoverlays_02_1",
+        "blends_streetoverlays_01_0", "overlay_blood_floor_01_3", "overlay_grime_wall_01_2",
+        "d_generic_01_8", "d_streetcracks_01_4", "d_trash_01_0", "street_trafficlines_01_2",
+        "street_curbs_01_1", "e_newsnow_ground_01_0", "e_newgrass_1_5",
+    }) do
+        if not Assert.isTrue(W._isDecor(spr(s)), s .. " is decoration (filtered)") then return false end
+    end
+    -- KEPT — each can carry a verb; must NEVER be filtered
+    for _, s in ipairs({
+        "vegetation_trees_01_3",      -- a tree (IsoTree -> chop/forage)
+        "vegetation_farm_01_0",       -- a crop (harvest)
+        "floors_exterior_natural_01", -- a floor (take-dirt / sweep)
+        "f_bushes_1_2",               -- foliage (may be a bush with a verb)
+        "d_plants_01_3",              -- foraging-adjacent plant overlay
+        "walls_exterior_house_01_8",  -- a wall (destroy/dismantle)
+        "furniture_seating_indoor_01",-- furniture (pick up / disassemble)
+    }) do
+        if not Assert.isTrue(not W._isDecor(spr(s)), s .. " is NOT filtered (can have a verb)") then return false end
+    end
+    return Assert.isTrue(not W._isDecor({ getSprite = function() return nil end }), "no sprite -> not decoration")
 end
 
 tests["decoration_is_filtered_real_object_kept"] = function()
