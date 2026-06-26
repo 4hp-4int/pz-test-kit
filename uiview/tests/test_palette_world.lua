@@ -59,7 +59,10 @@ end
 -- ── W.collect per-square cache ──────────────────────────────────────────────
 -- a live sized list over an array (count reflects pushes immediately).
 local function jlist(t) return { size = function() return #t end, get = function(_, i) return t[i + 1] end } end
-local function mkObj(name) return { _type = "IsoObject", _name = name, getSprite = function() return nil end } end
+local function mkObj(name, sprite)
+    return { _type = "IsoObject", _name = name,
+             getSprite = function() if sprite then return { getName = function() return sprite end } end return nil end }
+end
 
 -- build a world harness: a create-on-demand grid, a counting createMenu stub, a
 -- movable player, and the speed/noun stubs W.collect needs. Returns helpers + restore.
@@ -91,7 +94,7 @@ local function harness()
     _G._pz_player = { _type = "IsoPlayer", getCurrentSquare = function() return center end }
     W.invalidate()
     return {
-        addObj   = function(x, y, name) table.insert(square(x, y)._objs, mkObj(name or ("o" .. x .. y))) end,
+        addObj   = function(x, y, name, sprite) table.insert(square(x, y)._objs, mkObj(name or ("o" .. x .. y), sprite)) end,
         moveTo   = function(x, y) center = square(x, y) end,
         collect  = function() return W.collect(0) end,
         resetCalls = function() calls = 0 end,
@@ -185,6 +188,42 @@ tests["afterRun_clears_cache_for_world_mutators"] = function()
         if not Assert.isTrue(cacheEmpty(), "'" .. k .. "' clears the per-square cache") then return false end
     end
     return true
+end
+
+-- ── decoration pre-filter (grass/blends never yield verbs) ──────────────────
+tests["isDecor_matches_only_decoration"] = function()
+    local function spr(s) return { getSprite = function() return { getName = function() return s end } end } end
+    if not Assert.isTrue(W._isDecor(spr("vegetation_groundcover_01_22")), "groundcover is decoration") then return false end
+    if not Assert.isTrue(W._isDecor(spr("blends_natural_01_5")), "ground blend is decoration") then return false end
+    if not Assert.isTrue(not W._isDecor(spr("vegetation_trees_01_3")), "a TREE is NOT decoration (chop/forage)") then return false end
+    if not Assert.isTrue(not W._isDecor(spr("floors_exterior_01_0")), "a FLOOR is NOT filtered (possible verbs)") then return false end
+    if not Assert.isTrue(not W._isDecor({ getSprite = function() return nil end }), "no sprite -> not decoration") then return false end
+    return true
+end
+
+tests["decoration_is_filtered_real_object_kept"] = function()
+    local h = harness()
+    h.addObj(0, 0, "Chrome Oven")                              -- real (no sprite -> kept)
+    h.addObj(0, 0, "grass", "vegetation_groundcover_01_7")     -- decoration -> dropped
+    local cmds = h.collect()
+    local oven = false
+    for _, c in ipairs(cmds) do if tostring(c.label):find("Chrome Oven", 1, true) then oven = true end end
+    h.restore()
+    if not Assert.isTrue(oven, "the real object's verb still appears") then return false end
+    for _, c in ipairs(cmds) do
+        if tostring(c.label):find("grass", 1, true) then return Assert.isTrue(false, "decoration must NOT produce a verb") end
+    end
+    return Assert.isTrue(true, "decoration produced no verb (filtered before createMenu)")
+end
+
+tests["all_decoration_square_skips_createMenu"] = function()
+    local h = harness()
+    -- the whole 3x3 is pure grass -> every square filters to empty -> no createMenu
+    for dy = -1, 1 do for dx = -1, 1 do h.addObj(dx, dy, "grass", "vegetation_groundcover_01_3") end end
+    h.collect()
+    local n = h.calls()
+    h.restore()
+    return Assert.equal(n, 0, "an all-grass neighborhood makes ZERO createMenu calls")
 end
 
 tests["afterRun_nil_safe"] = function()
