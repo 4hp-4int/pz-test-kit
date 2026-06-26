@@ -22,10 +22,12 @@ local function weapon(name, ft)
     return { _type = "InventoryItem", getName = function() return name end, getFullType = function() return ft end }
 end
 
--- a harvested-style attach row: onSelect = the hotbar attach, label = the slot name.
-local function attachRow(item, slot)
+-- a harvested-style attach row: onSelect = the hotbar attach, label = the slot name,
+-- params[3] = the hotbar slot index (as the real harvest records it).
+local function attachRow(item, slot, slotIndex)
     return { onSelect = _G.ISHotbar.attachItem, item = item, label = slot,
-             kind = "action", category = "attach", source = item:getName() }
+             kind = "action", category = "attach", source = item:getName(),
+             params = { item, slot, slotIndex } }
 end
 
 local function find(cmds, sub)
@@ -64,10 +66,21 @@ tests["distinct_items_distinct_families"] = function()
     local pistol = weapon("Pistol", "Base.Pistol")
     local rifle  = weapon("Rifle", "Base.Rifle")
     -- each item needs >=2 slots to actually form a family
-    local cmds = { attachRow(pistol, "Holster"), attachRow(pistol, "Belt"),
-                   attachRow(rifle, "Back"), attachRow(rifle, "Sling") }
+    local cmds = { attachRow(pistol, "Holster", 2), attachRow(pistol, "Belt", 3),
+                   attachRow(rifle, "Back", 1), attachRow(rifle, "Sling", 4) }
     Families.apply(cmds)
     return Assert.isTrue(cmds[1].familyKey ~= cmds[3].familyKey, "two items -> two distinct attach families")
+end
+
+tests["default_follows_hotbar_slot_order_not_alphabetical"] = function()
+    -- a holster (slot index 2) sorts before back (index 5), even though "Back" < "Holster"
+    local pistol = weapon("Pistol", "Base.Pistol")
+    local cmds = { attachRow(pistol, "Holster", 2), attachRow(pistol, "Underbelt", 5) }
+    Families.apply(cmds)
+    local def
+    for _, c in ipairs(cmds) do if c.familyDefault then def = c end end
+    if not Assert.notNil(def, "a default slot was chosen") then return false end
+    return Assert.equal(def.label, "Holster", "the lower slot index is the default, not the A-Z first")
 end
 
 tests["non_attach_rows_ignored"] = function()
