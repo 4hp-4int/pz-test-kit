@@ -231,6 +231,7 @@ _pz_create_mock_zombie_fixture  = Fixtures.zombie
 local function makeJavaList(backing)
     local list = { _items = backing or {} }
     list.size     = function(self) return #self._items end
+    list.isEmpty  = function(self) return #self._items == 0 end
     list.get      = function(self, i) return self._items[i + 1] end
     list.add      = function(self, v) table.insert(self._items, v); return v end
     list.contains = function(self, v)
@@ -814,6 +815,107 @@ function Fixtures.withSandbox(namespace, overrides, fn)
     end
     if not ok then error(result) end
     return result
+end
+
+--- BaseVehicle fixture — the methods a command provider gates on (engine / lights
+--- / doors / locks / parts). Focused on what's needed to exercise the palette's
+--- vehicle gating (lock-aware doors, hotwire, heater, lightbar), not a full sim.
+---
+---@param opts table|nil Overrides (all optional, sensible defaults):
+---  name, driver, engineWorking, engineRunning, engineStarted, hotwired,
+---  keysInIgnition, keyId, headlights, headlightsOn, horn, lightbar, stopped,
+---  anyDoorLocked, passengerCount, heaterActive (nil = no heater part),
+---  canUnlock, canLock, and door = { id, open, locked, hasItem }.
+function Fixtures.vehicle(opts)
+    opts = opts or {}
+    local doorOpts = opts.door or {}
+    local door = {
+        _open = doorOpts.open or false,
+        _locked = doorOpts.locked or false,
+    }
+    door.isOpen   = function(self) return self._open end
+    door.isLocked = function(self) return self._locked end
+    door.setLocked = function(self, v) self._locked = v end
+
+    local doorPart = { _type = "VehiclePart" }
+    doorPart.getId            = function(self) return doorOpts.id or "DoorFrontLeft" end
+    doorPart.getDoor          = function(self) return door end
+    doorPart.getInventoryItem = function(self)
+        if doorOpts.hasItem == false then return nil end
+        return { _type = "InventoryItem" }
+    end
+    doorPart.getVehicle = function(self) return opts._vehicle end
+
+    local heater = nil
+    if opts.heaterActive ~= nil then
+        heater = { _type = "VehiclePart" }
+        heater.getModData = function(self) return { active = opts.heaterActive } end
+    end
+
+    local v = { _type = "BaseVehicle" }
+    opts._vehicle = v
+    local parts = {}   -- populated below from opts.parts; getPartById searches it
+    v.isDriver         = function(self, p) return opts.driver ~= false end
+    v.isEngineWorking  = function(self) return opts.engineWorking ~= false end
+    v.isEngineRunning  = function(self) return opts.engineRunning or false end
+    v.isEngineStarted  = function(self) return opts.engineStarted or false end
+    v.isHotwired       = function(self) return opts.hotwired or false end
+    v.isKeysInIgnition = function(self) return opts.keysInIgnition or false end
+    v.getKeyId         = function(self) return opts.keyId or 1 end
+    v.hasHeadlights    = function(self) return opts.headlights or false end
+    v.getHeadlightsOn  = function(self) return opts.headlightsOn or false end
+    v.hasHorn          = function(self) return opts.horn or false end
+    v.hasLightbar      = function(self) return opts.lightbar or false end
+    v.isAnyDoorLocked  = function(self) return opts.anyDoorLocked or false end
+    v.isStopped        = function(self) return opts.stopped ~= false end
+    v.getPartById      = function(self, id)
+        if id == "Heater" then return heater end
+        for _, pt in ipairs(parts) do if pt:getId() == id then return pt end end
+        return nil
+    end
+    v.getUseablePart   = function(self, p) return doorPart end
+    v.canUnlockDoor    = function(self, part, p) return opts.canUnlock or false end
+    v.canLockDoor      = function(self, part, p) return opts.canLock or false end
+    v.getScript        = function(self) return { getPassengerCount = function() return opts.passengerCount or 2 end } end
+    v.getId            = function(self) return opts.id or 100 end
+
+    -- Parts (for the mechanics provider). opts.parts = list of specs:
+    --   { id, category, itemType={fulltypes}, installed, tables={install=,uninstall=},
+    --     canInstall, canUninstall, fuel, window={openable,destroyed,open} }
+    for _, spec in ipairs(opts.parts or {}) do
+        local pt = { _type = "VehiclePart", _spec = spec }
+        pt.getId        = function(self) return spec.id or "Part" end
+        pt.getCategory  = function(self) return spec.category or "engine" end
+        pt.getItemType  = function(self)
+            if spec.itemType == nil then return nil end
+            return makeJavaList(spec.itemType)
+        end
+        pt.getInventoryItem = function(self)
+            if spec.installed then return { _type = "InventoryItem" } end
+            return nil
+        end
+        pt.getTable     = function(self, name) return spec.tables and spec.tables[name] or nil end
+        pt.getContainerContentAmount = function(self) return spec.fuel or 0 end
+        pt.getWindow    = function(self)
+            if not spec.window then return nil end
+            local wspec = spec.window
+            return {
+                isOpenable  = function() return wspec.openable ~= false end,
+                isDestroyed = function() return wspec.destroyed or false end,
+                isOpen      = function() return wspec.open or false end,
+            }
+        end
+        parts[#parts + 1] = pt
+    end
+    v.getPartCount     = function(self) return #parts end
+    v.getPartByIndex   = function(self, i) return parts[i + 1] end
+    v.canInstallPart   = function(self, pl, part) return part._spec.canInstall ~= false end
+    v.canUninstallPart = function(self, pl, part) return part._spec.canUninstall ~= false end
+
+    v._door = door
+    v._doorPart = doorPart
+    v._parts = parts
+    return v
 end
 
 -- ============================================================================
