@@ -5,7 +5,9 @@
 local Assert = PZTestKit.Assert
 require "palette/pal_world"
 require "palette/pal_harvest"   -- SP.Harvest.flatten (used by W.collect)
+require "palette/pal_main"      -- SP.afterRun (post-action invalidation gating)
 local W = _G.SaucePalette.World
+local SP = _G.SaucePalette
 
 -- harness instanceof = exact _type match; stub the moveable-name lookup to echo
 -- each fake object's _name.
@@ -160,6 +162,35 @@ tests["object_count_change_reharvests_that_square"] = function()
     h.restore()
     if not Assert.equal(n, 1, "only the changed square re-harvests") then return false end
     return Assert.isTrue(found, "the new object's verb appears")
+end
+
+-- ── SP.afterRun: gate the per-square bust by command kind ───────────────────
+local function seedCache() W._sqCache = { ["0,0,0"] = { stamp = 1, cmds = {}, x = 0, y = 0, z = 0 } } end
+local function cacheEmpty() for _ in pairs(W._sqCache) do return false end return true end
+
+tests["afterRun_keeps_cache_for_non_world_actions"] = function()
+    if not Assert.notNil(SP.afterRun, "SP.afterRun exists") then return false end
+    for _, k in ipairs({ "eat", "loot", "pickup", "equip", "craft", "fluid", "wash" }) do
+        seedCache()
+        SP.afterRun({ kind = k })
+        if not Assert.isTrue(not cacheEmpty(), "'" .. k .. "' keeps the per-square cache") then return false end
+    end
+    return true
+end
+
+tests["afterRun_clears_cache_for_world_mutators"] = function()
+    for _, k in ipairs({ "world", "cookable", "moveable" }) do
+        seedCache()
+        SP.afterRun({ kind = k })
+        if not Assert.isTrue(cacheEmpty(), "'" .. k .. "' clears the per-square cache") then return false end
+    end
+    return true
+end
+
+tests["afterRun_nil_safe"] = function()
+    seedCache()
+    local ok = pcall(function() SP.afterRun(nil) end)
+    return Assert.isTrue(ok, "afterRun(nil) doesn't error")
 end
 
 tests["invalidate_clears_the_cache"] = function()
