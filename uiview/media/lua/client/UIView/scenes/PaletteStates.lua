@@ -19,6 +19,7 @@
 require "UIView/UIMock"
 UIView_setScreen(1280, 800)
 require "palette/pal_ui"
+local Theme = require "palette/pal_theme"   -- same instance pal_ui themes from
 pcall(function() require "palette/pal_needs" end)
 pcall(function() require "palette/pal_synonyms" end)   -- production always loads these
 
@@ -165,9 +166,15 @@ function States.build(opts)
     elseif opts.bleeding then setBleeding(true)
     else setBleeding(false) end
 
-    -- theme skin, applied BEFORE :new so the panel adopts its colours. Always set
-    -- (nil = the authored diner default) so a themed build never leaks into the next.
-    pcall(function() require("palette/pal_theme").applyTheme(opts.theme) end)
+    -- theme skin. SaucePaletteUI:new calls SP.Settings.apply() internally, which
+    -- applies whatever the theme COMBO selects (and would clobber a direct applyTheme).
+    -- So drive the real path: stub the combo to the wanted index (1 diner / 2 midnight
+    -- / 3 paper). Always set, so a themed build never leaks into the next.
+    if SP.Settings then
+        local idx = (opts.theme == "midnight" and 2) or (opts.theme == "paper" and 3) or 1
+        SP.Settings._theme = { getValue = function() return idx end }
+    end
+    pcall(function() Theme.applyTheme(opts.theme) end)   -- also set now for any pre-:new read
 
     local root = SaucePaletteUI:new(0)
     root:initialise()

@@ -19,11 +19,11 @@ end
 local BURIED = {
     row("Plow",             "Tilled Dirt",   "farm",    "Item_Shovel"),
     row("Water Tomato",     "Tomato Plant",  "farm",    "Item_WateringCan"),
-    row("Saw Logs",         "Tree",          "chop",    "Item_Saw"),
+    row("Saw Logs",         "Tree",          "chop",    "Item_Handsaw"),
     row("Mine Flint",       "Rock Outcrop",  "mine",    "Item_PickAxe"),
-    row("Forage Mushroom",  "Wild Food",     "forage",  "Item_GenericMushroom"),
+    row("Forage Mushroom",  "Wild Food",     "forage",  "Item_MushroomGeneric1"),
     row("Scrub Blood",      "Floor",         "clean",   "Item_Bleach"),
-    row("Siphon Gas",       "Pickup Truck",  "vehicle", "Item_PetrolCan"),
+    row("Siphon Gas",       "Pickup Truck",  "vehicle", "Item_Petrol"),
     row("Splint - Left Arm","Left Arm",      "med",     "Item_Splint"),
 }
 
