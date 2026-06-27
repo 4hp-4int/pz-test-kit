@@ -36,6 +36,11 @@ public class KahluaTestRunner {
     // Resolved once at startup
     private static Path kahluaDir;
 
+    // Coverage (set from --coverage[=<substr>]). Static so buildEnv (which builds
+    // every env, incl. DualVMSim subs) can wire the instrumentation in.
+    private static boolean coverageOn = false;
+    private static String  coverageScope = null;
+
     public static void main(String[] args) throws Exception {
 
         // ── Parse CLI args ──────────────────────────────────────────
@@ -51,6 +56,7 @@ public class KahluaTestRunner {
         boolean failFast      = false;
         String junitXmlPath   = null;
         boolean eventCoverage = false;
+        String serveScene     = null;   // --serve <scene>: resident UI render loop
 
         boolean afterSep = false;
         for (int i = 1; i < args.length; i++) {
@@ -72,6 +78,16 @@ public class KahluaTestRunner {
                     junitXmlPath = a.substring("--junit-xml=".length()); continue;
                 }
                 if (a.equals("--event-coverage")) { eventCoverage = true; continue; }
+                if (a.equals("--coverage")) { coverageOn = true; continue; }
+                if (a.startsWith("--coverage=")) {
+                    coverageOn = true; coverageScope = a.substring("--coverage=".length()); continue;
+                }
+                if (a.equals("--serve") && i + 1 < args.length) {
+                    serveScene = args[++i]; continue;
+                }
+                if (a.startsWith("--serve=")) {
+                    serveScene = a.substring("--serve=".length()); continue;
+                }
                 if (a.equals("--help") || a.equals("-h")) {
                     printUsage(); System.exit(0);
                 }
@@ -94,10 +110,25 @@ public class KahluaTestRunner {
         // triggerEvent(name, ...) + sim dispatches. Used by --event-coverage.
         Map<String, int[]> eventAccum = eventCoverage ? new LinkedHashMap<>() : null;
 
+        // Aggregated line coverage across files: per source path, the union of
+        // instrumented POINTS (denominator) and HIT lines (numerator). Used by
+        // --coverage. A fresh env re-instruments each file, so unioning across
+        // files gives whole-suite coverage.
+        Map<String, CovFile> covAccum = coverageOn ? new LinkedHashMap<>() : null;
+
         if (tests.isEmpty()) tests = discoverTests(modRoot);
 
         kahluaDir = resolveKahluaDir();
         KitLua.root = kahluaDir;  // enable Lua-file loading helper used by DualVMSim + buildEnv
+
+        // ── Serve mode: resident VM that renders a scene + replays input ────
+        // Build the env once, bootstrap the scene, then loop reading newline
+        // input commands on stdin and printing one frame per command on stdout.
+        // The bridge (Node) pipes browser events in and frames out.
+        if (serveScene != null) {
+            serveMode(modRoot, serveScene);
+            return;
+        }
 
         // Apply test_file_excludes from pz-test.lua (if configured). Evaluating
         // the full config here is cheap — a throwaway Kahlua env, no mocks.
@@ -281,6 +312,28 @@ public class KahluaTestRunner {
                 }
             }
 
+            // Accumulate line coverage from this file's env.
+            if (covAccum != null) {
+                Object cov = env.rawget("_pz_coverage");
+                if (cov instanceof KahluaTable) {
+                    KahluaTable t = (KahluaTable) cov;
+                    KahluaTableIterator it = t.iterator();
+                    while (it.advance()) {
+                        Object k = it.getKey();
+                        Object v = it.getValue();
+                        if (k instanceof String && v instanceof KahluaTable) {
+                            KahluaTable e = (KahluaTable) v;
+                            CovFile cf = covAccum.computeIfAbsent((String) k, _p -> new CovFile());
+                            Object nm = e.rawget("name");
+                            if (nm instanceof String) cf.name = (String) nm;
+                            if (Boolean.TRUE.equals(e.rawget("fallback"))) cf.fallback = true;
+                            unionLineSet(e.rawget("points"), cf.points);
+                            unionLineSet(e.rawget("hit"), cf.hit);
+                        }
+                    }
+                }
+            }
+
             if (failFast && (fail + errs) > 0) {
                 System.out.println("\n--fail-fast: stopping on first failing file");
                 break;
@@ -289,6 +342,10 @@ public class KahluaTestRunner {
 
         if (eventAccum != null) {
             printEventCoverage(eventAccum);
+        }
+
+        if (covAccum != null) {
+            printCoverage(covAccum, coverageScope);
         }
 
         // Write JUnit XML report if requested.
@@ -338,6 +395,63 @@ public class KahluaTestRunner {
     private static int intFromTable(KahluaTable t, String key) {
         Object v = t.rawget(key);
         return v instanceof Number ? ((Number) v).intValue() : 0;
+    }
+
+    // ── Line coverage ───────────────────────────────────────────────
+
+    /** Accumulated coverage for one source file across the whole suite. */
+    private static class CovFile {
+        String name;
+        final Set<Integer> points = new HashSet<>();   // instrumented lines (denominator)
+        final Set<Integer> hit    = new HashSet<>();   // executed lines (numerator)
+        boolean fallback = false;                       // instrumentation fell back -> not covered
+    }
+
+    /** Union a Kahlua line-set ({[line]=true}) into a Java Set<Integer>. */
+    private static void unionLineSet(Object raw, Set<Integer> into) {
+        if (!(raw instanceof KahluaTable)) return;
+        KahluaTableIterator it = ((KahluaTable) raw).iterator();
+        while (it.advance()) {
+            Object k = it.getKey();
+            if (k instanceof Number) into.add(((Number) k).intValue());
+        }
+    }
+
+    /** Print a per-file line-coverage report + a suite total. */
+    private static void printCoverage(Map<String, CovFile> accum, String scope) {
+        System.out.println("\n--- Line coverage" + (scope != null ? " (scope: " + scope + ")" : "") + " ---");
+        // Stable, readable order: by display name.
+        List<CovFile> files = new ArrayList<>(accum.values());
+        files.sort(Comparator.comparing(c -> c.name != null ? c.name : ""));
+
+        int grandPoints = 0, grandHit = 0, covered = 0;
+        boolean any = false;
+        List<String> fellBack = new ArrayList<>();
+        for (CovFile cf : files) {
+            if (cf.fallback || cf.points.isEmpty()) {
+                if (cf.fallback) fellBack.add(cf.name != null ? cf.name : "?");
+                continue;
+            }
+            any = true;
+            int total = cf.points.size();
+            int h = 0;
+            for (Integer ln : cf.points) if (cf.hit.contains(ln)) h++;
+            grandPoints += total; grandHit += h; covered++;
+            int pct = total > 0 ? (int) Math.round(100.0 * h / total) : 100;
+            System.out.printf("  %-44s %3d%%  (%4d/%4d)%n",
+                cf.name != null ? cf.name : "?", pct, h, total);
+        }
+        if (!any) {
+            System.out.println("  (no instrumented lines — check --coverage scope)");
+        } else {
+            int pct = grandPoints > 0 ? (int) Math.round(100.0 * grandHit / grandPoints) : 0;
+            System.out.printf("  %-44s %3d%%  (%4d/%4d)  [%d files]%n",
+                "TOTAL", pct, grandHit, grandPoints, covered);
+        }
+        if (!fellBack.isEmpty()) {
+            System.out.printf("  (%d file(s) fell back to uninstrumented, not counted: %s)%n",
+                fellBack.size(), String.join(", ", fellBack));
+        }
     }
 
     // ── JUnit XML output ────────────────────────────────────────────
@@ -422,9 +536,55 @@ public class KahluaTestRunner {
      *  @param clientIdx 0 for server; positive integer for client N (stored on
      *                   the player table as `_client_index` so targeted sends
      *                   can resolve to this endpoint) */
+    /**
+     * Resident render loop. Builds one env, bootstraps the named scene via
+     * UIView/ServeBoot (which defines UIView_serve_tick), then reads input
+     * commands from stdin one per line and calls the tick — each tick prints a
+     * single "@@FRAME@@<json>" line. Exits on EOF or "__quit__".
+     *
+     * Input command grammar (handled in ServeBoot.lua):
+     *   click|down|up|move <x> <y> | wheel <x> <y> <d> | text <str> | reset | render
+     */
+    private static void serveMode(Path modRoot, String scene) throws Exception {
+        ModuleIndex index = indexModuleTree(modRoot);
+        TestPlatform platform = new TestPlatform();
+        KahluaTable  env      = platform.newEnvironment();
+        KahluaThread thread   = new KahluaThread(platform, env);
+        thread.debugOwnerThread = Thread.currentThread();
+
+        buildEnv(thread, env, modRoot, index, new ArrayList<>(), /*isServer*/ false, /*clientIdx*/ 0);
+
+        env.rawset("_uiview_scene", scene);
+        exec(thread, env, "require 'UIView/ServeBoot'", "serve_boot");
+
+        System.out.println("@@SERVE_READY@@");
+        System.out.flush();
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+        String line;
+        while ((line = in.readLine()) != null) {
+            if (line.equals("__quit__")) break;
+            env.rawset("_uiview_event", line);
+            try {
+                exec(thread, env, "UIView_serve_tick()", "serve_tick");
+            } catch (Exception e) {
+                System.out.println("@@ERR@@" + e.getMessage());
+            }
+            System.out.flush();
+        }
+    }
+
     private static void buildEnv(KahluaThread thread, KahluaTable env,
                                  Path modRoot, ModuleIndex index, List<String> modules,
                                  boolean isServer, int clientIdx) throws Exception {
+        // 0. Verbosity flag for Lua-side diagnostic prints (e.g. the UIView render
+        //    walk logging a caught update/render error on a stubbed element). Mirrors
+        //    the Java ExceptionLogger gate: quiet by default, on with PZTEST_VERBOSE /
+        //    -Dpztest.verbose. Test failures report via the runner, not these prints.
+        env.rawset("_pz_verbose",
+            (System.getenv("PZTEST_VERBOSE") != null || System.getProperty("pztest.verbose") != null)
+                ? Boolean.TRUE : Boolean.FALSE);
+
         // 1. Mocks + Assert + Fixtures
         loadFile(thread, env, kahluaDir.resolve("mock_environment.lua"));
         loadFile(thread, env, kahluaDir.resolve("Assert.lua"));
@@ -444,6 +604,15 @@ public class KahluaTestRunner {
         // 2. Module index + require resolver
         installModuleIndex(env, index);
         loadFile(thread, env, kahluaDir.resolve("require_resolver.lua"));
+
+        // 2b. Coverage instrumentation runtime (opt-in via --coverage). Loaded
+        // AFTER the resolver so its _pz_cov_compile hook is available before any
+        // module is required during the test run.
+        if (coverageOn) {
+            env.rawset("_pz_cov_on", Boolean.TRUE);
+            if (coverageScope != null) env.rawset("_pz_cov_scope", coverageScope);
+            loadFile(thread, env, kahluaDir.resolve("coverage.lua"));
+        }
 
         // 3. Config — pass the raw source through to context/load_config.lua,
         //    which handles compile/runtime errors as warnings.
@@ -876,6 +1045,8 @@ public class KahluaTestRunner {
         System.out.println("  --fail-fast        Stop at the first file containing a failure");
         System.out.println("  --junit-xml <path> Write JUnit XML report (CI integration)");
         System.out.println("  --event-coverage   Report which Events.* listeners fired vs. registered");
+        System.out.println("  --coverage[=sub]   Report line coverage of modules (optionally scoped to");
+        System.out.println("                     names/paths containing <sub>, e.g. --coverage=palette/)");
         System.out.println("  -h, --help         Show this message");
         System.out.println();
         System.out.println("  modules          (optional) Lua files to load before tests. Usually");

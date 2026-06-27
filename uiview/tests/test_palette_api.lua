@@ -35,7 +35,12 @@ tests["pcall_isolation"] = function()
     local reached = false
     API.on("onClose", function() error("addon blew up") end)   -- must not propagate
     API.on("onClose", function() reached = true end)            -- still runs
+    -- emit logs the caught addon error (correct mod behaviour); silence that one
+    -- expected diagnostic so the test run stays clean.
+    local realPrint = _G.print
+    _G.print = function() end
     local ok = pcall(function() EV.emit("onClose") end)
+    _G.print = realPrint
     if not Assert.isTrue(ok, "a throwing subscriber does not propagate out of emit") then return false end
     return Assert.isTrue(reached, "later subscribers still run after one throws")
 end

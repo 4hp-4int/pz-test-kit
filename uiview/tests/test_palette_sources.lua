@@ -37,4 +37,16 @@ tests["can_pause_only_in_singleplayer"] = function()
     return Assert.isTrue(host == false, "co-op host -> never pauses (would freeze everyone)")
 end
 
+-- ── settings respect: a toggle changes the enabled-signature (drives cache bust) ──
+tests["enabled_signature_reflects_toggles"] = function()
+    local S = SP.Settings
+    local full = S.enabledSig()
+    if not Assert.isTrue(#full > 0, "signature lists the enabled sources") then return false end
+    if not Assert.isTrue(full:find("world", 1, true) ~= nil, "an enabled source is in the signature") then return false end
+    S._providerTicks.world = { getValue = function() return false end }   -- user disables 'world'
+    local without = S.enabledSig()
+    S._providerTicks.world = nil
+    return Assert.isTrue(without:find("world", 1, true) == nil, "a disabled source drops from the signature")
+end
+
 return tests
