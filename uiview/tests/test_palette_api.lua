@@ -121,21 +121,9 @@ tests["register_category_rejects_bad_spec"] = function()
     return Assert.isTrue(API.registerCategory({ label = "x" }) == false, "spec without id rejected")
 end
 
--- ── M2: source heavy / enabled flags ────────────────────────────────────────
-tests["source_heavy_flag"] = function()
-    require "palette/pal_main"
-    if not Assert.isTrue(SP.sourceHeavy({ id = "x", heavy = true }) == true, "heavy=true -> heavy tier") then return false end
-    if not Assert.isTrue(SP.sourceHeavy({ id = "x", heavy = false }) == false, "heavy=false -> light tier") then return false end
-    -- a built-in id with no explicit flag falls back to the HEAVY map
-    if not Assert.isTrue(SP.sourceHeavy({ id = "world" }) == true, "built-in 'world' is heavy by default") then return false end
-    return Assert.isTrue(SP.sourceHeavy({ id = "addon_unknown" }) == false, "unknown addon source defaults light")
-end
-
-tests["source_enabled_flag"] = function()
-    require "palette/pal_main"
-    if not Assert.isTrue(SP.sourceEnabled({ id = "x" }) == true, "default enabled") then return false end
-    return Assert.isTrue(SP.sourceEnabled({ id = "x", enabled = false }) == false, "enabled=false -> off")
-end
+-- (source heavy/enabled flags + canPause live in test_palette_sources.lua: those
+--  tests `require pal_main` — loading the whole mod — which would destabilize the
+--  lightweight States.build harness the onCommands integration test below relies on.)
 
 -- ── end-to-end: the transform hook fires through the real display chokepoint ──
 tests["on_commands_fires_through_setAllCommands"] = function()
