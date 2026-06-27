@@ -90,6 +90,53 @@ tests["facade_optbool_default_safe"] = function()
     return Assert.isTrue(API.optBool("definitely_unset_opt", true) == true, "optBool falls back to default")
 end
 
+-- ── M2: registerCategory ────────────────────────────────────────────────────
+tests["register_category_wires_chip_rank_intent"] = function()
+    require "palette/pal_filter"     -- SP.Filter.CAT_RANK
+    require "palette/pal_synonyms"   -- intentFor / registerCategoryIntent
+    local T = require "palette/pal_theme"
+    local ok = API.registerCategory({
+        id = "smith", label = "SMITH", color = { 0.8, 0.5, 0.3 }, rank = 7,
+        intent = "forge anvil temper quench",
+    })
+    if not Assert.isTrue(ok == true, "registerCategory returns true") then return false end
+    local chip = T.color.category.smith
+    if not Assert.isTrue(chip ~= nil and chip[1] == "SMITH", "chip label set in pal_theme") then return false end
+    if not Assert.isTrue(chip[2] == 0.8, "chip colour set") then return false end
+    if not Assert.equal(SP.Filter.CAT_RANK.smith, 7, "rank set in CAT_RANK") then return false end
+    return Assert.isTrue(SP.Synonyms.intentFor("smith"):find("anvil", 1, true) ~= nil,
+        "intent vocabulary registered for the category")
+end
+
+tests["register_category_partial_label_only"] = function()
+    local T = require "palette/pal_theme"
+    API.registerCategory({ id = "ztest", label = "ZONE", color = { 0.1, 0.2, 0.3 } })
+    API.registerCategory({ id = "ztest", label = "ZONE2" })   -- retint label only (no colour)
+    if not Assert.equal(T.color.category.ztest[1], "ZONE2", "label-only retints existing chip") then return false end
+    return Assert.equal(T.color.category.ztest[2], 0.1, "colour preserved on a label-only retint")
+end
+
+tests["register_category_rejects_bad_spec"] = function()
+    if not Assert.isTrue(API.registerCategory(nil) == false, "nil spec rejected") then return false end
+    return Assert.isTrue(API.registerCategory({ label = "x" }) == false, "spec without id rejected")
+end
+
+-- ── M2: source heavy / enabled flags ────────────────────────────────────────
+tests["source_heavy_flag"] = function()
+    require "palette/pal_main"
+    if not Assert.isTrue(SP.sourceHeavy({ id = "x", heavy = true }) == true, "heavy=true -> heavy tier") then return false end
+    if not Assert.isTrue(SP.sourceHeavy({ id = "x", heavy = false }) == false, "heavy=false -> light tier") then return false end
+    -- a built-in id with no explicit flag falls back to the HEAVY map
+    if not Assert.isTrue(SP.sourceHeavy({ id = "world" }) == true, "built-in 'world' is heavy by default") then return false end
+    return Assert.isTrue(SP.sourceHeavy({ id = "addon_unknown" }) == false, "unknown addon source defaults light")
+end
+
+tests["source_enabled_flag"] = function()
+    require "palette/pal_main"
+    if not Assert.isTrue(SP.sourceEnabled({ id = "x" }) == true, "default enabled") then return false end
+    return Assert.isTrue(SP.sourceEnabled({ id = "x", enabled = false }) == false, "enabled=false -> off")
+end
+
 -- ── end-to-end: the transform hook fires through the real display chokepoint ──
 tests["on_commands_fires_through_setAllCommands"] = function()
     local States = require "UIView/scenes/PaletteStates"
