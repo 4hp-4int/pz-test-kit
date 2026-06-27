@@ -99,6 +99,26 @@ tests["spotted_forage_untagged_while_typing"] = function()
     return Assert.isNil(grab._tag, "a typed query is pure relevance — no spotted tag")
 end
 
+tests["severity_orders_siblings_in_zero_state"] = function()
+    -- two med treatments on the same part: the higher-severity one (remove glass) must
+    -- sort above the palliative one (bandage), not by alphabetical label.
+    local s = run({
+        { label = "Bandage - Left Arm", category = "med", runnable = true, severity = 200 },
+        { label = "Remove Glass - Left Arm", category = "med", runnable = true, severity = 600 },
+    }, "")   -- zero-state
+    return Assert.equal(s.filtered[1].label, "Remove Glass - Left Arm",
+        "higher severity sorts first (urgency over alphabetical)")
+end
+
+tests["severity_is_zero_state_only"] = function()
+    -- a typed query is pure relevance — severity must not pull a non-match in
+    local s = run({
+        { label = "Bandage", category = "med", runnable = true, severity = 200 },
+        { label = "Remove Glass", category = "med", runnable = true, severity = 600 },
+    }, "bandage")
+    return Assert.equal(#s.filtered, 1, "only the matching row survives; severity doesn't override the query")
+end
+
 tests["no_tags_while_typing"] = function()
     _G.SaucePalette.Pins = { isPinned = function() return true end }
     local s = run({ { label = "Open Box", category = "craft", runnable = true } }, "open")

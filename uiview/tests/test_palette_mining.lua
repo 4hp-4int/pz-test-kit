@@ -28,8 +28,16 @@ local function collect(opts)
     _G.ISWorldObjectContextMenu = { equip = function(_, _, pred) spy.equippedWith = pred end }
     _G.ISChopTreeAction = { new = function() return {} end }
     _G.ISPickAxeGroundCoverItem = { new = function() return {} end }
+    _G.ISRemoveBush = { new = function() return {} end }
+    _G.ISScything = { new = function() return {} end }
+    _G.ISRemovePlantCursor = { new = function(_, _, removeType)
+        return { getRemovableObject = function(_, _sq)
+            if removeType == "bush" then return opts.bush elseif removeType == "grass" then return opts.grass end
+        end }
+    end }
     _G.ItemTag = _G.ItemTag or { CHOP_TREE = "ChopTree", PICK_AXE = "PickAxe", STONE_MAUL = "StoneMaul",
-                                 SLEDGEHAMMER = "Sledgehammer", CLUB_HAMMER = "ClubHammer", REMOVE_STUMP = "RemoveStump" }
+                                 SLEDGEHAMMER = "Sledgehammer", CLUB_HAMMER = "ClubHammer", REMOVE_STUMP = "RemoveStump",
+                                 CUT_PLANT = "CutPlant", SCYTHE = "Scythe", HAND_SCYTHE = "HandScythe" }
     local sq = { getX = function() return 0 end, getY = function() return 0 end, getZ = function() return 0 end,
                  HasTree = function() return opts.tree ~= nil end,
                  getTree = function() return opts.tree end,
@@ -47,6 +55,8 @@ local function collect(opts)
     local inv = { containsEvalRecurse = function(_, pred)
         for _, it in ipairs(tools) do if pred(it) then return true end end
         return false
+    end, getFirstEvalRecurse = function(_, pred)
+        for _, it in ipairs(tools) do if pred(it) then return it end end
     end }
     local p = { _type = "IsoPlayer", getInventory = function() return inv end,
                 getCurrentSquare = function() return sq end, getPrimaryHandItem = function() return nil end }
@@ -113,6 +123,39 @@ tests["run_equips_the_tool_then_queues_the_action"] = function()
     if not Assert.isTrue(spy.equippedWith({ isBroken = function() return false end,
         hasTag = function(_, t) return t == "PickAxe" end }), "equip predicate accepts a pickaxe") then return false end
     return Assert.equal(spy.queued, 1, "and queues the mining action")
+end
+
+tests["cut_bush_offered_with_cutting_tool"] = function()
+    local bush = node("Bush")
+    local row = find(collect({ bush = bush, tags = { "CutPlant" } }), "Cut Bush")
+    if not Assert.notNil(row, "a bush + cutting tool -> Cut Bush") then return false end
+    if not Assert.isTrue(row.runnable == true, "runnable with a machete/saw") then return false end
+    return Assert.equal(row.hl, bush, "highlights the bush")
+end
+
+tests["cut_bush_blocked_without_tool"] = function()
+    local row = find(collect({ bush = node("Bush"), tags = {} }), "Cut Bush")
+    return Assert.isTrue(row ~= nil and row.runnable == false, "no cutting tool -> blocked with a reason")
+end
+
+tests["scythe_grass_offered_with_scythe"] = function()
+    local row = find(collect({ grass = node("Grass"), tags = { "Scythe" } }), "Scythe Grass")
+    if not Assert.notNil(row, "tall grass + scythe -> Scythe Grass") then return false end
+    return Assert.isTrue(row.runnable == true and row.category == "chop", "runnable, chop category")
+end
+
+tests["scythe_run_queues_the_action"] = function()
+    local row = find(collect({ grass = node("Grass"), tags = { "Scythe" } }), "Scythe Grass")
+    local ok = row.run()
+    if not Assert.isTrue(ok == true, "run succeeds (reachable)") then return false end
+    return Assert.equal(spy.queued, 1, "queues the scythe action with the found item")
+end
+
+tests["no_vegetation_no_cut_rows"] = function()
+    -- holding the tools but nothing to cut -> no Cut/Scythe rows (right thing at right time)
+    local cmds = collect({ tags = { "CutPlant", "Scythe" } })
+    return Assert.isTrue(find(cmds, "Cut Bush") == nil and find(cmds, "Scythe Grass") == nil,
+        "no bush/grass present -> no vegetation rows even with tools")
 end
 
 tests["empty_area_no_rows"] = function()

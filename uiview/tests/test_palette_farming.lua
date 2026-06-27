@@ -13,11 +13,15 @@ local SP = require "palette/pal_farming"
 
 local function list(items) return { size = function() return #items end, get = function(_, i) return items[i + 1] end } end
 
--- a plant on the centre square; `kind` = harvest|seeded|plow
-local function plant(kind)
-    return { typeOfSeed = "Carrots", state = (kind == "plow") and "plow" or "seeded",
-             waterLvl = 40, canHarvest = function() return kind == "harvest" end,
-             isAlive = function() return true end }
+-- a plant on the centre square; `kind` = harvest|seeded|plow|dead. `extra` overlays
+-- fields (e.g. disease levels: { mildewLvl = 50 }).
+local function plant(kind, extra)
+    local pl = { typeOfSeed = "Carrots",
+                 state = (kind == "plow") and "plow" or (kind == "dead") and "dead" or "seeded",
+                 waterLvl = 40, canHarvest = function() return kind == "harvest" end,
+                 isAlive = function() return kind ~= "dead" end }
+    if extra then for k, v in pairs(extra) do pl[k] = v end end
+    return pl
 end
 
 local spy = { queued = 0 }
@@ -32,6 +36,7 @@ local function collect(opts)
     _G.ISFertilizeAction = { new = function() return {} end }
     _G.ISShovelAction = { new = function() return {} end }
     _G.ISPlowAction = { new = function() return {} end }
+    _G.ISCurePlantAction = { new = function() return {} end }
     _G.ItemTag = _G.ItemTag or { FERTILIZER = "Fertilizer", COMPOST = "Compost", DIG_PLOW = "DigPlow" }
     _G.luautils = _G.luautils or {}; _G.luautils.walkAdj = function() return true end
     _G.getText = _G.getText or function(k) return k end
@@ -53,6 +58,9 @@ local function fertItem()  return { isWaterSource = function() return false end,
                                     isBroken = function() return false end, hasTag = function(_, t) return t == "Fertilizer" end } end
 local function plowItem()  return { isWaterSource = function() return false end, getCurrentUses = function() return 0 end,
                                     isBroken = function() return false end, hasTag = function(_, t) return t == "DigPlow" end } end
+local function sprayItem(t) return { getType = function() return t end, getCurrentUses = function() return 2 end,
+                                     isWaterSource = function() return false end, isBroken = function() return false end,
+                                     hasTag = function() return false end } end
 
 local function find(cmds, sub) for _, c in ipairs(cmds) do if tostring(c.label):find(sub, 1, true) then return c end end end
 
@@ -92,6 +100,31 @@ tests["run_walks_and_queues"] = function()
     local row = find(collect({ plant = plant("harvest") }), "Harvest")
     row.run()
     return Assert.equal(spy.queued, 1, "running Harvest walks + queues the vanilla action")
+end
+
+tests["diseased_plant_offers_cure_gated_on_spray"] = function()
+    local without = find(collect({ plant = plant("seeded", { mildewLvl = 50 }), items = {} }), "Treat Mildew")
+    if not Assert.notNil(without, "a sick plant shows Treat Mildew so you know it's diseased") then return false end
+    if not Assert.isTrue(without.runnable == false, "no spray -> blocked") then return false end
+    local with = find(collect({ plant = plant("seeded", { mildewLvl = 50 }), items = { sprayItem("GardeningSprayMilk") } }), "Treat Mildew")
+    return Assert.isTrue(with ~= nil and with.runnable == true, "mildew spray in bag -> Treat Mildew runnable")
+end
+
+tests["only_the_actual_disease_is_offered"] = function()
+    -- aphids only: Treat Aphids appears, the other three do not
+    local cmds = collect({ plant = plant("seeded", { aphidLvl = 30 }), items = { sprayItem("GardeningSprayAphids") } })
+    if not Assert.notNil(find(cmds, "Treat Aphids"), "aphid plant -> Treat Aphids") then return false end
+    return Assert.isNil(find(cmds, "Treat Mildew"), "no mildew level -> no Treat Mildew row")
+end
+
+tests["healthy_plant_has_no_cure_rows"] = function()
+    local row = find(collect({ plant = plant("seeded"), items = { sprayItem("GardeningSprayMilk") } }), "Treat")
+    return Assert.isNil(row, "no disease -> no Treat rows even with spray on hand")
+end
+
+tests["dead_plant_offers_clear"] = function()
+    local row = find(collect({ plant = plant("dead"), items = { plowItem() } }), "Clear Dead")
+    return Assert.isTrue(row ~= nil and row.runnable == true, "a dead plant + digging tool -> Clear Dead")
 end
 
 tests["empty_no_rows"] = function()
