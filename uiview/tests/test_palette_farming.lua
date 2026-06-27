@@ -127,6 +127,14 @@ tests["dead_plant_offers_clear"] = function()
     return Assert.isTrue(row ~= nil and row.runnable == true, "a dead plant + digging tool -> Clear Dead")
 end
 
+tests["actions_highlight_the_tile"] = function()
+    -- no cursor opens for farming, so the row must point at its target tile (hl = square)
+    local plow = find(collect({ diggable = true, items = { plowItem() } }), "Plow")
+    if not Assert.notNil(plow and plow.hl, "Plow highlights its target tile") then return false end
+    local harvest = find(collect({ plant = plant("harvest") }), "Harvest")
+    return Assert.notNil(harvest and harvest.hl, "Harvest highlights the plot too")
+end
+
 tests["empty_no_rows"] = function()
     return Assert.equal(#collect({}), 0, "nothing farmable -> no rows")
 end

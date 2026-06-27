@@ -82,4 +82,18 @@ tests["set_nil_clears"] = function()
     return Assert.isTrue(a.outline == false, "selecting a row with no world target clears the highlight")
 end
 
+-- a tile-targeted action (plow / scrub a tile) sets hl to the SQUARE; the highlight
+-- resolves it to the square's floor IsoObject so the tile lights up.
+tests["square_target_lights_its_floor"] = function()
+    H.clear()
+    local floor = obj()
+    local sq = { _type = "IsoGridSquare", getFloor = function() return floor end }
+    H.set(0, sq)
+    if not Assert.isTrue(floor.outline == true, "a square target lights its floor tile") then return false end
+    -- re-setting the same square is still a no-op (resolves to the same floor)
+    floor.outline = "sentinel"
+    H.set(0, sq)
+    return Assert.equal(floor.outline, "sentinel", "same square -> same floor -> no re-paint")
+end
+
 return tests

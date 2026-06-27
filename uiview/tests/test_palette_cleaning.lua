@@ -39,6 +39,7 @@ tests["bloody_tile_offers_clean_blood"] = function()
     local row = find(collect({ blood = true, canBlood = true }), "Clean Blood")
     if not Assert.notNil(row, "blood + supplies -> Clean Blood") then return false end
     if not Assert.isTrue(row.runnable == true, "runnable with supplies") then return false end
+    if not Assert.notNil(row.hl, "highlights the tile being scrubbed (no cursor opens)") then return false end
     return Assert.equal(row.category, "clean", "clean category")
 end
 
