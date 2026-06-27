@@ -73,4 +73,42 @@ tests["unknown_theme_is_default"] = function()
     return Assert.isTrue(bg[1] > 0.85 and bg[3] < bg[1], "an unknown theme name falls back to the default skin")
 end
 
+-- ── M3: per-provider toggles ────────────────────────────────────────────────
+tests["source_enabled_default_on"] = function()
+    return Assert.isTrue(S.sourceEnabled("farming") == true, "no toggle registered -> enabled by default")
+end
+
+tests["source_enabled_reads_tick"] = function()
+    S._providerTicks.farming = { getValue = function() return false end }   -- user unticked it
+    local off = S.sourceEnabled("farming")
+    S._providerTicks.farming = { getValue = function() return true end }
+    local on = S.sourceEnabled("farming")
+    S._providerTicks.farming = nil
+    if not Assert.isTrue(off == false, "unticked provider -> disabled") then return false end
+    return Assert.isTrue(on == true, "ticked provider -> enabled")
+end
+
+-- ── M3: addon settings registration is headless-safe ────────────────────────
+tests["register_setting_safe_without_pzapi"] = function()
+    _G.PZAPI = nil
+    local ok, ret = pcall(function() return S.registerSetting({ kind = "tick", id = "addon_x", label = "X" }) end)
+    if not Assert.isTrue(ok, "registerSetting does not crash without PZAPI") then return false end
+    return Assert.isNil(ret, "returns nil when there's no page to add to")
+end
+
+-- ── M3: animations toggle is the single motion lever ────────────────────────
+tests["animations_toggle_drives_motion_flag"] = function()
+    local prev = SP.optBool
+    SP.optBool = function(id, d) if id == "animations" then return false end return d end
+    S.apply()
+    if not Assert.isTrue(T.motionEnabled == false, "animations off -> motion disabled") then return false end
+    if not Assert.equal(T.progress(0, 100), 1, "disabled motion snaps T.progress to settled (1)") then return false end
+    SP.optBool = function(id, d) if id == "animations" then return true end return d end
+    S.apply()
+    local enabled = T.motionEnabled
+    SP.optBool = prev
+    T.motionEnabled = nil   -- leave default for other tests
+    return Assert.isTrue(enabled == true, "animations on -> motion enabled")
+end
+
 return tests
