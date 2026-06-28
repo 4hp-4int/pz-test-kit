@@ -130,4 +130,18 @@ tests["family_category_drives_the_head_chip"] = function()
     return Assert.equal(cat2, "loot", "a family with no familyCategory keeps the member category")
 end
 
+tests["item_hub_head_chip_follows_the_default_verb"] = function()
+    -- a consumable hub (equip arrives first, drink is the DEFAULT) must read DRINK on
+    -- the head, not EQUIP — the chip follows what Enter runs, not arrival order.
+    local s = build({
+        { label = "Equip Primary", category = "equip", familyKey = "item:OJ",
+          familyLabel = "Orange Juice", familyOrder = 1 },
+        { label = "All", category = "drink", familyKey = "item:OJ",
+          familyLabel = "Orange Juice", familyDefault = true, familyOrder = 2 },
+    })
+    local g = s.groups[1]
+    if not Assert.isTrue(g.isFamily == true, "it forms a family") then return false end
+    return Assert.equal(g.category, "drink", "the head wears the DEFAULT verb's chip (DRINK), not the first member's (EQUIP)")
+end
+
 return tests
