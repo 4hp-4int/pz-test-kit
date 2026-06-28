@@ -535,7 +535,7 @@ if Keyboard == nil then
     Keyboard = {
         KEY_ESCAPE = 1, KEY_F1 = 59, KEY_TAB = 15, KEY_INSERT = 210,
         KEY_LCONTROL = 29, KEY_RCONTROL = 157, KEY_LSHIFT = 42, KEY_RSHIFT = 54,
-        KEY_SPACE = 57, KEY_PERIOD = 52, KEY_P = 25,
+        KEY_SPACE = 57, KEY_PERIOD = 52, KEY_P = 25, KEY_SLASH = 53, KEY_COMMA = 51,
     }
 end
 if isKeyDown == nil then function isKeyDown(k) return false end end

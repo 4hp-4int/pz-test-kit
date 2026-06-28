@@ -219,6 +219,10 @@ function D.enter(root) root.entry.onCommandEntered() end
 function D.key(root, k)
     if k == Keyboard.KEY_F1 then
         if root.toggleHelp then root:toggleHelp() end
+    elseif k == Keyboard.KEY_SLASH then
+        -- "/" pins the selected row. In-game it's polled on its rising edge in
+        -- prerender (printable key, stripped from the box); model the same path.
+        if root.togglePinSelected then root:togglePinSelected() end
     else
         root.entry.onOtherKey(root.entry, k)
     end
