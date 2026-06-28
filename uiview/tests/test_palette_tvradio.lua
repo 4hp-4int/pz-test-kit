@@ -148,4 +148,30 @@ tests["headless_without_radio_system_yields_nothing"] = function()
     return Assert.equal(#out, 0, "no radio system -> no rows")
 end
 
+-- ── status detail (the tooltip-style preview) ───────────────────────────────
+local function hasRow(d, text, qty)
+    for _, r in ipairs(d.rows) do
+        if r.text == text and (qty == nil or r.qty == qty) then return true end
+    end
+    return false
+end
+
+tests["device_detail_radio_frequency_volume_media"] = function()
+    local f = function(v) return function() return v end end
+    local deviceData = { getChannel = f(95400) }   -- 95.4 MHz
+    -- name, on, vol(0.5), isTV(false), hasMedia(true), playing(true), canPower(true), dd
+    local d = TV.deviceDetail("Radio", true, 0.5, false, true, true, true, deviceData)
+    if not Assert.isTrue(hasRow(d, "on"), "an on device reads on") then return false end
+    if not Assert.isTrue(hasRow(d, "volume", "50%"), "volume reads 50%") then return false end
+    if not Assert.isTrue(hasRow(d, "frequency", "95.4 MHz"), "a radio shows frequency in MHz") then return false end
+    return Assert.isTrue(hasRow(d, "playing a tape"), "playing media is shown")
+end
+
+tests["device_detail_off_no_power_no_channel"] = function()
+    -- off TV, no power, no dd -> the channel row is existence-guarded away (no crash)
+    local d = TV.deviceDetail("Television", false, 0, true, false, false, false, nil)
+    if not Assert.isTrue(hasRow(d, "off"), "off device reads off") then return false end
+    return Assert.isTrue(hasRow(d, "no power"), "powerless device flags 'no power'")
+end
+
 return tests

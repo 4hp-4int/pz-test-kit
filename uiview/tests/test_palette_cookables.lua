@@ -108,4 +108,30 @@ tests["collect_propane_insert_when_tankless"] = function()
     return Assert.notNil(find(cmds, "Insert Propane"), "tankless propane BBQ + nearby tank -> Insert Propane")
 end
 
+-- ── status detail (the tooltip-style preview) ───────────────────────────────
+local function hasRow(d, text, qty)
+    for _, r in ipairs(d.rows) do
+        if r.text == text and (qty == nil or r.qty == qty) then return true end
+    end
+    return false
+end
+
+tests["cook_detail_shows_lit_and_fuel"] = function()
+    local f = function(v) return function() return v end end
+    _G.getCampingFuelMax = function() return 100 end
+    local bbq = { isLit = f(true), getFuelAmount = f(50) }   -- 50 / 100 = 50% fuel
+    local d = SP.Cookables.cookDetail(bbq, "Barbecue")
+    if not Assert.isTrue(hasRow(d, "lit"), "a lit BBQ reads lit") then return false end
+    return Assert.isTrue(hasRow(d, "fuel", "50%"), "the fuel level reads 50%")
+end
+
+tests["cook_detail_unlit_no_propane_methods"] = function()
+    local f = function(v) return function() return v end end
+    _G.getCampingFuelMax = function() return 100 end
+    -- no isPropaneBBQ method -> the propane block is existence-guarded and skipped
+    local fire = { isLit = f(false), getFuelAmount = f(0) }
+    local d = SP.Cookables.cookDetail(fire, "Campfire")
+    return Assert.isTrue(hasRow(d, "not lit"), "an unlit fire reads 'not lit', no crash on missing propane API")
+end
+
 return tests

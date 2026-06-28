@@ -198,6 +198,19 @@ tests["item_detail_condition"] = function()
     return Assert.isTrue(hasRow(d, "condition", "4/10"), "a worn axe shows its condition")
 end
 
+tests["item_detail_drainable_charge"] = function()
+    -- the drainable path uses getCurrentUsesFloat/getMaxUses (there is NO getUsedDelta
+    -- getter — that was a render-crash). A half-used lighter reads ~50% remaining.
+    local saved = _G.instanceof
+    _G.instanceof = function(o, cls) return cls == "DrainableComboItem" and o._drain == true end
+    local f = function(v) return function() return v end end
+    local lighter = { _drain = true, getName = f("Lighter"),
+        getCurrentUsesFloat = f(5), getMaxUses = f(10), getActualWeight = f(0.1) }
+    local d = SP.Loot.itemDetail(lighter, 1, "Crate")
+    _G.instanceof = saved
+    return Assert.isTrue(hasRow(d, "remaining", "50%"), "a half-used drainable reads 50% remaining")
+end
+
 tests["contents_detail_groups_duplicates"] = function()
     local items = {
         { getName = function() return "Nails" end }, { getName = function() return "Nails" end },
