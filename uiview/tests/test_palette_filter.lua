@@ -126,6 +126,19 @@ tests["no_tags_while_typing"] = function()
     return Assert.isNil(s.filtered[1]._tag, "a typed query is pure relevance — no zero-state tags")
 end
 
+tests["loot_outranks_general_categories_in_zero_state"] = function()
+    -- a loot row exists only when a stocked container is in reach, so when present it
+    -- floats above the general categories (use/open/craft/...) — but stays below
+    -- survival needs (drink/eat/med).
+    local s = run({
+        { label = "Open Box",    category = "craft", runnable = true },
+        { label = "Loot Fridge", category = "loot",  runnable = true },
+        { label = "Drink Water", category = "drink", runnable = true },
+    }, "")   -- zero-state
+    if not Assert.equal(s.filtered[1].label, "Drink Water", "a survival need still ranks above loot") then return false end
+    return Assert.equal(s.filtered[2].label, "Loot Fridge", "loot ranks above general craft when available")
+end
+
 -- ── noun / verb pivot ───────────────────────────────────────────────────────
 tests["noun_pivot_on_item_name"] = function()
     -- "nails" hits the craft input (noun) but not the verb label -> noun pivot.

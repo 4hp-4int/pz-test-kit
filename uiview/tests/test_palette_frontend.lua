@@ -105,12 +105,15 @@ tests["esc_closes_help_first"] = function()
     return Assert.isTrue(D.closed == false, "...and did NOT close the palette")
 end
 
-tests["f1_toggles_help"] = function()
+tests["typing_question_mark_toggles_help"] = function()
+    -- Help can't ride a function key (a focused box never receives F1), so it opens by
+    -- typing "?" — detected in the prerender query poll, which clears the box and shows
+    -- the overlay. Type it and render a frame; type it again to toggle off.
     local root = States.build({})
-    D.key(root, K.KEY_F1)
-    if not Assert.isTrue(root.showHelp == true, "F1 opened help") then return false end
-    D.key(root, K.KEY_F1)
-    return Assert.isTrue(root.showHelp == false, "F1 again closed help")
+    root.entry:setText("?"); Render.frame(root, 1280, 800)
+    if not Assert.isTrue(root.showHelp == true, "typing ? opened help") then return false end
+    root.entry:setText("?"); Render.frame(root, 1280, 800)
+    return Assert.isTrue(root.showHelp == false, "typing ? again closed help")
 end
 
 tests["tab_toggles_browse_mode"] = function()

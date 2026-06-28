@@ -212,20 +212,13 @@ function D.type(root, q) root.entry:setText(q or ""); root:refilter() end
 function D.up(root)   root.entry.onPressUp() end
 function D.down(root) root.entry.onPressDown() end
 function D.enter(root) root.entry.onCommandEntered() end
--- Function keys (F1..F12) are swallowed by the Java text widget in-game, so they
--- arrive via the GLOBAL OnKeyPressed handler (pal_main), which toggles help on the
--- instance — NOT via entry.onOtherKey. Model that faithfully: route F1 to the same
--- method the global handler calls; everything else goes through the focused box.
+-- A focused PZ text box only ever receives Esc and Tab via onOtherKey (Core hardcodes
+-- those two), plus Enter/nav and typed characters. Function keys and printable hotkeys
+-- ("?" help, "/" pin) reach the box ONLY as typed characters — tests exercise those by
+-- setText(...) + a rendered frame (the prerender query poll), not via D.key. So D.key
+-- models just the real onOtherKey channel.
 function D.key(root, k)
-    if k == Keyboard.KEY_F1 then
-        if root.toggleHelp then root:toggleHelp() end
-    elseif k == Keyboard.KEY_SLASH then
-        -- "/" pins the selected row. In-game it's polled on its rising edge in
-        -- prerender (printable key, stripped from the box); model the same path.
-        if root.togglePinSelected then root:togglePinSelected() end
-    else
-        root.entry.onOtherKey(root.entry, k)
-    end
+    root.entry.onOtherKey(root.entry, k)
 end
 function D.wheel(root, d) root:onMouseWheel(d) end
 function D.clickLocal(root, lx, ly) return root:onMouseDown(lx, ly) end
