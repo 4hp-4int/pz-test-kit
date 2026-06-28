@@ -25,7 +25,17 @@ re-stamp), and a major-line jump to B43 (🛑 stop and re-validate).
 
 | Mod | Scope | Coverage | Tests | PZ build line | PZ version | Steam buildid | Date |
 |-----|-------|----------|-------|---------------|------------|---------------|------|
-| Sauce's Short Order | `palette` | 79% | 437 | Build 42 | 42.x (confirm in-game) | `23504596` | 2026-06-28 |
+| Sauce's Short Order | `palette` | 79% | 439 | Build 42 | 42.x (confirm in-game) | `23504596` | 2026-06-28 |
+
+The palette suite includes a **real-corpus sweep** (`test_palette_recipe_corpus`): our
+resolver is run over the actual 623 B42 craftRecipes, parsed from the game scripts by
+`tools/parse_recipes.py` into `uiview/.../RealRecipes.lua`. That fixture is part of the
+certification — **regenerate it whenever the buildid changes** so the sweep reflects the
+installed game:
+
+```bash
+python tools/parse_recipes.py > uiview/media/lua/client/UIView/RealRecipes.lua
+```
 
 > **PZ version**: the exact `42.x.y` isn't readable from disk — read it from the
 > game's main menu and record it here. The **Steam buildid** is the authoritative
