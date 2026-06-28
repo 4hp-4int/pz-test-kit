@@ -10,6 +10,26 @@ require "palette/pal_repair"
 local SP = _G.SaucePalette
 local RP = SP.Repair
 
+-- a Java-Set-like tag bag (item:getTags():iterator()) of lowercased-on-read tag names
+local function tagSet(...)
+    local tags = { ... }
+    return { iterator = function()
+        local k = 0
+        return { hasNext = function() return k < #tags end, next = function() k = k + 1; return tags[k] end }
+    end }
+end
+
+-- a damaged item carrying the given repair tags
+local function damagedItem(name, ft, ...)
+    local tg = tagSet(...)
+    return {
+        _type = "HandWeapon",
+        getCondition = function() return 3 end, getConditionMax = function() return 10 end,
+        getName = function() return name end, getTexture = function() return nil end,
+        getFullType = function() return ft end, getTags = function() return tg end,
+    }
+end
+
 local tests = {}
 
 tests["isConditionRepair_matches_real_fix_recipes"] = function()
@@ -38,13 +58,8 @@ tests["methodName_strips_the_fix_with_framing"] = function()
 end
 
 tests["collect_frames_repair_per_damaged_item"] = function()
-    RP._recipes = nil; RP._isRep = nil
-    local axe = {
-        _type = "HandWeapon",
-        getCondition = function() return 3 end, getConditionMax = function() return 10 end,
-        getName = function() return "Fire Axe" end, getTexture = function() return nil end,
-        getFullType = function() return "Base.Axe" end,
-    }
+    RP._recipes = nil; RP._isRep = nil; RP._subjTags = nil
+    local axe = damagedItem("Fire Axe", "Base.Axe", "RepairWithTape", "RepairWithEpoxy")
     CraftMock.install({ axe })
     RecipeDB.installReal()
     local cmds = SP.Repair.collect(0)
@@ -71,12 +86,12 @@ tests["collect_frames_repair_per_damaged_item"] = function()
 end
 
 tests["no_repair_when_nothing_is_damaged"] = function()
-    RP._recipes = nil; RP._isRep = nil
+    RP._recipes = nil; RP._isRep = nil; RP._subjTags = nil
     local good = {
         _type = "HandWeapon",
         getCondition = function() return 10 end, getConditionMax = function() return 10 end,
         getName = function() return "Pristine Axe" end, getTexture = function() return nil end,
-        getFullType = function() return "Base.Axe" end,
+        getFullType = function() return "Base.Axe" end, getTags = function() return tagSet("RepairWithTape") end,
     }
     CraftMock.install({ good })
     RecipeDB.installReal()
@@ -84,6 +99,25 @@ tests["no_repair_when_nothing_is_damaged"] = function()
     RecipeDB.restore(); CraftMock.restore()
     RP._recipes = nil; RP._isRep = nil
     return Assert.equal(#cmds, 0, "an undamaged item never offers repair")
+end
+
+tests["damaged_item_is_discoverable_without_materials"] = function()
+    -- the WHOLE point: a damaged item shows its repair options even with an empty
+    -- toolbox, each blocked with what it still needs.
+    RP._recipes = nil; RP._isRep = nil; RP._subjTags = nil
+    local axe = damagedItem("Fire Axe", "Base.Axe", "RepairWithTape", "RepairWithEpoxy")
+    CraftMock.install({ axe }); CraftMock.canCraft = false   -- applies, but no materials
+    RecipeDB.installReal()
+    local cmds = SP.Repair.collect(0)
+    CraftMock.canCraft = nil
+    RecipeDB.restore(); CraftMock.restore()
+    RP._recipes = nil; RP._isRep = nil; RP._subjTags = nil
+    if not Assert.greater(#cmds, 0, "the repair still surfaces without materials (discoverable)") then return false end
+    local blocked = 0
+    for _, c in ipairs(cmds) do
+        if c.runnable == false and c.blockReason then blocked = blocked + 1 end
+    end
+    return Assert.greater(blocked, 0, "a method you can't do yet is shown blocked, with what it needs")
 end
 
 return tests

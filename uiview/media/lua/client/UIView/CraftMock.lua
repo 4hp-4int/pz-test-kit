@@ -118,7 +118,10 @@ function CraftMock.install(items)
                 setRecipe = function(self, r) self._recipe = r end,
                 setRecipeFromContextClick = function(self, r, it) self._recipe = r; self._item = it end,
                 getRecipeData = function() return { getAllInputItems = function() return jlist({}) end } end,
-                canPerformCurrentRecipe = function(self) return self._recipe ~= nil end,
+                -- CraftMock.canCraft = false simulates "applies but you lack materials"
+                -- (for pal_repair's blocked-but-discoverable path). Default: craftable.
+                canPerformCurrentRecipe = function(self) return CraftMock.canCraft ~= false and self._recipe ~= nil end,
+                isInputSatisfied = function() return CraftMock.canCraft ~= false end,
                 getPossibleCraftCount = function() return CraftMock.craftCount end,
                 isCharacterInRangeOfWorkbench = function() return true end,
                 setManualSelectInputs = function(self, b) self._manual = b end,
