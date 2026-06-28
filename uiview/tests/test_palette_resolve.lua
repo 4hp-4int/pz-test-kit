@@ -73,6 +73,24 @@ tests["mapper_single_result_is_concrete"] = function()
     return Assert.equal(v.name, "Only Output", "names the lone result")
 end
 
+tests["input_names_the_resolved_item_not_various"] = function()
+    -- A multi-item input ([NailsBox;ScrewsBox;CapGunCapBox]) is honestly "various"
+    -- on its own, but when recipe data resolved it to the held Box of Nails we name
+    -- that item — the detail input row reads "Box of Nails", not "various items".
+    local inp = {
+        getItemTags = function() return { isEmpty = function() return true end } end,
+        getPossibleInputItems = function() return jlist({ fakeItem("a"), fakeItem("b"), fakeItem("c") }) end,
+    }
+    local resolvedItem = { getName = function() return "Box of Nails" end,
+                           getTexture = function() return nil end, getFullType = function() return "Base.NailsBox" end }
+    local v = R.recipeInput(inp, resolvedItem)
+    if not Assert.equal(v.kind, "concrete", "concrete when an item was resolved") then return false end
+    if not Assert.equal(v.name, "Box of Nails", "names the resolved box") then return false end
+    -- and without a resolved item it stays honest "various" for a 3-item input
+    local v2 = R.recipeInput(inp, nil)
+    return Assert.equal(v2.kind, "various", "various with no resolved item")
+end
+
 tests["fixed_output_resolves_without_data"] = function()
     -- No mapper: a plain fixed output still resolves via getItem(nil).
     local o = fakeOutput{ fixed = "Wooden Plank" }
