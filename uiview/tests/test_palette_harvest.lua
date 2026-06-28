@@ -106,4 +106,90 @@ tests["small_verb_submenu_still_flattened"] = function()
     return Assert.notNil(prim, "a small verb submenu is still flattened")
 end
 
+-- classifyAction: the keyword fallback (onSelect nil -> the identity map can't
+-- match, so the conservative keyword rules decide the category). ------------
+tests["classifyAction_keyword_fallback"] = function()
+    if not Assert.equal(SP.classifyAction(nil, "Smoke Cigarette"), "use", "'smoke' -> use") then return false end
+    if not Assert.equal(SP.classifyAction(nil, "Read Skill Book"), "read", "'read' -> read") then return false end
+    if not Assert.equal(SP.classifyAction(nil, "Sip Water"), "drink", "'sip' -> drink") then return false end
+    return Assert.equal(SP.classifyAction(nil, "Frobnicate Widget"), "action", "an unknown verb falls through to action")
+end
+
+-- H.run: execute the captured vanilla onSelect closure with its target+params.
+tests["run_executes_onSelect_with_params"] = function()
+    local got
+    local cmd = { onSelect = function(target, a, b) got = { target, a, b } end, target = "T", params = { "x", "y" } }
+    local ok = SP.Harvest.run(cmd)
+    if not Assert.equal(ok, true, "run returns ok") then return false end
+    if not Assert.equal(got[1], "T", "the option target is passed") then return false end
+    return Assert.equal(got[2], "x", "param1 is passed through")
+end
+
+-- harvestInventory: drive a fake createMenu over the inventory tree ----------
+local function invItem(ft, name)
+    return { _type = "Item", getFullType = function() return ft end, getName = function() return name end,
+             getDisplayName = function() return name end, getTexture = function() return nil end }
+end
+
+local function harvestEnv(menuOptions, items, opts, fn)
+    opts = opts or {}
+    local names = { "getSpecificPlayer", "ISInventoryPaneContextMenu", "UIManager", "instanceof", "getTimestampMs" }
+    local saved = {}; for _, n in ipairs(names) do saved[n] = _G[n] end
+    local ctx = { options = menuOptions, setVisible = function() end, hideAndChildren = function() end,
+                  getSubMenu = function() return nil end }
+    local container = {
+        getItems = function() return { size = function() return #items end, get = function(_, i) return items[i + 1] end } end,
+        getAllTypeRecurse = function() return { size = function() return opts.typeCount or 1 end,
+                                                get = function() return items[1] end } end,
+    }
+    local p = { getInventory = function() return container end }
+    _G.getSpecificPlayer = function() return p end
+    _G.ISInventoryPaneContextMenu = { createMenu = function() return ctx end }
+    _G.UIManager = { getSpeedControls = function() return { getCurrentGameSpeed = function() return opts.speed or 1 end } end }
+    _G.instanceof = function(o, c) return type(o) == "table" and o._type == c end
+    _G.getTimestampMs = function() return 0 end
+    local out
+    local ok, err = pcall(function() out = SP.Harvest.harvestInventory(0) end)
+    for _, n in ipairs(names) do _G[n] = saved[n] end
+    if not ok then error(err) end
+    return fn(out)
+end
+
+tests["harvestInventory_collects_item_verbs"] = function()
+    return harvestEnv(
+        { { name = "Equip Primary", onSelect = function() end }, { name = "Drop", onSelect = function() end } },
+        { invItem("Base.Axe", "Axe") }, {},
+        function(out)
+            if not Assert.equal(#out, 2, "both verbs harvested off the item") then return false end
+            local by = {}; for _, c in ipairs(out) do by[c.label] = c end
+            return Assert.notNil(by["Equip Primary"], "the equip verb is present")
+        end)
+end
+
+tests["harvestInventory_dedupes_by_fulltype"] = function()
+    return harvestEnv(
+        { { name = "Equip Primary", onSelect = function() end } },
+        { invItem("Base.Axe", "Axe"), invItem("Base.Axe", "Axe") }, {},
+        function(out) return Assert.equal(#out, 1, "3 axes don't make 3x Equip — deduped by fulltype") end)
+end
+
+tests["harvestInventory_bails_while_paused"] = function()
+    return harvestEnv(
+        { { name = "Equip Primary", onSelect = function() end } },
+        { invItem("Base.Axe", "Axe") }, { speed = 0 },
+        function(out) return Assert.equal(#out, 0, "createMenu bails at speed 0 -> no harvest") end)
+end
+
+tests["repeatable_eat_verb_gets_a_batch_runN"] = function()
+    return harvestEnv(
+        { { name = "Eat Apple", onSelect = function() end } },
+        { invItem("Base.Apple", "Apple") }, { typeCount = 5 },
+        function(out)
+            local eat; for _, c in ipairs(out) do if c.label == "Eat Apple" then eat = c end end
+            if not Assert.notNil(eat, "the eat verb is harvested") then return false end
+            if not Assert.equal(eat.maxN, 5, "maxN = held count (capped at 20)") then return false end
+            return Assert.equal(type(eat.runN), "function", "a batch runN was attached to the consumable")
+        end)
+end
+
 return tests
