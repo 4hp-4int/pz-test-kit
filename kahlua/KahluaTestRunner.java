@@ -40,6 +40,7 @@ public class KahluaTestRunner {
     // every env, incl. DualVMSim subs) can wire the instrumentation in.
     private static boolean coverageOn = false;
     private static String  coverageScope = null;
+    private static boolean coverageLines = false;   // --coverage-lines: dump uncovered line ranges
 
     public static void main(String[] args) throws Exception {
 
@@ -79,8 +80,14 @@ public class KahluaTestRunner {
                 }
                 if (a.equals("--event-coverage")) { eventCoverage = true; continue; }
                 if (a.equals("--coverage")) { coverageOn = true; continue; }
+                if (a.equals("--coverage-lines")) { coverageOn = true; coverageLines = true; continue; }
                 if (a.startsWith("--coverage=")) {
-                    coverageOn = true; coverageScope = a.substring("--coverage=".length()); continue;
+                    coverageOn = true; coverageScope = a.substring("--coverage=".length());
+                    continue;
+                }
+                if (a.startsWith("--coverage-lines=")) {
+                    coverageOn = true; coverageLines = true;
+                    coverageScope = a.substring("--coverage-lines=".length()); continue;
                 }
                 if (a.equals("--serve") && i + 1 < args.length) {
                     serveScene = args[++i]; continue;
@@ -440,6 +447,22 @@ public class KahluaTestRunner {
             int pct = total > 0 ? (int) Math.round(100.0 * h / total) : 100;
             System.out.printf("  %-44s %3d%%  (%4d/%4d)%n",
                 cf.name != null ? cf.name : "?", pct, h, total);
+            // --coverage-lines: list the uncovered statement-lines, compressed to
+            // ranges (a-b), so you can jump straight to the untested code.
+            if (coverageLines && h < total) {
+                List<Integer> miss = new ArrayList<>();
+                for (Integer ln : cf.points) if (!cf.hit.contains(ln)) miss.add(ln);
+                Collections.sort(miss);
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < miss.size(); ) {
+                    int start = miss.get(i), end = start, j = i + 1;
+                    while (j < miss.size() && miss.get(j) == end + 1) { end = miss.get(j); j++; }
+                    if (sb.length() > 0) sb.append(", ");
+                    sb.append(start == end ? String.valueOf(start) : (start + "-" + end));
+                    i = j;
+                }
+                System.out.printf("        uncovered: %s%n", sb.toString());
+            }
         }
         if (!any) {
             System.out.println("  (no instrumented lines — check --coverage scope)");
