@@ -101,6 +101,7 @@ function CraftMock.install(items)
         getInventory       = function() return container end,
         isEquippedClothing = function(_, it) return it._equipped or false end,
         tooDarkToRead      = function() return CraftMock.tooDark or false end,
+        getPlayerNum       = function() return 0 end,
     }
 
     _G.getSpecificPlayer = function() return player end
