@@ -54,6 +54,22 @@ tests["assemble_names_by_the_built_item"] = function()
     return Assert.equal(found.category, "assembly", "ASSEMBLE chip")
 end
 
+tests["dismantle_is_discoverable_without_the_tool"] = function()
+    resetCaches()
+    local axe = { _type = "HandWeapon", getName = function() return "Fire Axe" end,
+                  getTexture = function() return nil end, getFullType = function() return "Base.Axe" end }
+    CraftMock.install({ axe }); CraftMock.canCraft = false     -- hold the weapon, lack the hammer
+    RecipeDB.installReal()
+    local cmds = SP.Assembly.collect(0)
+    CraftMock.canCraft = nil
+    RecipeDB.restore(); CraftMock.restore(); resetCaches()
+    local found
+    for _, c in ipairs(cmds) do if c.label == "Dismantle Fire Axe" then found = c end end
+    if not Assert.notNil(found, "a held weapon shows 'Dismantle' even without the tool") then return false end
+    if not Assert.equal(found.runnable, false, "blocked when you lack the hammer") then return false end
+    return Assert.notNil(found.blockReason, "and says what it needs")
+end
+
 tests["nothing_to_assemble_with_an_empty_bag"] = function()
     resetCaches()
     CraftMock.install({}); RecipeDB.installReal()
