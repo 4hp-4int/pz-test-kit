@@ -144,4 +144,29 @@ tests["item_hub_head_chip_follows_the_default_verb"] = function()
     return Assert.equal(g.category, "drink", "the head wears the DEFAULT verb's chip (DRINK), not the first member's (EQUIP)")
 end
 
+tests["markMinor_hides_generic_verbs_on_a_consumable"] = function()
+    local item = { getFullType = function() return "Base.WaterBottle" end }
+    local cmds = {
+        { label = "Drink",         category = "drink", item = item },
+        { label = "Equip Primary", category = "equip", item = item },
+        { label = "Drop",          category = "drop",  item = item },
+    }
+    G.markMinor(cmds)
+    if not Assert.isNil(cmds[1].minor, "the drink verb stays (it's the item's purpose)") then return false end
+    if not Assert.isTrue(cmds[2].minor == true, "equip is minor on a drinkable") then return false end
+    return Assert.isTrue(cmds[3].minor == true, "drop is minor on a drinkable")
+end
+
+tests["markMinor_leaves_a_pure_weapon_untouched"] = function()
+    -- no meaningful (eat/drink/read/med) verb -> equip IS the purpose; don't hide it
+    local item = { getFullType = function() return "Base.Axe" end }
+    local cmds = {
+        { label = "Equip Primary", category = "equip", item = item },
+        { label = "Drop",          category = "drop",  item = item },
+    }
+    G.markMinor(cmds)
+    if not Assert.isNil(cmds[1].minor, "equip stays for a weapon") then return false end
+    return Assert.isNil(cmds[2].minor, "drop stays too (nothing more meaningful to defer to)")
+end
+
 return tests

@@ -126,6 +126,21 @@ tests["no_tags_while_typing"] = function()
     return Assert.isNil(s.filtered[1]._tag, "a typed query is pure relevance — no zero-state tags")
 end
 
+tests["minor_verbs_hidden_in_zero_state_shown_when_typed"] = function()
+    local cmds = {
+        { label = "Drink", category = "drink", runnable = true },
+        { label = "Equip Primary", category = "equip", runnable = true, minor = true },
+    }
+    -- zero-state: the minor (generic management) verb is hidden
+    local s = run(cmds, "")
+    local seen = {}
+    for _, c in ipairs(s.filtered) do seen[c.label] = true end
+    if not Assert.isTrue(seen["Drink"] and not seen["Equip Primary"], "zero-state hides the minor equip verb, keeps Drink") then return false end
+    -- typed: the minor verb surfaces
+    local s2 = run(cmds, "equip")
+    return Assert.equal(#s2.filtered, 1, "typing 'equip' still finds the minor verb")
+end
+
 tests["loot_outranks_general_categories_in_zero_state"] = function()
     -- a loot row exists only when a stocked container is in reach, so when present it
     -- floats above the general categories (use/open/craft/...) — but stays below
