@@ -98,6 +98,7 @@ local function mkRecipe(spec, TAG)
         getName            = function() return spec.name end,
         getTranslationName = function() return spec.name end,
         getCategory        = function() return spec.category or "Other" end,
+        canBeDoneInDark    = function() return spec.dark ~= false end,
         involvesSkill      = function(_, perk)
             return (spec.skills and perk and spec.skills[perk._name] ~= nil) or false
         end,

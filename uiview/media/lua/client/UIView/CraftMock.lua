@@ -100,6 +100,7 @@ function CraftMock.install(items)
     local player = {
         getInventory       = function() return container end,
         isEquippedClothing = function(_, it) return it._equipped or false end,
+        tooDarkToRead      = function() return CraftMock.tooDark or false end,
     }
 
     _G.getSpecificPlayer = function() return player end
@@ -118,6 +119,7 @@ function CraftMock.install(items)
                 getRecipeData = function() return { getAllInputItems = function() return jlist({}) end } end,
                 canPerformCurrentRecipe = function(self) return self._recipe ~= nil end,
                 getPossibleCraftCount = function() return CraftMock.craftCount end,
+                isCharacterInRangeOfWorkbench = function() return true end,
                 setManualSelectInputs = function(self, b) self._manual = b end,
                 autoPopulateInputs = function() end,
                 updateManualInputAllowedItemTypes = function() end,
