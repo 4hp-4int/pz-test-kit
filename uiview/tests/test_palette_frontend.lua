@@ -136,6 +136,21 @@ tests["slash_pins_selected_row"] = function()
     return Assert.isTrue((root.entry:getText() or ""):find("/", 1, true) == nil, "the / was stripped from search")
 end
 
+tests["slash_pin_from_empty_box_does_not_strand_the_list"] = function()
+    -- Regression: from an EMPTY box, "/" must not leave the list filtered on "/". The
+    -- strip has to happen BEFORE the pin's refilter, else the empty post-strip query
+    -- equals the prior one and the recovery refilter is skipped -> list stuck empty.
+    local root = States.build({})           -- zero-state, empty box
+    root:selectFirstSelectable()
+    local cmd = selRow(root).cmd
+    local before = #root.filtered
+    root.entry:setText("/")
+    Render.frame(root, 1280, 800)
+    if not Assert.isTrue(_G.SaucePalette.Pins.isPinned(cmd), "/ pinned from an empty box") then return false end
+    if not Assert.isTrue((root.entry:getText() or "") == "", "box is empty again, no stray /") then return false end
+    return Assert.isTrue(#root.filtered >= before, "the row list is NOT stranded empty after the slash")
+end
+
 -- ── number-prefix quantity ──────────────────────────────────────────────────
 tests["number_prefix_sets_quantity"] = function()
     local root = States.build({ query = "5 open box" })
