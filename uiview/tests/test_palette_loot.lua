@@ -155,4 +155,56 @@ tests["collect_bagged_default_is_the_bag"] = function()
     return Assert.notNil(tostring(def.label):find("Duffel Bag", 1, true), "default loots into the roomiest bag")
 end
 
+-- ── item-metadata detail (the tooltip-style preview) ────────────────────────
+local function hasRow(d, text, qty)
+    for _, r in ipairs(d.rows) do
+        if r.text == text and (qty == nil or r.qty == qty) then return true end
+    end
+    return false
+end
+
+tests["item_detail_fresh_food"] = function()
+    local saved = _G.instanceof
+    _G.instanceof = function(o, cls) return cls == "Food" and o._food == true end
+    local apple = { _food = true, getName = function() return "Apple" end,
+        getOffAge = function() return 100 end, getAge = function() return 10 end,
+        isFrozen = function() return false end, isRotten = function() return false end,
+        getHungerChange = function() return -0.4 end, getActualWeight = function() return 0.3 end }
+    local d = SP.Loot.itemDetail(apple, 1, "Fridge")
+    _G.instanceof = saved
+    return Assert.isTrue(hasRow(d, "fresh"), "a fresh apple reads fresh")
+end
+
+tests["item_detail_non_perishable_not_rotten"] = function()
+    -- the 1e9 sentinel guard: a can with a huge age must NOT read rotten.
+    local saved = _G.instanceof
+    _G.instanceof = function(o, cls) return cls == "Food" and o._food == true end
+    local can = { _food = true, getName = function() return "Canned Beans" end,
+        getOffAge = function() return 1000000000 end, getAge = function() return 50000 end,
+        isFrozen = function() return false end, isRotten = function() return false end }
+    local d = SP.Loot.itemDetail(can, 1, "Crate")
+    _G.instanceof = saved
+    if not Assert.isTrue(hasRow(d, "non-perishable"), "offAge 1e9 reads non-perishable") then return false end
+    return Assert.isFalse(hasRow(d, "rotten"), "...and never rotten")
+end
+
+tests["item_detail_condition"] = function()
+    local saved = _G.instanceof
+    _G.instanceof = function() return false end   -- not Food / not Drainable
+    local axe = { getName = function() return "Axe" end, getCondition = function() return 4 end,
+        getConditionMax = function() return 10 end, getActualWeight = function() return 3 end }
+    local d = SP.Loot.itemDetail(axe, 1, "Crate")
+    _G.instanceof = saved
+    return Assert.isTrue(hasRow(d, "condition", "4/10"), "a worn axe shows its condition")
+end
+
+tests["contents_detail_groups_duplicates"] = function()
+    local items = {
+        { getName = function() return "Nails" end }, { getName = function() return "Nails" end },
+        { getName = function() return "Hammer" end },
+    }
+    local d = SP.Loot.contentsDetail(items, "Take All", "Crate")
+    return Assert.isTrue(hasRow(d, "Nails", "x2"), "the haul preview groups duplicates with counts")
+end
+
 return tests

@@ -33,7 +33,18 @@ tests["no_match_is_nil"] = function()
 end
 
 tests["subsequence_tier_is_100"] = function()
-    return Assert.equal(S.fuzzy("opb", "Open Box"), 100, "a pure subsequence scores 100")
+    return Assert.equal(S.fuzzy("opb", "Open Box"), 100, "an anchored subsequence scores 100")
+end
+
+tests["scattered_subsequence_is_rejected"] = function()
+    -- "poop" must NOT scavenge p-o-o-p out of "Equip Primary Bottle of Brandy"
+    -- (the false-positive the anchored matcher exists to kill).
+    if not Assert.isNil(S.fuzzy("poop", "Equip Primary Bottle of Brandy"),
+        "scattered cross-word letters don't match") then return false end
+    -- but a within-word typo-run (dropped letter) still matches
+    if not Assert.isTrue(S.fuzzy("opn", "Open Box") ~= nil, "'opn' still matches 'Open' (within-word run)") then return false end
+    -- and an acronym of word-initials still matches
+    return Assert.isTrue(S.fuzzy("ob", "Open Box") ~= nil, "'ob' still matches 'Open Box' (word initials)")
 end
 
 tests["synonym_whole_word_prefix"] = function()
