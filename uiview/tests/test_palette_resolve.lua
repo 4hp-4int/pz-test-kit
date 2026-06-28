@@ -99,4 +99,11 @@ tests["fixed_output_resolves_without_data"] = function()
     return Assert.equal(v.name, "Wooden Plank", "names the fixed item")
 end
 
+tests["humanizeTag_drops_prefix_and_prettifies"] = function()
+    if not Assert.equal(R.humanizeTag("base:scissors"), "Scissors", "drops module prefix, Title-cases") then return false end
+    if not Assert.equal(R.humanizeTag("base:fiberglasstape"), "Fiberglass Tape", "known lowercase compound") then return false end
+    if not Assert.equal(R.humanizeTag("DigGrave"), "Dig Grave", "camelCase split") then return false end
+    return Assert.equal(R.humanizeTag("base:epoxy"), "Epoxy", "plain word Title-cased")
+end
+
 return tests

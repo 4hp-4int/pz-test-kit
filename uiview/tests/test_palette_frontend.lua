@@ -121,11 +121,16 @@ tests["tab_toggles_browse_mode"] = function()
 end
 
 tests["slash_pins_selected_row"] = function()
+    -- Faithful to the in-game path: "/" arrives as a typed CHARACTER in the focused
+    -- box (isKeyDown is unreliable for printable keys while focused), and prerender
+    -- detects it, pins, and strips it. Type it and render a frame.
     local root = States.build({ query = "drink water" })
     root:selectFirstSelectable()
     local cmd = selRow(root).cmd
-    D.key(root, K.KEY_SLASH)
-    return Assert.isTrue(_G.SaucePalette.Pins.isPinned(cmd), "/ pinned the selected command")
+    root.entry:setText("drink water/")
+    Render.frame(root, 1280, 800)
+    if not Assert.isTrue(_G.SaucePalette.Pins.isPinned(cmd), "/ pinned the selected command") then return false end
+    return Assert.isTrue((root.entry:getText() or ""):find("/", 1, true) == nil, "the / was stripped from search")
 end
 
 -- ── number-prefix quantity ──────────────────────────────────────────────────
