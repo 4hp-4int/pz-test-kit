@@ -25,7 +25,7 @@ re-stamp), and a major-line jump to B43 (🛑 stop and re-validate).
 
 | Mod | Scope | Coverage | Tests | PZ build line | PZ version | Steam buildid | Date |
 |-----|-------|----------|-------|---------------|------------|---------------|------|
-| Sauce's Short Order | `palette` | 79% | 439 | Build 42 | 42.x (confirm in-game) | `23504596` | 2026-06-28 |
+| Sauce's Short Order | `palette` | 79% | 447 | Build 42 | 42.x (confirm in-game) | `23504596` | 2026-06-28 |
 
 The palette suite includes a **real-corpus sweep** (`test_palette_recipe_corpus`): our
 resolver is run over the actual 623 B42 craftRecipes, parsed from the game scripts by
