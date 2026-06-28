@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SaucePalette — ad player</title>
+<style>
+  html, body { margin:0; height:100%; background:#0a0910; overflow:hidden; }
+  /* 16:9 stage; the renderer captures #stage frame-by-frame via seek(t). */
+  #stage { position:relative; width:1920px; height:1080px;
+           transform-origin:top left; background:#0a0910; }
+  #cv { position:absolute; inset:0; }
+  /* lower-third caption band (Phase-2 plain; Phase-3 turns this into 90s chrome) */
+  #capband { position:absolute; left:0; right:0; bottom:0; height:200px;
+             background:linear-gradient(to top, #0c0a14 8%, rgba(12,10,20,0.0)); }
+  #cap { position:absolute; left:0; right:0; bottom:96px; text-align:center;
+         font:800 60px/1 ui-monospace,"Cascadia Code",Consolas,monospace;
+         letter-spacing:2px; color:#ffe8a3; text-transform:uppercase;
+         /* proper RGB-split + dark outline (no malformed shadow) */
+         text-shadow:
+           2px 0 0 rgba(226,40,60,0.55), -2px 0 0 rgba(40,200,220,0.55),
+           0 0 2px #000, 2px 2px 0 #000, -2px 2px 0 #000, 0 3px 6px rgba(0,0,0,0.7); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv" width="1920" height="1080"></canvas>
+  <div id="capband"></div>
+  <div id="cap"></div>
+</div>
+
+<script>/*__REPLAY__*/</script>
+<script>
+const STORYBOARD = /*__FRAME__*/{"frames":[]};
+const ASSETS = /*__ASSETS__*/{};
+const R = window.UIViewReplay;
+
+const STAGE_W = 1920, STAGE_H = 1080;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const capEl = document.getElementById('cap');
+
+// Build the timeline: each beat holds for its durationMs.
+const BEATS = STORYBOARD.frames || [];
+const TL = [];
+let acc = 0;
+for (const b of BEATS) {
+  const dur = (b.durationMs || 800) / 1000;
+  TL.push({ b: b, start: acc, end: acc + dur });
+  acc += dur;
+}
+const DURATION = acc || 0.001;
+
+// When each beat's caption text first appeared, so captions fade in only on a
+// real text change (not on every keystroke beat that repeats "TYPE THE VERB").
+for (let i = 0; i < TL.length; i++) {
+  const cap = TL[i].b.caption || '';
+  TL[i].capStart = (i > 0 && (TL[i - 1].b.caption || '') === cap) ? TL[i - 1].capStart : TL[i].start;
+}
+
+function smooth(x) { x = x < 0 ? 0 : (x > 1 ? 1 : x); return x * x * (3 - 2 * x); }
+
+let IMAGES = new Map();
+
+function segAt(t) {
+  for (const s of TL) if (t >= s.start && t < s.end) return s;
+  return TL[TL.length - 1] || null;
+}
+
+// Fit the panel (the SaucePaletteUI root, from frame.tree) into the stage and
+// center it. Falls back to the whole frame if no tree.
+function panelBounds(frame) {
+  const root = frame.tree;
+  if (root && root.w && root.h) return { x: root.x, y: root.y, w: root.w, h: root.h };
+  return { x: 0, y: 0, w: frame.width, h: frame.height };
+}
+
+function drawBackground() {
+  const g = ctx.createRadialGradient(STAGE_W/2, STAGE_H*0.42, 120, STAGE_W/2, STAGE_H*0.42, 1200);
+  g.addColorStop(0, '#161226');
+  g.addColorStop(1, '#080610');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+}
+
+function drawPanel(frame, localT, kind, settle) {
+  const pb = panelBounds(frame);
+  const base = Math.min((STAGE_W * 0.62) / pb.w, (STAGE_H * 0.64) / pb.h);
+  const scale = base * settle.s;
+  const cx = STAGE_W / 2, cy = STAGE_H * 0.46 + settle.dy;
+  ctx.save();
+  ctx.globalAlpha = settle.a;
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.translate(-(pb.x + pb.w / 2), -(pb.y + pb.h / 2));
+  // soft drop shadow behind the panel
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 18;
+  ctx.fillStyle = '#0e0e12';
+  ctx.fillRect(pb.x, pb.y, pb.w, pb.h);
+  ctx.restore();
+  R.drawFrame(ctx, frame, { images: IMAGES });
+  // run confirmation flash on the selected (top) row band, peaking just after
+  // the result lands so it reads as "ran it".
+  if (kind === 'run') {
+    const a = Math.max(0, 0.5 - Math.abs(localT - 0.45) * 1.1);
+    if (a > 0) {
+      ctx.fillStyle = 'rgba(80,230,120,' + a.toFixed(3) + ')';
+      ctx.fillRect(pb.x + 8, pb.y + 56, pb.w - 16, 28);
+    }
+  }
+  ctx.restore();
+}
+
+function seek(t) {
+  t = Math.max(0, Math.min(t, DURATION - 0.0001));
+  const seg = segAt(t);
+  drawBackground();
+  if (!seg) return;
+  const lt = t - seg.start;
+  // major beats ease in (fade + slight rise); typing beats cut snappily.
+  let settle = { a: 1, s: 1, dy: 0 };
+  if (!seg.b.quick) {
+    const e = smooth(lt / 0.28);
+    settle = { a: 0.2 + 0.8 * e, s: 0.99 + 0.01 * e, dy: (1 - e) * 16 };
+  }
+  drawPanel(seg.b.frame, lt, seg.b.kind, settle);
+  // caption fades in only when its text actually changed
+  capEl.style.opacity = smooth((t - seg.capStart) / 0.3).toFixed(3);
+  capEl.textContent = seg.b.caption || '';
+}
+
+// --- expose for the headless capture (render-ad.py) ---
+window.PLAYER = { seek: seek, duration: DURATION, beats: BEATS.length };
+
+// Resolve real icons, then either autoplay (human preview) or wait to be driven.
+window.__ready = R.preload(STORYBOARD, { assetMap: ASSETS }).then(imgs => {
+  IMAGES = imgs;
+  seek(0);
+  if (!window.__capture) {
+    const t0 = performance.now();
+    (function loop() {
+      const t = ((performance.now() - t0) / 1000) % DURATION;
+      seek(t);
+      requestAnimationFrame(loop);
+    })();
+  }
+});
+
+// fit the 1920x1080 stage into the window for human preview (capture ignores this)
+function fitStage() {
+  const s = Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
+  document.getElementById('stage').style.transform = 'scale(' + s + ')';
+}
+if (!window.__capture) { fitStage(); window.addEventListener('resize', fitStage); }
+</script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SaucePalette — live (Lua in your browser)</title>
+<style>
+  :root { --bg:#15131a; --ink:#d8d2e6; --accent:#9b6dd6; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--ink);
+         font:13px/1.4 ui-monospace,"Cascadia Code",Consolas,monospace; }
+  .bar { display:flex; gap:10px; align-items:center; padding:8px 10px;
+         border-bottom:1px solid #2c2836; flex-wrap:wrap; }
+  .bar b { color:var(--accent); letter-spacing:.5px; font-size:12px; }
+  input[type=text]{ background:#0e0d12; border:1px solid #3a3550; color:var(--ink);
+    font:inherit; padding:5px 9px; border-radius:4px; flex:1; min-width:150px; }
+  button{ background:#2a2440; border:1px solid #4a4368; color:var(--ink); font:inherit;
+    padding:5px 10px; border-radius:4px; cursor:pointer; }
+  button:hover{ background:#372f54; }
+  .stage{ display:grid; place-items:center; padding:12px; height:calc(100% - 46px);
+    background:repeating-conic-gradient(#1b1922 0% 25%, #201d29 0% 50%) 50% / 20px 20px; }
+  canvas{ image-rendering:pixelated; box-shadow:0 4px 24px #0007; cursor:pointer; outline:none; }
+  .hint{ color:#6f6880; font-size:11px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>SAUCEPALETTE</b>
+  <input id="q" type="text" placeholder="type to filter… arrows to move, Tab to browse" autocomplete="off">
+  <button id="reset">reset</button>
+  <span class="hint" id="hint">real pal_ui.lua, running in your browser</span>
+</div>
+<div class="stage"><canvas id="cv" tabindex="0"></canvas></div>
+
+<!-- VM + draw core as bundle files; Lua program + icons inlined at build time -->
+<script src="fengari-web.js"></script>
+<script type="text/plain" id="luaProgram">/*__LUA__*/</script>
+<script src="replay.js"></script>
+<script>
+const ASSETS = /*__ICONS__*/{};
+const R = window.UIViewReplay;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const qEl = document.getElementById('q');
+const hint = document.getElementById('hint');
+const IMAGES = new Map();
+for (const name in ASSETS){ const im = new Image(); im.src = ASSETS[name]; IMAGES.set(name, im); }
+
+// ── Fengari: boot the Lua VM once, expose tick(ev) -> frame JSON ──────────────
+const F = window.fengari;
+const { lua, lauxlib, lualib, to_luastring, to_jsstring } = F;
+const L = lauxlib.luaL_newstate();
+lualib.luaL_openlibs(L);
+(function boot(){
+  const program = document.getElementById('luaProgram').textContent;
+  if (lauxlib.luaL_dostring(L, to_luastring(program)) !== lua.LUA_OK) {
+    hint.textContent = 'lua boot error: ' + to_jsstring(lua.lua_tostring(L, -1));
+    lua.lua_pop(L, 1);
+  }
+})();
+function tick(ev){
+  lua.lua_getglobal(L, to_luastring('UIView_tick'));
+  lua.lua_pushstring(L, to_luastring(ev));
+  if (lua.lua_pcall(L, 1, 1, 0) !== lua.LUA_OK){
+    console.error('lua tick', to_jsstring(lua.lua_tostring(L, -1))); lua.lua_pop(L, 1); return null;
+  }
+  const s = to_jsstring(lua.lua_tostring(L, -1));
+  lua.lua_pop(L, 1);
+  return s;
+}
+
+// ── draw (crop to the panel + fit the iframe, both dims) ─────────────────────
+let FRAME = { width: 480, height: 320, ops: [], tree: null };
+let ZOOM = 1, CROP = { x:0, y:0 };
+function draw(){
+  const t = FRAME.tree || { x:0, y:0, w:FRAME.width, h:FRAME.height };
+  const M = 12;
+  const cx = (t.x||0) - M, cy = (t.y||0) - M;
+  CROP.x = cx; CROP.y = cy;
+  const cw = (t.w||FRAME.width) + M*2, ch = (t.h||FRAME.height) + M*2;
+  const barEl = document.querySelector('.bar');
+  const barH = barEl ? barEl.offsetHeight : 50;
+  const availW = Math.max(240, window.innerWidth - 28);
+  const availH = Math.max(180, window.innerHeight - barH - 18);
+  ZOOM = Math.max(0.5, Math.min(availW/cw, availH/ch, 2));
+  cv.width = cw*ZOOM; cv.height = ch*ZOOM;
+  cv.style.width = cw*ZOOM+'px'; cv.style.height = ch*ZOOM+'px';
+  ctx.setTransform(ZOOM,0,0,ZOOM, -cx*ZOOM, -cy*ZOOM);
+  ctx.clearRect(cx, cy, cw, ch);
+  R.drawFrame(ctx, FRAME, { images: IMAGES });
+}
+function loadIcon(name){
+  return new Promise(res => { const im = new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src = ASSETS[name] || ''; });
+}
+async function run(ev){
+  const json = tick(ev);
+  if (!json) return;
+  let f; try { f = JSON.parse(json); } catch(e){ return; }
+  FRAME = f;
+  const need = [];
+  for (const op of f.ops||[]) if (op.op==='texture' && op.name && !IMAGES.has(op.name)) need.push(op.name);
+  if (need.length){ const imgs = await Promise.all(need.map(loadIcon)); need.forEach((n,i)=>IMAGES.set(n,imgs[i])); }
+  draw();
+}
+
+// ── input -> Lua (synchronous; a tick is just a JS call) ─────────────────────
+function frameCoords(e){ const r = cv.getBoundingClientRect(); return [Math.round(CROP.x + (e.clientX-r.left)/ZOOM), Math.round(CROP.y + (e.clientY-r.top)/ZOOM)]; }
+cv.addEventListener('click', e => { cv.focus(); const [x,y]=frameCoords(e); run(`click ${x} ${y}`); });
+cv.addEventListener('mousemove', e => { const [x,y]=frameCoords(e); run(`move ${x} ${y}`); });
+cv.addEventListener('wheel', e => { e.preventDefault(); const [x,y]=frameCoords(e); run(`wheel ${x} ${y} ${e.deltaY>0?-1:1}`); }, { passive:false });
+const KEYMAP = { ArrowUp:'up', ArrowDown:'down', Enter:'enter', Tab:'tab', Escape:'esc', F1:'f1' };
+document.addEventListener('keydown', e => { const k = KEYMAP[e.key]; if (k){ e.preventDefault(); run(`key ${k}`); } });
+qEl.addEventListener('input', () => run(`text ${qEl.value}`));
+document.getElementById('reset').addEventListener('click', () => { qEl.value=''; run('reset'); });
+window.addEventListener('resize', draw);
+
+run('render');
+</script>
+</body>
+</html>

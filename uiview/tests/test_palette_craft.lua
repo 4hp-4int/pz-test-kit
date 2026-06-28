@@ -116,4 +116,31 @@ tests["unpack_recipe_splits_into_one_row_per_box"] = function()
         "two distinct rows, not one ambiguous '(100 Items)'")
 end
 
+tests["near_miss_surfaces_when_you_hold_the_subject"] = function()
+    -- Hold a Log but lack the saw: "Saw Log" should show as a blocked near-miss
+    -- ("almost-possible"), so you see it without menu-diving.
+    SP.Craft._recipes = nil
+    RecipeDB.install()
+    CraftMock.install({ CraftMock.item("Base.Log") }); CraftMock.canCraft = false
+    local cmds = SP.Craft.collect(0)
+    CraftMock.canCraft = nil
+    CraftMock.restore(); RecipeDB.restore(); SP.Craft._recipes = nil
+    local saw
+    for _, c in ipairs(cmds) do if c.label == "Saw Log" then saw = c end end
+    if not Assert.notNil(saw, "holding the Log surfaces 'Saw Log' even without the saw") then return false end
+    if not Assert.equal(saw.runnable, false, "shown blocked (almost-possible, not runnable)") then return false end
+    return Assert.notNil(saw.blockReason, "and says what you still need")
+end
+
+tests["no_near_miss_for_a_subject_you_dont_hold"] = function()
+    -- Empty bag -> no near-misses (the flood guard: only recipes whose subject you carry)
+    SP.Craft._recipes = nil
+    RecipeDB.install()
+    CraftMock.install({}); CraftMock.canCraft = false
+    local cmds = SP.Craft.collect(0)
+    CraftMock.canCraft = nil
+    CraftMock.restore(); RecipeDB.restore(); SP.Craft._recipes = nil
+    return Assert.equal(#cmds, 0, "nothing held -> no craft rows at all (no flood)")
+end
+
 return tests

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UIView — live drive</title>
+<style>
+  :root { --bg:#15131a; --panel:#1d1b24; --ink:#d8d2e6; --accent:#9b6dd6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:13px/1.4 ui-monospace,"Cascadia Code",Consolas,monospace; }
+  header { padding:10px 16px; border-bottom:1px solid #2c2836; display:flex; gap:14px;
+           align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:14px; margin:0; color:var(--accent); letter-spacing:.5px; }
+  header .dim { color:#6f6880; }
+  input[type=text] { background:#0e0d12; border:1px solid #3a3550; color:var(--ink);
+                     font:inherit; padding:5px 9px; border-radius:4px; width:280px; }
+  button { background:#2a2440; border:1px solid #4a4368; color:var(--ink); font:inherit;
+           padding:5px 12px; border-radius:4px; cursor:pointer; }
+  button:hover { background:#372f54; }
+  .stage { height:calc(100vh - 50px); overflow:auto; display:grid; place-items:center;
+           background:repeating-conic-gradient(#1b1922 0% 25%, #201d29 0% 50%) 50% / 22px 22px; }
+  canvas { box-shadow:0 6px 40px #0008; image-rendering:pixelated; cursor:pointer; }
+  #status { color:#6f6880; }
+</style>
+</head>
+<body>
+<header>
+  <h1>UIVIEW · LIVE</h1>
+  <span class="dim" id="sceneName">…</span>
+  <input id="search" type="text" placeholder="type to filter the live panel…" autocomplete="off">
+  <button id="reset">reset</button>
+  <span id="status">connecting…</span>
+</header>
+<div class="stage"><canvas id="cv"></canvas></div>
+
+<script src="/replay.js"></script>
+<script>
+const R = window.UIViewReplay;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const statusEl = document.getElementById('status');
+let ZOOM = 2, FRAME = { width: 480, height: 320, ops: [] };
+const IMAGES = new Map();
+
+function fit() {
+  const availW = window.innerWidth - 40, availH = window.innerHeight - 90;
+  ZOOM = Math.max(1, Math.min(3, Math.floor(Math.min(availW/FRAME.width, availH/FRAME.height)*2)/2 || 1));
+}
+
+function draw() {
+  fit();
+  cv.width = FRAME.width*ZOOM; cv.height = FRAME.height*ZOOM;
+  cv.style.width = FRAME.width*ZOOM+'px'; cv.style.height = FRAME.height*ZOOM+'px';
+  ctx.setTransform(ZOOM,0,0,ZOOM,0,0);
+  ctx.clearRect(0,0,FRAME.width,FRAME.height);
+  R.drawFrame(ctx, FRAME, { images: IMAGES });
+}
+
+// Load one icon by its bare PZ name (Item_*) straight off /icon, keyed by the
+// same name drawFrame looks up. (replay.preload's path fallback only accepts
+// names ending in .png, so we resolve live icons ourselves.)
+function loadIcon(name) {
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => res(null);
+    im.src = '/icon/' + encodeURIComponent(name);
+  });
+}
+
+// load any icons this frame references that we don't have yet, then draw
+async function ingest(frame) {
+  FRAME = frame;
+  const need = [];
+  for (const op of frame.ops||[]) {
+    if (op.op === 'texture' && op.name && !IMAGES.has(op.name)) need.push(op.name);
+  }
+  if (need.length) {
+    const imgs = await Promise.all(need.map(loadIcon));
+    need.forEach((n, i) => IMAGES.set(n, imgs[i]));
+  }
+  draw();
+}
+
+// One request in flight at a time (the Lua VM is a single pipe). Discrete
+// actions (click/text/wheel/reset) queue and never drop; mouse-move coalesces
+// to the latest position so a drag can't back up the queue.
+let busy = false;
+const queue = [];
+let latestMove = null;
+
+function pump() {
+  if (busy) return;
+  let cmd;
+  if (queue.length) cmd = queue.shift();
+  else if (latestMove !== null) { cmd = latestMove; latestMove = null; }
+  else return;
+  busy = true;
+  fetch('/event', { method:'POST', body: cmd })
+    .then(r => r.json())
+    .then(async frame => {
+      if (frame && frame.ops) { await ingest(frame); statusEl.textContent = `${frame.ops.length} ops · ${cmd.split(' ')[0]}`; }
+      else statusEl.textContent = 'err: ' + (frame.error||'?');
+    })
+    .catch(() => { statusEl.textContent = 'offline'; })
+    .finally(() => { busy = false; pump(); });
+}
+
+function send(cmd) { queue.push(cmd); pump(); }
+function sendMove(cmd) { latestMove = cmd; pump(); }
+
+function frameCoords(e) {
+  const r = cv.getBoundingClientRect();
+  return [Math.round((e.clientX-r.left)/ZOOM), Math.round((e.clientY-r.top)/ZOOM)];
+}
+
+cv.addEventListener('click', e => { const [x,y]=frameCoords(e); send(`click ${x} ${y}`); });
+cv.addEventListener('mousemove', e => { const [x,y]=frameCoords(e); sendMove(`move ${x} ${y}`); });
+cv.addEventListener('wheel', e => {
+  e.preventDefault(); const [x,y]=frameCoords(e);
+  send(`wheel ${x} ${y} ${e.deltaY>0?-1:1}`);
+}, { passive:false });
+
+// Keyboard nav — routed to the panel's real input hooks server-side. Arrows
+// move the selection, Enter activates / expands a group, Tab toggles
+// SUGGESTED <-> BY CATEGORY, Esc/F1 as in game. Character keys still flow to
+// the search box's input handler below.
+const KEYMAP = { ArrowUp:'up', ArrowDown:'down', Enter:'enter', Tab:'tab', Escape:'esc', F1:'f1' };
+document.addEventListener('keydown', e => {
+  const k = KEYMAP[e.key];
+  if (k) { e.preventDefault(); send(`key ${k}`); }
+});
+
+const search = document.getElementById('search');
+search.addEventListener('input', () => send(`text ${search.value}`));
+document.getElementById('reset').addEventListener('click', () => { search.value=''; send('reset'); });
+window.addEventListener('resize', draw);
+
+fetch('/scene').then(r=>r.json()).then(d => document.getElementById('sceneName').textContent = d.scene);
+send('render');
+</script>
+</body>
+</html>

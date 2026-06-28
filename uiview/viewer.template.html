@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UIView — PZ headless UI preview</title>
+<style>
+  :root { --bg:#15131a; --panel:#1d1b24; --ink:#d8d2e6; --accent:#9b6dd6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:13px/1.4 ui-monospace,"Cascadia Code",Consolas,monospace; }
+  header { padding:10px 16px; border-bottom:1px solid #2c2836; display:flex;
+           gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:14px; margin:0; color:var(--accent); letter-spacing:.5px; }
+  header label { user-select:none; cursor:pointer; opacity:.85; }
+  .wrap { display:flex; gap:0; height:calc(100vh - 46px); }
+  .stage { flex:1; overflow:auto; display:grid; place-items:center;
+           background:
+             repeating-conic-gradient(#1b1922 0% 25%, #201d29 0% 50%) 50% / 22px 22px; }
+  canvas { box-shadow:0 6px 40px #0008; image-rendering:pixelated; }
+  aside { width:300px; border-left:1px solid #2c2836; overflow:auto; padding:10px 12px; background:var(--panel); }
+  aside h2 { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#7c7390; margin:14px 0 6px; }
+  .tree-node { padding:1px 0 1px 12px; border-left:1px solid #322e3e; cursor:default; }
+  .tree-node:hover { background:#2a2636; }
+  .tag { color:var(--accent); }
+  .dim { color:#6f6880; }
+  #tip { position:fixed; pointer-events:none; background:#000d; border:1px solid var(--accent);
+         padding:4px 7px; border-radius:3px; font-size:11px; display:none; z-index:9; white-space:pre; }
+</style>
+</head>
+<body>
+<header>
+  <h1>UIVIEW</h1>
+  <span class="dim" id="dims"></span>
+  <label><input type="checkbox" id="outlines"> element outlines</label>
+  <label><input type="checkbox" id="labels"> op ids</label>
+  <label>zoom <input type="range" id="zoom" min="1" max="4" step="1" value="2"></label>
+  <span class="dim" id="opcount"></span>
+</header>
+<div class="wrap">
+  <div class="stage"><canvas id="cv"></canvas></div>
+  <aside>
+    <h2>Element tree</h2>
+    <div id="tree"></div>
+    <h2>Notes</h2>
+    <div class="dim">Rendered headlessly from PZ Lua via pz-test-kit (Kahlua VM).
+    Hover the canvas to inspect ops. Real UI textures resolve to pixels; item
+    icons (no file) show as placeholders.</div>
+  </aside>
+</div>
+<div id="tip"></div>
+
+<!-- canonical replay core, inlined at build time (single source of truth) -->
+<script>/*__REPLAY__*/</script>
+
+<script>
+const FRAME = /*__FRAME__*/{"width":480,"height":320,"ops":[],"tree":null};
+// name -> dataURI map for referenced textures (base64-inlined at build time)
+const ASSETS = /*__ASSETS__*/{};
+
+const R = window.UIViewReplay;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let ZOOM = 2;
+let IMAGES = new Map();
+
+function fitZoom() {
+  const availW = window.innerWidth - 320, availH = window.innerHeight - 70;
+  const z = Math.min(availW / FRAME.width, availH / FRAME.height);
+  ZOOM = Math.max(1, Math.min(4, Math.floor(z * 2) / 2 || 1));
+  const zr = document.getElementById('zoom'); if (zr) zr.value = Math.round(ZOOM);
+}
+
+function draw() {
+  const W = FRAME.width, H = FRAME.height;
+  cv.width = W*ZOOM; cv.height = H*ZOOM;
+  cv.style.width = W*ZOOM+'px'; cv.style.height = H*ZOOM+'px';
+  ctx.setTransform(ZOOM,0,0,ZOOM,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.textBaseline = 'top';
+  R.drawFrame(ctx, FRAME, {
+    images: IMAGES,
+    outlines: document.getElementById('outlines').checked,
+    opIds: document.getElementById('labels').checked,
+  });
+}
+
+function renderTree(node, depth) {
+  if (!node) return '';
+  const kids = Array.isArray(node.children)?node.children:[];
+  let html = `<div class="tree-node" data-x="${node.x}" data-y="${node.y}" data-w="${node.w}" data-h="${node.h}">`
+    + `<span class="tag">${node.type}</span> <span class="dim">#${node.id} · ${node.w}×${node.h} @${node.x},${node.y}</span></div>`;
+  for (const k of kids) html += renderTree(k, depth+1);
+  return html;
+}
+
+// hover inspector over the canvas
+const tip = document.getElementById('tip');
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX-r.left)/ZOOM, y = (e.clientY-r.top)/ZOOM;
+  let hit = null;
+  for (const op of FRAME.ops) {
+    const w = op.w||32, h = op.h|| (op.op==='text'?R.fontPx(op.font):0);
+    if (op.op==='text') { if (x>=op.x-60 && x<=op.x+200 && y>=op.y && y<=op.y+R.fontPx(op.font)) hit=op; }
+    else if (x>=op.x && x<=op.x+w && y>=op.y && y<=op.y+h) hit=op;
+  }
+  if (hit) {
+    tip.style.display='block';
+    tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px';
+    tip.textContent = `${hit.op} #${hit.z}  el:${hit.el}\n`
+      + (hit.str!=null?`"${hit.str}" [${hit.font||''} ${hit.align||''}]\n`:'')
+      + `@ ${Math.round(hit.x)},${Math.round(hit.y)}` + (hit.w?`  ${Math.round(hit.w)}×${Math.round(hit.h)}`:'');
+  } else tip.style.display='none';
+});
+cv.addEventListener('mouseleave', ()=> tip.style.display='none');
+
+document.getElementById('outlines').onchange = draw;
+document.getElementById('labels').onchange = draw;
+document.getElementById('zoom').oninput = e => { ZOOM = +e.target.value; draw(); };
+
+document.getElementById('dims').textContent = `${FRAME.width}×${FRAME.height}`;
+document.getElementById('opcount').textContent = `${FRAME.ops.length} ops`;
+document.getElementById('tree').innerHTML = renderTree(FRAME.tree, 0);
+fitZoom();
+window.addEventListener('resize', () => { fitZoom(); draw(); });
+
+// resolve real icon pixels (from the inlined asset map), then paint.
+R.preload(FRAME, { assetMap: ASSETS }).then(imgs => { IMAGES = imgs; draw(); });
+draw();
+</script>
+</body>
+</html>

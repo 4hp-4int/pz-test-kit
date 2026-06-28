@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SaucePalette — interactive</title>
+<style>
+  :root { --bg:#15131a; --ink:#d8d2e6; --accent:#9b6dd6; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { background:var(--bg); color:var(--ink);
+         font:13px/1.4 ui-monospace,"Cascadia Code",Consolas,monospace; }
+  .bar { display:flex; gap:10px; align-items:center; padding:8px 10px;
+         border-bottom:1px solid #2c2836; flex-wrap:wrap; }
+  .bar b { color:var(--accent); letter-spacing:.5px; font-size:12px; }
+  input[type=text]{ background:#0e0d12; border:1px solid #3a3550; color:var(--ink);
+    font:inherit; padding:5px 9px; border-radius:4px; flex:1; min-width:160px; }
+  button{ background:#2a2440; border:1px solid #4a4368; color:var(--ink); font:inherit;
+    padding:5px 10px; border-radius:4px; cursor:pointer; }
+  button:hover{ background:#372f54; }
+  button.on{ background:#4a3a72; border-color:#7a64aa; }
+  .stage{ display:grid; place-items:center; padding:14px;
+    background:repeating-conic-gradient(#1b1922 0% 25%, #201d29 0% 50%) 50% / 20px 20px; }
+  canvas{ image-rendering:pixelated; box-shadow:0 4px 24px #0007; cursor:pointer; }
+  .hint{ color:#6f6880; font-size:11px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>SAUCEPALETTE</b>
+  <input id="q" type="text" placeholder="type to filter… try: water, bandage, build, read" autocomplete="off">
+  <button id="browse">Browse</button>
+  <span class="hint" id="hint">real frames from the headless harness</span>
+</div>
+<div class="stage"><canvas id="cv"></canvas></div>
+
+<script>/*__REPLAY__*/</script>
+<script>
+const FRAMES = /*__FRAMES__*/{};
+const ICONS  = /*__ICONS__*/{};
+const R = window.UIViewReplay;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const qEl = document.getElementById('q');
+const browseBtn = document.getElementById('browse');
+const hint = document.getElementById('hint');
+
+// preload inlined icons (name -> Image)
+const IMAGES = new Map();
+(function preloadIcons(){
+  for (const name in ICONS){
+    const im = new Image(); im.src = ICONS[name]; IMAGES.set(name, im);
+  }
+})();
+
+let state = { q:"", browse:false, sel:0, expanded:false };
+
+// pick the captured frame matching the current interaction state
+function resolveFrame(){
+  const q = state.q.trim().toLowerCase();
+  if (q !== ""){
+    if (FRAMES["q:"+q]) return FRAMES["q:"+q];
+    // longest captured prefix of what they typed
+    let best=null, bestLen=-1;
+    for (let i=q.length-1; i>=1; i--){
+      const p = q.slice(0,i);
+      if (FRAMES["q:"+p]){ best=FRAMES["q:"+p]; bestLen=i; break; }
+    }
+    if (best) return best;
+    return FRAMES["nomatch"] || FRAMES["q:"];
+  }
+  if (state.expanded && FRAMES["expand"]) return FRAMES["expand"];
+  if (state.browse && FRAMES["browse"]) return FRAMES["browse"];
+  if (state.sel > 0 && FRAMES["sel:"+state.sel]) return FRAMES["sel:"+state.sel];
+  return FRAMES["q:"];
+}
+
+let ZOOM = 1.6, FRAME = FRAMES["q:"];
+let CROP = { x:0, y:0 };
+function draw(){
+  FRAME = resolveFrame() || FRAMES["q:"];
+  // Crop to the panel (the captured frame is full-screen with the panel
+  // centered); use the element tree bounds + a small margin.
+  const t = FRAME.tree || { x:0, y:0, w:FRAME.width, h:FRAME.height };
+  const M = 12;
+  const cx = (t.x||0) - M, cy = (t.y||0) - M;
+  CROP.x = cx; CROP.y = cy;
+  const cw = (t.w||FRAME.width) + M*2, ch = (t.h||FRAME.height) + M*2;
+  // Fit the panel to the iframe viewport in BOTH dimensions (scaling below 1x
+  // when the post column is narrower than the panel) so it never scrolls.
+  // Use the real viewport, not the stage — the stage's height IS the canvas.
+  const barEl = document.querySelector('.bar');
+  const barH = barEl ? barEl.offsetHeight : 50;
+  const availW = Math.max(240, window.innerWidth - 28);
+  const availH = Math.max(180, window.innerHeight - barH - 18);
+  ZOOM = Math.max(0.5, Math.min(availW/cw, availH/ch, 2));
+  cv.width = cw*ZOOM; cv.height = ch*ZOOM;
+  cv.style.width = cw*ZOOM+'px'; cv.style.height = ch*ZOOM+'px';
+  // translate so the cropped region sits at the canvas origin
+  ctx.setTransform(ZOOM,0,0,ZOOM, -cx*ZOOM, -cy*ZOOM);
+  ctx.clearRect(cx, cy, cw, ch);
+  R.drawFrame(ctx, FRAME, { images: IMAGES });
+}
+
+qEl.addEventListener('input', () => {
+  state.q = qEl.value; state.browse=false; state.sel=0; state.expanded=false;
+  browseBtn.classList.remove('on');
+  draw();
+});
+qEl.addEventListener('keydown', e => {
+  if (state.q === "" && (e.key==='ArrowDown' || e.key==='ArrowUp')){
+    e.preventDefault();
+    state.sel = Math.max(0, Math.min(10, state.sel + (e.key==='ArrowDown'?1:-1)));
+    state.expanded=false; draw();
+  }
+});
+browseBtn.addEventListener('click', () => {
+  if (state.q !== ""){ qEl.value=""; state.q=""; }
+  state.browse = !state.browse; state.sel=0; state.expanded=false;
+  browseBtn.classList.toggle('on', state.browse);
+  hint.textContent = state.browse ? "BY CATEGORY view (Tab in the real tool)" : "real frames from the headless harness";
+  draw();
+});
+// click the Equip Primary group row (zero-state) to expand it
+cv.addEventListener('click', e => {
+  if (state.q !== "" || state.browse) return;
+  const r = cv.getBoundingClientRect();
+  const y = CROP.y + (e.clientY - r.top)/ZOOM;   // back to frame coords
+  if (y >= 240 && y <= 258){ state.expanded = !state.expanded; state.sel=0; draw(); }
+});
+window.addEventListener('resize', draw);
+draw();
+</script>
+</body>
+</html>

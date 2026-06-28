@@ -46,6 +46,7 @@ That test failed loudly the moment someone would have reintroduced the 4-arg for
 | **Zero-config discovery** | Drop a `pz-test.lua` at your mod root. Auto-discovers tests in `media/lua/client/<Mod>/Tests/`. |
 | **JUnit XML output** | `--junit-xml` for CI. Works with GitHub Actions Test Reporter, VS Code Test Explorer, etc. |
 | **Skip support** | `PZTestKit.skip("reason")` + `PZTestKit.skipInGame(...)` for environment-gated tests. Surfaces as `<skipped>` in JUnit, not `<failure>`. |
+| **Line coverage** | `--coverage[=<substr>]` reports per-file line coverage. Source instrumentation (PZ's Kahlua has no debug hooks) with a compile-verify fallback, so it can never break the code under test. |
 
 ---
 
@@ -117,7 +118,33 @@ pztest                          # auto-discover all test files
 pztest --filter durability      # only tests with "durability" in the name
 pztest --junit-xml results.xml  # for CI
 pztest tests/test_core.lua      # single file
+pztest --coverage               # line coverage of every module
+pztest --coverage=YourMod/      # line coverage scoped to matching modules
 ```
+
+### Line coverage
+
+`--coverage` reports which source LINES executed during the run:
+
+```
+--- Line coverage (scope: palette/) ---
+  palette/pal_action                           100%  (  51/  51)
+  palette/pal_craft                             61%  (  97/ 159)
+  palette/pal_ui                                74%  ( 660/ 891)
+  TOTAL                                         64%  (1459/2280)  [18 files]
+```
+
+PZ's Kahlua ships no `debug.sethook` and the runtime jar is repackaged from PZ's
+compiled classes, so coverage is done by **source instrumentation**: each module's
+source is rewritten at load to drop a probe at every statement-line, then
+**compile-verified** — if the instrumented source doesn't compile it's discarded and
+the original loads instead. Instrumentation can therefore never change behavior or
+break a test (a file that can't be instrumented is reported as a fallback, not
+covered). Granularity is statement-line: continuation lines, table-constructor
+interiors, and block keywords (`end`/`else`/…) aren't probed, so they're not in the
+denominator. Scope instrumentation to the code you care about with
+`--coverage=<substr>` (matches require-name or path) — handy when the mod under test
+is a dependency (e.g. a UI-render harness covering `palette/`).
 
 ---
 

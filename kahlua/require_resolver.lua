@@ -112,7 +112,16 @@ function require(name)
     local source = _pz_module_sources[name]
     if source ~= nil then
         local chunkName = _pz_module_files[name] or name
-        local chunk, cerr = loadstring(source, chunkName)
+        -- Coverage: when enabled + in scope, load an INSTRUMENTED chunk. On any
+        -- instrumentation/compile issue _pz_cov_compile returns nil and we fall
+        -- through to the original source — coverage never breaks the module.
+        local chunk, cerr
+        if _pz_cov_on and _pz_cov_compile and _pz_cov_should(name, chunkName) then
+            chunk = _pz_cov_compile(source, name, chunkName)
+        end
+        if not chunk then
+            chunk, cerr = loadstring(source, chunkName)
+        end
         if not chunk then
             error("compile error in '" .. name .. "': " .. tostring(cerr), 2)
         end

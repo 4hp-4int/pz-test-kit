@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UIView — palette states contact sheet</title>
+<style>
+  :root { --bg:#15131a; --ink:#d8d2e6; --accent:#9b6dd6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:13px ui-monospace,Consolas,monospace; padding:14px; }
+  h1 { font-size:14px; color:var(--accent); letter-spacing:.5px; margin:0 0 12px; }
+  #grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; }
+  .cell { background:#1b1922; border:1px solid #2c2836; border-radius:4px; padding:8px; }
+  .cell h2 { font-size:12px; margin:0 0 6px; color:#cdbff0; }
+  .cell .dim { color:#6f6880; font-size:11px; }
+  canvas { width:100%; height:auto; image-rendering:pixelated; background:#0a0910; border-radius:3px; }
+</style>
+</head>
+<body>
+<h1>UIVIEW · SaucePalette states</h1>
+<div id="grid"></div>
+
+<script>/*__REPLAY__*/</script>
+<script>
+const STORYBOARD = /*__FRAME__*/{"frames":[]};
+const ASSETS = /*__ASSETS__*/{};
+const R = window.UIViewReplay;
+const beats = STORYBOARD.frames || [];
+const grid = document.getElementById('grid');
+
+function panelBounds(frame) {
+  const r = frame.tree;
+  if (r && r.w && r.h) return { x:r.x-10, y:r.y-10, w:r.w+20, h:r.h+20 };
+  return { x:0, y:0, w:frame.width, h:frame.height };
+}
+
+function drawCell(beat, images) {
+  const fr = beat.frame, pb = panelBounds(fr);
+  const cv = document.createElement('canvas');
+  cv.width = pb.w; cv.height = pb.h;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0a0910'; ctx.fillRect(0,0,pb.w,pb.h);
+  ctx.translate(-pb.x, -pb.y);
+  R.drawFrame(ctx, fr, { images });
+  const cell = document.createElement('div'); cell.className = 'cell';
+  const h2 = document.createElement('h2');
+  h2.innerHTML = (beat.caption || beat.label) + ' <span class="dim">[' + beat.label + ']</span>';
+  cell.appendChild(h2); cell.appendChild(cv);
+  grid.appendChild(cell);
+}
+
+R.preload(STORYBOARD, { assetMap: ASSETS }).then(images => {
+  for (const b of beats) drawCell(b, images);
+  window.__ready = true;
+});
+window.__ready = window.__ready || false;
+</script>
+</body>
+</html>

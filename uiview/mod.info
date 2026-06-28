@@ -1,0 +1,4 @@
+name=UIView Harness
+id=UIViewHarness
+description=Headless PZ UI render harness — renders ISUI panels to a display list for browser preview + tests
+pzversion=42.15.0
