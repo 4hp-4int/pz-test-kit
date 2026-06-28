@@ -126,19 +126,25 @@ tests["no_tags_while_typing"] = function()
     return Assert.isNil(s.filtered[1]._tag, "a typed query is pure relevance — no zero-state tags")
 end
 
-tests["minor_verbs_hidden_in_zero_state_shown_when_typed"] = function()
+tests["minor_verbs_hidden_unless_their_own_label_is_typed"] = function()
+    -- the minor verb's source is the WATER bottle; "water" is a synonym of "drink", so
+    -- without the label-only rule, typing "drink" would sweep the Equip verb in too.
     local cmds = {
-        { label = "Drink", category = "drink", runnable = true },
-        { label = "Equip Primary", category = "equip", runnable = true, minor = true },
+        { label = "Drink", category = "drink", runnable = true, source = "Water (Plastic Bottle)" },
+        { label = "Equip Primary", category = "equip", runnable = true, minor = true, source = "Water (Plastic Bottle)" },
     }
-    -- zero-state: the minor (generic management) verb is hidden
+    -- zero-state: minor hidden
     local s = run(cmds, "")
-    local seen = {}
-    for _, c in ipairs(s.filtered) do seen[c.label] = true end
+    local seen = {}; for _, c in ipairs(s.filtered) do seen[c.label] = true end
     if not Assert.isTrue(seen["Drink"] and not seen["Equip Primary"], "zero-state hides the minor equip verb, keeps Drink") then return false end
-    -- typed: the minor verb surfaces
-    local s2 = run(cmds, "equip")
-    return Assert.equal(#s2.filtered, 1, "typing 'equip' still finds the minor verb")
+    -- typing "drink": the Equip verb must NOT be swept in by the water->drink synonym
+    local sD = run(cmds, "drink")
+    local sawEquip = false; for _, c in ipairs(sD.filtered) do if c.label == "Equip Primary" then sawEquip = true end end
+    if not Assert.isFalse(sawEquip, "typing 'drink' does NOT pull in the minor Equip via a sibling synonym") then return false end
+    -- typing "equip": the minor verb surfaces on its own label
+    local sE = run(cmds, "equip")
+    local sawE = false; for _, c in ipairs(sE.filtered) do if c.label == "Equip Primary" then sawE = true end end
+    return Assert.isTrue(sawE, "typing 'equip' surfaces the minor verb (direct label match)")
 end
 
 tests["loot_outranks_general_categories_in_zero_state"] = function()
