@@ -25,7 +25,7 @@ re-stamp), and a major-line jump to B43 (🛑 stop and re-validate).
 
 | Mod | Scope | Coverage | Tests | PZ build line | PZ version | Steam buildid | Date |
 |-----|-------|----------|-------|---------------|------------|---------------|------|
-| Sauce's Short Order | `palette` | 79% | 426 | Build 42 | 42.x (confirm in-game) | `23504596` | 2026-06-28 |
+| Sauce's Short Order | `palette` | 79% | 437 | Build 42 | 42.x (confirm in-game) | `23504596` | 2026-06-28 |
 
 > **PZ version**: the exact `42.x.y` isn't readable from disk — read it from the
 > game's main menu and record it here. The **Steam buildid** is the authoritative
