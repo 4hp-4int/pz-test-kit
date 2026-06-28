@@ -117,4 +117,17 @@ tests["only_top_urgent_group_auto_expands"] = function()
     return Assert.equal(expandedCount, 1, "exactly ONE urgent group auto-expands, not every tagged group")
 end
 
+tests["family_category_drives_the_head_chip"] = function()
+    -- a heterogeneous item hub (drink + equip under one item) must wear the family's
+    -- declared category (item), NOT whichever member created the group (drink).
+    local _, _, category = G.keyFor(
+        { label = "All", category = "drink", familyKey = "item:Base.OrangeJuice",
+          familyLabel = "Orange Juice", familyCategory = "item" }, "verb")
+    if not Assert.equal(category, "item", "familyCategory overrides the member category for the head") then return false end
+    -- and a family WITHOUT a declared category still uses the member's
+    local _, _, cat2 = G.keyFor(
+        { label = "Take All", category = "loot", familyKey = "loot:1", familyLabel = "Loot Crate" }, "verb")
+    return Assert.equal(cat2, "loot", "a family with no familyCategory keeps the member category")
+end
+
 return tests
