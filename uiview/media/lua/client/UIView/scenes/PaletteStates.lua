@@ -171,7 +171,8 @@ function States.build(opts)
     -- So drive the real path: stub the combo to the wanted index (1 diner / 2 midnight
     -- / 3 paper). Always set, so a themed build never leaks into the next.
     if SP.Settings then
-        local idx = (opts.theme == "midnight" and 2) or (opts.theme == "paper" and 3) or 1
+        local idx = (opts.theme == "midnight" and 2) or (opts.theme == "paper" and 3)
+            or (opts.theme == "forge" and 4) or (opts.theme == "cartRadio" and 5) or 1
         SP.Settings._theme = { getValue = function() return idx end }
     end
     pcall(function() Theme.applyTheme(opts.theme) end)   -- also set now for any pre-:new read

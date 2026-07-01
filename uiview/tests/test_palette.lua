@@ -31,39 +31,40 @@ tests["palette_builds_rows_from_commands"] = function()
     return Assert.greater(#root.rows, 0, "row list populated from fixture commands")
 end
 
-tests["duplicate_verb_collapses_into_group"] = function()
+tests["family_collapses_into_group"] = function()
     local root = Palette.build("")
+    -- the Window family (4 barricade/remove-glass verbs) collapses under one head
     local group = nil
     for _, r in ipairs(root.rows) do
-        if r.kind == "group" and r.group.label == "Equip Primary" then group = r.group end
+        if r.kind == "group" and r.group.label == "Window" then group = r.group end
     end
-    if not Assert.notNil(group, "Equip Primary group exists") then return false end
-    return Assert.equal(#group.cmds, 3, "group holds all 3 equip commands")
+    if not Assert.notNil(group, "Window family exists") then return false end
+    return Assert.equal(#group.cmds, 4, "family holds all 4 window verbs")
 end
 
 tests["renders_chips_and_labels"] = function()
     local root = Palette.build("")
     Render.frame(root, 1280, 800)
-    if not Assert.notNil(findText("CRAFT"), "CRAFT chip painted") then return false end
-    return Assert.notNil(findText("Crude Bandage"), "craft row label painted")
+    if not Assert.notNil(findText("WORLD"), "WORLD chip painted") then return false end
+    return Assert.notNil(findText("Window"), "world family label painted")
 end
 
 tests["typing_filters_the_list"] = function()
-    local root = Palette.build("water")
-    -- only the Drink Water command should survive the fuzzy filter
+    local root = Palette.build("destroy")
+    -- only the Destroy command should survive the fuzzy filter
     local labels = {}
     for _, r in ipairs(root.rows) do
         if r.cmd then labels[r.cmd.label] = true end
     end
-    if not Assert.isTrue(labels["Drink Water"] == true, "Drink Water matches 'water'") then return false end
-    return Assert.isTrue(labels["Open Door"] == nil, "Open Door filtered out by 'water'")
+    if not Assert.isTrue(labels["Destroy"] == true, "Destroy matches 'destroy'") then return false end
+    return Assert.isTrue(labels["Take Pills"] == nil, "Take Pills filtered out by 'destroy'")
 end
 
 tests["enter_expands_group"] = function()
     local root = Palette.build("")
-    -- find + select the Equip group, then runSel() to toggle expand
+    -- find + select the Window family, then runSel() to toggle expand
     for i, r in ipairs(root.rows) do
-        if r.kind == "group" and r.group.label == "Equip Primary" then root.sel = i break end
+        if r.kind == "group" and r.group.label == "Window" then root.sel = i break end
     end
     root:runSel()
     return Assert.isTrue(root.rows[root.sel] ~= nil and

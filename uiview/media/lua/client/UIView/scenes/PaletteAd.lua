@@ -55,21 +55,24 @@ local function fixtureCommands()
     add({ label = "Barricade Door", source = "Sheet Metal", category = "build", icon = "Item_SheetMetal" })
 
     add({ label = "Bandage Wound", source = "Bandage", category = "med",  icon = "Item_Bandage" })
-    add({ label = "Open Box of Bullets", source = "Box of 9mm Rounds", category = "craft", icon = "Item_HandgunAmmoBox",
+    add({ label = "Open Box of Bullets", source = "Box of .357 Magnum Rounds", category = "craft", icon = "Item_HandgunAmmoBox",
         batch = true,
         buildDetail = function()
             return { title = "Open Box", rows = {
-                { text = "Box of 9mm Rounds", tone = "consume", qty = "x1" },
-                { text = "9mm Round", tone = "make", qty = "x50" },
+                { text = "Box of .357 Magnum Rounds", tone = "consume", qty = "x1" },
+                { text = ".357 Magnum Round", tone = "make", qty = "x30" },
             }, footer = "[Shift] x5   [Ctrl] all" }
         end })
 
-    add({ label = "Drink Water",     source = "Water Bottle", category = "drink", icon = "Item_WaterBottle_Full" })
-    add({ label = "Eat Stew",        source = "Pot of Stew",  category = "eat",   icon = "Item_Saucepan" })
-    add({ label = "Equip Machete",   source = "Machete",      category = "equip", icon = "Item_Machete" })
-    add({ label = "Equip Hammer",    source = "Hammer",       category = "equip", icon = "Item_Hammer" })
-    add({ label = "Read First Aid",  source = "First Aid Vol.1", category = "read", icon = "Item_Book" })
-    add({ label = "Place Generator", source = "Generator",    category = "place", icon = "Item_Generator" })
+    -- Real loadout filler (the same survivor as the static captures): the wrench
+    -- is a VorpallySauced affix piece, the rest vanilla. Three "Equip Primary"
+    -- rows collapse into a group; beer + skill book fill out the categories.
+    add({ label = "Drink Beer",    source = "Beer (Beer Can)", category = "drink", icon = "Item_BeerCan" })
+    add({ label = "Equip Primary", source = "Tireless Pipe Wrench of Preservation (Bloody)", category = "equip", icon = "Item_PipeWrench" })
+    add({ label = "Equip Primary", source = "Colt Python Revolver", category = "equip", icon = "Item_RevolverLong" })
+    add({ label = "Equip Primary", source = "Bolt Cutters", category = "equip", icon = "Item_Boltcutters" })
+    add({ label = "Read",          source = "Electrical I: \"Basic Electronics\"", category = "read", icon = "Item_Book6" })
+    add({ label = "Take All",      source = "Oak Table", category = "loot" })
 
     return cmds
 end
