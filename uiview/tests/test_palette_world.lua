@@ -173,7 +173,10 @@ local function cacheEmpty() for _ in pairs(W._sqCache) do return false end retur
 
 tests["afterRun_keeps_cache_for_non_world_actions"] = function()
     if not Assert.notNil(SP.afterRun, "SP.afterRun exists") then return false end
-    for _, k in ipairs({ "eat", "loot", "pickup", "equip", "craft", "fluid", "wash" }) do
+    -- farm + device are AUDITED keeps: farming has no B42 world-context hook, and the
+    -- world menu only carries a constant "Device Options" panel-opener for TVs/radios,
+    -- so neither can stale a harvested square. (See WORLD_MUTATOR's audit note.)
+    for _, k in ipairs({ "eat", "loot", "pickup", "equip", "craft", "fluid", "wash", "farm", "device" }) do
         seedCache()
         SP.afterRun({ kind = k })
         if not Assert.isTrue(not cacheEmpty(), "'" .. k .. "' keeps the per-square cache") then return false end
@@ -182,12 +185,36 @@ tests["afterRun_keeps_cache_for_non_world_actions"] = function()
 end
 
 tests["afterRun_clears_cache_for_world_mutators"] = function()
-    for _, k in ipairs({ "world", "cookable", "moveable" }) do
+    -- clean is a mutator: stains are square STATE, not objects — scrubbing is count-
+    -- neutral, and vanilla re-offers "Clean Blood" off square:haveStains().
+    for _, k in ipairs({ "world", "cookable", "moveable", "clean" }) do
         seedCache()
         SP.afterRun({ kind = k })
         if not Assert.isTrue(cacheEmpty(), "'" .. k .. "' clears the per-square cache") then return false end
     end
     return true
+end
+
+-- ── speed-0 bail: an empty paused collect must never be cached as truth ─────
+tests["speed0_collect_bails_stale_and_uncached"] = function()
+    if not Assert.notNil(SP.markStale, "SP.markStale exists") then return false end
+    local h = harness()
+    fillWindow(h, 0, 0)
+    -- paused: the collect bails empty and flags the world half stale
+    _G.UIManager = { getSpeedControls = function() return { getCurrentGameSpeed = function() return 0 end } end }
+    SP._staleHalves = {}
+    local paused = W.collect(0)
+    local flagged = SP._staleHalves.world == true
+    -- unpause: the same spot must do a REAL harvest (the bail cached nothing)
+    _G.UIManager = { getSpeedControls = function() return { getCurrentGameSpeed = function() return 1 end } end }
+    h.resetCalls()
+    local warm = W.collect(0)
+    local n = h.calls()
+    h.restore()
+    if not Assert.equal(#paused, 0, "paused collect returns no rows") then return false end
+    if not Assert.isTrue(flagged, "paused collect marks the world half stale") then return false end
+    if not Assert.equal(n, 9, "unpaused collect harvests all 9 squares (bail cached nothing)") then return false end
+    return Assert.greater(#warm, 0, "world rows return once unpaused")
 end
 
 -- ── decoration pre-filter (grass/blends never yield verbs) ──────────────────
