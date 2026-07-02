@@ -13,8 +13,8 @@ local SIRInv  = require "UIView/scenes/SIRInv"
 
 -- emit the scene for headless viewing (guarded so a render error reports clearly)
 do
-    local ok, err = pcall(function() Render.emit(SIRInv.build({}), nil, nil, "sirinv") end)
-    pcall(function() Render.emit(SIRInv.build({ look = "daylight" }), nil, nil, "sirdaylight") end)
+    local ok, err = pcall(function() Render.emit(SIRInv.build({ look = "lamplight" }), nil, nil, "sirinv") end)
+    pcall(function() Render.emit(SIRInv.build({}), nil, nil, "sirdaylight") end)
     if not ok then print("[sirinv] BUILD/EMIT ERROR: " .. tostring(err)) end
 end
 

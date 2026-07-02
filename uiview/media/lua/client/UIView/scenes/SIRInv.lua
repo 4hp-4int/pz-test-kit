@@ -498,13 +498,13 @@ function Scene.build(opts)
     ensureGlobals()
     _id = 0
     opts = opts or {}
-    -- look selection (lamplight default / "daylight" = the cream ledger relight):
+    -- look selection (daylight default / "lamplight" = the dark kraft ledger):
     -- stub the Mod Options combo the render polls, so the look system runs its
     -- REAL apply path (T.setLook via SIR.optIndex) rather than being forced.
     local SIR = _G.SauceInvRender
     if SIR then
         SIR.Keys = SIR.Keys or {}
-        local idx = (opts.look == "daylight") and 2 or 1
+        local idx = (opts.look == "lamplight") and 2 or 1
         SIR.Keys["sir_look"] = { getValue = function() return idx end }
     end
     local stacks = (opts.fixture == "woodwork") and woodworkArchetypes() or archetypes()
