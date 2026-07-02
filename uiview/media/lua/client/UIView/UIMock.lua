@@ -360,16 +360,21 @@ function ISUIElement:drawTextureScaled(tex, x, y, w, h, a, r, g, b)
     pushTexture(self, tex, x, y, w, h, a, r, g, b, false)
 end
 ISUIElement.drawTextureScaledColor = ISUIElement.drawTextureScaled
-function ISUIElement:drawTextureScaledStatic(tex, x, y, w, h, a, r, g, b)
-    pushTexture(self, tex, x, y, w, h, a, r, g, b, true)
-end
+-- VANILLA-FAITHFUL MISNOMER: ISUIElement:drawTextureScaledStatic passes RAW
+-- coords to the java draw -- it does NOT pin against scroll (drawRectStatic
+-- does, by subtracting the scroll). Modeling the truth means a mod that
+-- trusts the name fails HERE instead of in-game. Pin textures by
+-- pre-subtracting the scroll yourself (see SIR's Chrome.nineStatic).
+ISUIElement.drawTextureScaledStatic = ISUIElement.drawTextureScaled
 function ISUIElement:drawTexture(tex, x, y, a, r, g, b)
     -- unknown native size; record a small marker box. Mods that need real size
     -- use drawTextureScaled.
     pushTexture(self, tex, x, y, 32, 32, a, r, g, b, false)
 end
 function ISUIElement:drawTextureStatic(tex, x, y, a, r, g, b)
-    pushTexture(self, tex, x, y, 32, 32, a, r, g, b, true)
+    -- vanilla: pins ONLY the colored variant; the nil-color path is raw.
+    -- Model the pinning variant (SIR passes colors).
+    pushTexture(self, tex, x, y, 32, 32, a, r, g, b, r ~= nil)
 end
 function ISUIElement:drawTextureScaledAspect(tex, x, y, w, h, a, r, g, b)
     pushTexture(self, tex, x, y, w, h, a, r, g, b, false)
