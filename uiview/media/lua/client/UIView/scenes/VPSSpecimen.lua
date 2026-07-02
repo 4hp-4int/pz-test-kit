@@ -203,7 +203,10 @@ function Page:layout(draw)
         gap(0.85)
     end
 
-    -- ── THE KILL CLOCK + the numbers ──
+    -- ── THE KILL CLOCK + vitals (boxed like the other sections) ──
+    local vitTop = y + math.floor(H(UIFont.Small) / 2)
+    text("WEAPON PERSONALITY", pad, UIFont.Small, P.INK_FADE)
+    advance(UIFont.Small, 1.35)
     do
         local R = math.floor(H(UIFont.Small) * 3.0)
         local dot = math.max(3, math.floor(H(UIFont.Small) * 0.3))
@@ -274,16 +277,22 @@ function Page:layout(draw)
             self:drawText("kills", rxx + measure(UIFont.Large, tostring(m.kills)) + math.floor(H(UIFont.Small) * 0.4),
                 yy + H(UIFont.Large) - H(UIFont.Small) - 2, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3], 1, UIFont.Small)
             local ty2 = yy + math.floor(H(UIFont.Large) * 1.4)
+            local labelY = H(UIFont.Medium) - H(UIFont.Small) - 1
             self:drawText(m.trait, rxx, ty2, P.INK[1], P.INK[2], P.INK[3], 1, UIFont.Medium)
+            self:drawText("trait", rxx + measure(UIFont.Medium, m.trait) + math.floor(H(UIFont.Small) * 0.4),
+                ty2 + labelY, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3], 1, UIFont.Small)
             local my2 = ty2 + math.floor(H(UIFont.Medium) * 1.2)
             self:drawRect(rxx + 1, my2 + math.floor(H(UIFont.Medium) / 2) - 3, 6, 6, 1, m.moodColor[1], m.moodColor[2], m.moodColor[3])
             self:drawText(m.mood, rxx + 12, my2, m.moodColor[1], m.moodColor[2], m.moodColor[3], 1, UIFont.Medium)
+            self:drawText("mood", rxx + 12 + measure(UIFont.Medium, m.mood) + math.floor(H(UIFont.Small) * 0.4),
+                my2 + labelY, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3], 1, UIFont.Small)
         end
         y = ccy + R + dot * 3 + math.floor(H(UIFont.Small) * 1.5)
     end
     -- one mood flavor line: already localized, already paid for
     wrapped("\"" .. m.moodFlavor .. "\"", pad, UIFont.Small, P.INK_LIGHT, w - pad * 2, 1.1)
-    gap(0.5)
+    fieldset(vitTop, y, measure(UIFont.Small, "WEAPON PERSONALITY"))
+    gap(0.85)
 
     -- ── observed behaviors: checkbox + existing-key strings only ──
     local obsTop = y + math.floor(H(UIFont.Small) / 2)
