@@ -426,8 +426,11 @@ function ISButton:prerender()
     local b = self.borderColor
     self:drawRectBorder(0, 0, self.width, self.height, b.a, b.r, b.g, b.b)
     if self.image then
-        -- icon button (bag tabs, container buttons): draw the texture inset
-        self:drawTextureScaledAspect(self.image, 2, 2, self.width - 4, self.height - 4, 1, 1, 1, 1)
+        -- icon button (bag tabs, container buttons): draw the texture inset,
+        -- tinted by textureColor like vanilla ISButton (SIR's window dress
+        -- re-inks glyph buttons through this field -- hardcoded white hid that)
+        local tc = self.textureColor or { r = 1, g = 1, b = 1, a = 1 }
+        self:drawTextureScaledAspect(self.image, 2, 2, self.width - 4, self.height - 4, tc.a, tc.r, tc.g, tc.b)
     elseif self.title and self.title ~= "" then
         local t = self.textColor
         self:drawTextCentre(self.title, self.width / 2, (self.height - fontMetrics(self.font).h) / 2,

@@ -273,38 +273,58 @@ local function mockPane(stacks, opts)
     function pane:refreshContainer() end
     function pane:getMouseX() return -1 end
     function pane:getMouseY() return -1 end
-    function pane:getYScroll() return 0 end
+    function pane:getYScroll() return opts.scroll or 0 end
     function pane:getHeight() return self.height end
     function pane:isVScrollBarVisible() return false end
     function pane:setScrollHeight() end
     function pane:setScrollWidth() end
     function pane:drawRectStatic(x, y, ww, hh, a, r, g, b) self:drawRect(x, y, ww, hh, a, r, g, b) end
 
-    -- the frame driver (walk) calls :render -> the real SIR pipeline
-    function pane:render()
-        SIR.renderdetails(self, false)
-        -- column-header labels: in-game these are vanilla's nameHeader/typeHeader
-        -- sort buttons (pane children); the harness has no such children, so draw
-        -- facsimiles in the header band SIR now paints.
-        if self.headerHgt and self.headerHgt > 0 then
-            local hi = (require "sir_theme").ink.head
-            self:drawText("Name", self.column2 + 8, 1, hi[1], hi[2], hi[3], hi[4], UIFont.Small)
-            self:drawText("Category", self.column3 + 8, 1, hi[1], hi[2], hi[3], hi[4], UIFont.Small)
-            -- vanilla header filter buttons (expand-all + filter-menu) in the icon
-            -- column. In-game these are real ISButtons on the pane; drawn here.
-            local bh = self.headerHgt
-            -- expand-all (caret)
-            self:drawRect(1, 1, bh - 2, bh - 2, 0.30, 0.42, 0.42, 0.48)
-            self:drawTextureScaledAspect(getTexture("sir_caret-down"), 3, 3, bh - 6, bh - 6, 0.9, 1, 1, 1)
-            -- filter-menu (funnel glyph: 3 decreasing lines)
-            local fx = bh + 1
-            self:drawRect(fx, 1, bh - 2, bh - 2, 0.30, 0.42, 0.42, 0.48)
-            self:drawRect(fx + 3, 5, 7, 1, 0.85, 0.82, 0.82, 0.86)
-            self:drawRect(fx + 4, 8, 5, 1, 0.85, 0.82, 0.82, 0.86)
-            self:drawRect(fx + 5, 11, 3, 1, 0.85, 0.82, 0.82, 0.86)
+    -- Vanilla PHASES, faithfully: ISInventoryPane:prerender draws the panel
+    -- background then renderdetails(false); the header sort/glyph buttons are
+    -- CHILDREN that render after prerender (their labels land ON the band SIR
+    -- paints last); :render is only the drag-ghost pass. The scene used to run
+    -- everything in :render with facsimile labels -- which hid two real bugs
+    -- (the sort buttons' opaque plates, rows bleeding through the band).
+    pane.background = true
+    pane.backgroundColor = { r = 0, g = 0, b = 0, a = 0.8 }   -- vanilla's black fill
+    function pane:prerender()
+        if self.background and self.backgroundColor.a > 0 then
+            local bc = self.backgroundColor
+            self:drawRect(0, 0, self.width, self.height, bc.a, bc.r, bc.g, bc.b)
         end
+        SIR.renderdetails(self, false)
     end
-    function pane:prerender() end
+    function pane:render() end
+
+    -- REAL header children, vanilla-configured (dark ISButton plates that the
+    -- window dress must bare + re-ink):
+    if (opts.headerHgt or 0) > 0 then
+        local hh = opts.headerHgt
+        local function headBtn(x, bw, title)
+            local b = ISButton:new(x, 0, bw, hh, title, pane, function() end)
+            b:initialise()
+            b.backgroundColor = { r = 0, g = 0, b = 0, a = 1.0 }
+            b.borderColor = { r = 1, g = 1, b = 1, a = 0.2 }
+            b.textColor = { r = 1, g = 1, b = 1, a = 1 }
+            b.textureColor = { r = 1, g = 1, b = 1, a = 1 }
+            pane:addChild(b)
+            return b
+        end
+        pane.expandAll  = headBtn(1, hh, "")
+        pane.expandAll:setImage(getTexture("sir_caret-down"))
+        pane.filterMenu = headBtn(hh + 1, hh, "")
+        pane.filterMenu:setImage(getTexture("sir_caret-right"))
+        pane.nameHeader = headBtn(pane.column2, pane.column3 - pane.column2, "Item")
+        pane.typeHeader = headBtn(pane.column3 - 1, pane.column4 - pane.column3 + 1, "Category")
+    end
+
+    -- fake scrollbar carrying the FIELDS the window dress retints/swaps
+    -- (vanilla ISScrollBar isn't loaded headless; this locks the swap code path)
+    pane.vscroll = {
+        backgroundColor = { r = 0, g = 0, b = 0, a = 1.0 },
+        borderColor = { r = 0.4, g = 0.4, b = 0.45, a = 1.0 },
+    }
 
     return pane
 end
@@ -457,7 +477,7 @@ local function realWindow(stacks, opts)
     -- the SIR pane IS the page's inventoryPane (leaves room for the tab column),
     -- and a child so walk() renders it
     local pane = mockPane(stacks, { width = W - buttonSize, height = contentH, itemHgt = rowH,
-                                    headerHgt = headerHgt, onCharacter = true })
+                                    headerHgt = headerHgt, onCharacter = true, scroll = opts.scroll })
     pane.x, pane.y = 0, listTop
     pane.inventory = inv
     page:addChild(pane)
@@ -490,6 +510,31 @@ local function realWindow(stacks, opts)
     end
     page.backpackChoice = 1   -- in-game: which bag tab is active (dress washes it)
 
+    -- ── Transfer All strip (ISInventoryWindowContainerControls stand-in) ────
+    -- In-game these are vanilla grey ISButtons on a panel above the status
+    -- rail; the window dress bares them and plates them with chip nines. The
+    -- scene was missing the strip entirely, so that path never rendered.
+    local controlsH = 26
+    local cui = ISPanel:new(0, listTop + contentH, W, controlsH)
+    cui:initialise()
+    cui.backgroundColor = { r = 0, g = 0, b = 0, a = 0.8 }
+    cui.borderColor = { r = 0.4, g = 0.4, b = 0.45, a = 1 }
+    cui.controls = {}
+    local xfer = ISButton:new(4, 3, 92, controlsH - 6, "Transfer All", page, function() end)
+    xfer:initialise()
+    xfer.backgroundColor = { r = 0.15, g = 0.15, b = 0.17, a = 1.0 }
+    xfer.borderColor = { r = 0.4, g = 0.4, b = 0.45, a = 1 }
+    xfer.textColor = { r = 1, g = 1, b = 1, a = 1 }
+    cui:addChild(xfer)
+    cui.controls[1] = xfer
+    page:addChild(cui)
+    page.controlsUI = cui
+
+    -- grow the window: strip sits between the pane and the status rail
+    H = listTop + contentH + controlsH + 12
+    page.height = H
+    if page.setHeight then page:setHeight(H) end
+
     return page, inv
 end
 
@@ -511,6 +556,15 @@ function Scene.build(opts)
         SIR.Keys["sir_opacity"] = { getValue = function() return oidx end }
     end
     local stacks = (opts.fixture == "woodwork") and woodworkArchetypes() or archetypes()
+    -- equipped block at the END of the list (vanilla sorts equipped last):
+    -- exercises the equipped divider + the green side marker
+    if opts.equipped then
+        for i = math.max(1, #stacks - 1), #stacks do
+            stacks[i].equipped = true
+            local it = stacks[i].items and stacks[i].items[1]
+            if it then it._equipped = true end
+        end
+    end
     local page, inv = realWindow(stacks, opts)
     -- player must see the pane's inventory as its own (weight readout)
     local player = mockPlayer(inv)

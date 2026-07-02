@@ -16,6 +16,7 @@ do
     local ok, err = pcall(function() Render.emit(SIRInv.build({ look = "lamplight" }), nil, nil, "sirinv") end)
     pcall(function() Render.emit(SIRInv.build({}), nil, nil, "sirdaylight") end)
     pcall(function() Render.emit(SIRInv.build({ opacity = 3 }), nil, nil, "sirglass") end)
+    pcall(function() Render.emit(SIRInv.build({ opacity = 3, scroll = -50, equipped = true }), nil, nil, "sirscroll") end)
     if not ok then print("[sirinv] BUILD/EMIT ERROR: " .. tostring(err)) end
 end
 
@@ -59,6 +60,37 @@ tests["paints_item_names"] = function()
         if o.op == "text" and tostring(o.str):find("Pistol", 1, true) then found = true end
     end
     return Assert.isTrue(found, "item names rendered")
+end
+
+tests["header_band_masks_scrolled_rows"] = function()
+    -- The band must draw AFTER the rows (it is the opaque mask that hides rows
+    -- scrolled above headerHgt -- the in-game bug the old draw order shipped),
+    -- and it must ignore the transparency slider (alpha 1 even at Glass).
+    local pane = SIRInv.buildPane({ headerHgt = 15, scroll = -50 })
+    local ops = opsOf(pane)
+    local lastRowText, firstBand, bandAlpha = 0, nil, nil
+    for i, o in ipairs(ops) do
+        if o.op == "text" and tostring(o.str):find("Pistol", 1, true) then lastRowText = i end
+        if o.op == "texture" and tostring(o.name):find("ledghead", 1, true) and not firstBand then
+            firstBand = i
+            bandAlpha = o.a
+        end
+    end
+    return Assert.isTrue(firstBand ~= nil, "header band painted")
+        and Assert.greater(firstBand, lastRowText, "band draws AFTER the row content (opaque mask)")
+        and Assert.equal(bandAlpha, 1, "band ignores the opacity slider")
+end
+
+tests["window_dress_bares_vanilla_children"] = function()
+    -- Full window: the dress must zero the pane fill, the sort-header plates,
+    -- and swap the scrollbar thumb fields (the in-game vanilla survivors).
+    local page = SIRInv.build({})
+    Render.frame(page, page.width + 16, page.height + 16)
+    local pane = page.inventoryPane
+    return Assert.equal(pane.backgroundColor.a, 0, "pane black fill bared")
+        and Assert.equal(pane.nameHeader.backgroundColor.a, 0, "sort-header plate bared")
+        and Assert.isTrue(pane.vscroll.toptex ~= nil, "scrollbar capsule fields swapped")
+        and Assert.equal(page.borderColor.a, 0, "square window border gone")
 end
 
 return tests
