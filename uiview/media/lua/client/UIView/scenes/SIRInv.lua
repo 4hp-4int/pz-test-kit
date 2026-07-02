@@ -286,8 +286,9 @@ local function mockPane(stacks, opts)
         -- sort buttons (pane children); the harness has no such children, so draw
         -- facsimiles in the header band SIR now paints.
         if self.headerHgt and self.headerHgt > 0 then
-            self:drawText("Name", self.column2 + 8, 1, 0.72, 0.72, 0.74, 1, UIFont.Small)
-            self:drawText("Category", self.column3 + 8, 1, 0.72, 0.72, 0.74, 1, UIFont.Small)
+            local hi = (require "sir_theme").ink.head
+            self:drawText("Name", self.column2 + 8, 1, hi[1], hi[2], hi[3], hi[4], UIFont.Small)
+            self:drawText("Category", self.column3 + 8, 1, hi[1], hi[2], hi[3], hi[4], UIFont.Small)
             -- vanilla header filter buttons (expand-all + filter-menu) in the icon
             -- column. In-game these are real ISButtons on the pane; drawn here.
             local bh = self.headerHgt
@@ -495,6 +496,15 @@ function Scene.build(opts)
     ensureGlobals()
     _id = 0
     opts = opts or {}
+    -- look selection (lamplight default / "daylight" = the cream ledger relight):
+    -- stub the Mod Options combo the render polls, so the look system runs its
+    -- REAL apply path (T.setLook via SIR.optIndex) rather than being forced.
+    local SIR = _G.SauceInvRender
+    if SIR then
+        SIR.Keys = SIR.Keys or {}
+        local idx = (opts.look == "daylight") and 2 or 1
+        SIR.Keys["sir_look"] = { getValue = function() return idx end }
+    end
     local stacks = (opts.fixture == "woodwork") and woodworkArchetypes() or archetypes()
     local page, inv = realWindow(stacks, opts)
     -- player must see the pane's inventory as its own (weight readout)
