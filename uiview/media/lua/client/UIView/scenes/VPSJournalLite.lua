@@ -133,7 +133,7 @@ function Journal:render()
         local sx = w - PAD - 14
         local sy = self.cardY + 12
         local sh = math.floor(self.cardH * 0.42)
-        local cc = 8
+        local cc = 4
         local tr, tg, tb2 = 0.35, 0.30, 0.24
         self:drawTextureScaled(tt, sx, sy, 8, cc, 0.8, tr, tg, tb2)
         self:drawTextureScaled(tm, sx, sy + cc, 8, sh - cc * 2, 0.8, tr, tg, tb2)

@@ -48,6 +48,29 @@ def _load(png_dir):
              Image.open(os.path.join(png_dir, f)).convert("RGBA")) for f in files]
 
 
+def _extrude(atlas, im, x, y, e):
+    """Replicate a sprite's edge pixels e px outward into the atlas gutter.
+    Without this, bilinear sampling at sprite edges blends with the
+    TRANSPARENT gutter — visible as dark seam lines wherever sub-textures
+    are drawn scaled (e.g. nine-slice chrome pieces meeting edge-to-edge)."""
+    w, h = im.size
+    top = im.crop((0, 0, w, 1)); bottom = im.crop((0, h - 1, w, h))
+    left = im.crop((0, 0, 1, h)); right = im.crop((w - 1, 0, w, h))
+    for k in range(1, e + 1):
+        atlas.paste(top, (x, y - k))
+        atlas.paste(bottom, (x, y + h - 1 + k))
+        atlas.paste(left, (x - k, y))
+        atlas.paste(right, (x + w - 1 + k, y))
+    tl, tr = im.getpixel((0, 0)), im.getpixel((w - 1, 0))
+    bl, br = im.getpixel((0, h - 1)), im.getpixel((w - 1, h - 1))
+    for kx in range(1, e + 1):
+        for ky in range(1, e + 1):
+            atlas.putpixel((x - kx, y - ky), tl)
+            atlas.putpixel((x + w - 1 + kx, y - ky), tr)
+            atlas.putpixel((x - kx, y + h - 1 + ky), bl)
+            atlas.putpixel((x + w - 1 + kx, y + h - 1 + ky), br)
+
+
 def build(png_dir, out_path, page_name="SauceIcons", pad=2, cols=None, prefix=""):
     imgs = _load(png_dir)
     n = len(imgs)
@@ -62,12 +85,17 @@ def build(png_dir, out_path, page_name="SauceIcons", pad=2, cols=None, prefix=""
     atlas_h = pad + rows * (ch + pad)
     atlas = Image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
 
+    # extrusion must fit the gutter shared by two neighboring cells
+    extrude = max(1, pad // 2) if pad > 0 else 0
+
     entries = []
     for i, (name, im) in enumerate(imgs):
         c, r = i % cols, i // cols
         x = pad + c * (cw + pad)
         y = pad + r * (ch + pad)
         atlas.paste(im, (x, y))
+        if extrude > 0:
+            _extrude(atlas, im, x, y, extrude)
         entries.append((prefix + name, x, y, im.width, im.height, 0, 0, im.width, im.height))
 
     png_buf = io.BytesIO()
