@@ -273,9 +273,22 @@ local function mockPane(stacks, opts)
     function pane:refreshContainer() end
     function pane:getMouseX() return -1 end
     function pane:getMouseY() return -1 end
-    function pane:getYScroll() return opts.scroll or 0 end
+    pane._yscroll = opts.scroll or 0
+    function pane:getYScroll() return self._yscroll end
+    function pane:setYScroll(y)
+        local minY = math.min(0, self.height - (#stacks * rowH + (opts.headerHgt or 0)))
+        if y < minY then y = minY end
+        if y > 0 then y = 0 end
+        self._yscroll = y
+    end
+    function pane:onMouseWheel(del)
+        self:setYScroll(self._yscroll - del * rowH)
+        return true
+    end
     function pane:getHeight() return self.height end
-    function pane:isVScrollBarVisible() return false end
+    function pane:isVScrollBarVisible()
+        return (#stacks * rowH + (opts.headerHgt or 0)) > self.height
+    end
     function pane:setScrollHeight() end
     function pane:setScrollWidth() end
     -- (no drawRectStatic override: UIMock now models the scroll transform, and
@@ -296,6 +309,25 @@ local function mockPane(stacks, opts)
             self:drawRect(0, 0, self.width, self.height, bc.a, bc.r, bc.g, bc.b)
         end
         SIR.renderdetails(self, false)
+        -- capsule scrollbar (the real ISScrollBar is a java-backed child; the
+        -- dress swaps its textures -- draw the same capsule from pane state)
+        if self:isVScrollBarVisible() then
+            local content = #stacks * rowH + (opts.headerHgt or 0)
+            local trackH = self.height
+            local thumbH = math.max(24, math.floor(trackH * trackH / content))
+            local range = content - trackH
+            local ty = math.floor((-self._yscroll / range) * (trackH - thumbH))
+            local tx = self.width - 11
+            self:drawRectStatic(tx, 0, 9, trackH, 0.18, 0.3, 0.25, 0.18)
+            local vt = self.vscroll
+            if vt and vt.toptex then
+                self:drawTextureStatic(vt.toptex, tx, ty, 1, 1, 1, 1)
+                self:drawTextureScaledStatic(vt.midtex, tx, ty + 4, 9, thumbH - 8, 1, 1, 1, 1)
+                self:drawTextureStatic(vt.bottex, tx, ty + thumbH - 4, 1, 1, 1, 1)
+            else
+                self:drawRectStatic(tx + 1, ty, 7, thumbH, 0.7, 0.79, 0.73, 0.61)
+            end
+        end
     end
     function pane:render() end
 
@@ -423,7 +455,10 @@ local function realWindow(stacks, opts)
     -- font-scale bug: the harness always rendered at 1x)
     local fhS = getTextManager():getFontHeight(UIFont.Small)
     local headerHgt = fhS + 1      -- vanilla reserves fontHgt+1 for the column headers
+    -- live-serve mode (ServeBoot sets _uiview_scene): cap the viewport to 8
+    -- rows so the list actually scrolls; static builds keep the full column
     local listH = #stacks * rowH
+    if _uiview_scene and not opts.fullList then listH = 8 * rowH end
     local contentH = headerHgt + listH
     local W = opts.width or 340
     local titleH = math.max(16, fhS + 2)
