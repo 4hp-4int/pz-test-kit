@@ -230,7 +230,12 @@ tests["pin_star_is_always_visible"] = function()
     local Recorder = require "UIView/Recorder"
     local stars = 0
     for _, op in ipairs(Recorder.ops) do
-        if op.op == "texture" and tostring(op.name):find("fav-star", 1, true) then stars = stars + 1 end
+        -- chrome draws the SauceCanonical star (sauce_star_fill); flat falls back
+        -- to SIR's fav-star -- either counts as the pin affordance
+        local n = tostring(op.name)
+        if op.op == "texture" and (n:find("fav-star", 1, true) or n:find("star_fill", 1, true)) then
+            stars = stars + 1
+        end
     end
     return Assert.greater(stars, 1, "pin star draws on every row, not just the selected one")
 end
