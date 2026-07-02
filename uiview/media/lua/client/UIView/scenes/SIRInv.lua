@@ -322,14 +322,15 @@ local function mockPane(stacks, opts)
             local range = content - trackH
             local ty = math.floor((-self._yscroll / range) * (trackH - thumbH))
             local tx = self.width - 11
-            self:drawRectStatic(tx, 0, 9, trackH, 0.18, 0.3, 0.25, 0.18)
+            self:drawRectStatic(tx - 1, 0, 11, trackH, 0.30, 0.24, 0.19, 0.13)
             local vt = self.vscroll
             if vt and vt.toptex then
-                self:drawTextureScaledStatic(vt.toptex, tx, ty, 9, 4, 1, 1, 1, 1)
-                self:drawTextureScaledStatic(vt.midtex, tx, ty + 4, 9, thumbH - 8, 1, 1, 1, 1)
-                self:drawTextureScaledStatic(vt.bottex, tx, ty + thumbH - 4, 9, 4, 1, 1, 1, 1)
+                -- sepia tint: the cream capsule vanished on the cream stock
+                self:drawTextureScaledStatic(vt.toptex, tx, ty, 9, 4, 1, 0.62, 0.50, 0.36)
+                self:drawTextureScaledStatic(vt.midtex, tx, ty + 4, 9, thumbH - 8, 1, 0.62, 0.50, 0.36)
+                self:drawTextureScaledStatic(vt.bottex, tx, ty + thumbH - 4, 9, 4, 1, 0.62, 0.50, 0.36)
             else
-                self:drawRectStatic(tx + 1, ty, 7, thumbH, 0.7, 0.79, 0.73, 0.61)
+                self:drawRectStatic(tx + 1, ty, 7, thumbH, 0.9, 0.45, 0.36, 0.26)
             end
         else
             self:clearStencilRect()

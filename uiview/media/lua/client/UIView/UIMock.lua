@@ -333,8 +333,15 @@ local function pushText(self, str, x, y, r, g, b, a, font, align, static)
     local c = rgba(r, g, b, a)
     local sx, sy = 0, 0
     if not static then sx, sy = scrollXY(self) end
-    local ay = clipY(self, self:getAbsoluteY() + y + sy, fontMetrics(font or UIFont.Small).h)
-    if not ay then return end
+    -- text clips STRICTLY: real GL crops glyph pixels at the stencil edge; the
+    -- mock can't render half-letters, so a line that CROSSES the edge drops
+    -- entirely (poking out would paint into neighbouring bands -- it did)
+    local st = self._stencil
+    if st and not self._stencilOff then
+        local ty = self:getAbsoluteY() + y + sy
+        local fh = fontMetrics(font or UIFont.Small).h
+        if ty < st.y or ty + fh > st.y + st.h then return end
+    end
     Recorder.push({ op = "text", str = tostring(str),
         x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy,
         r = c.r, g = c.g, b = c.b, a = c.a,
