@@ -71,32 +71,46 @@ def _extrude(atlas, im, x, y, e):
             atlas.putpixel((x + w - 1 + kx, y + h - 1 + ky), br)
 
 
+MAX_ATLAS_W = 2048  # stay far under the 4096 GPU max texture size
+
+
 def build(png_dir, out_path, page_name="SauceIcons", pad=2, cols=None, prefix=""):
     imgs = _load(png_dir)
     n = len(imgs)
     if n == 0:
         raise SystemExit("no PNGs in %s" % png_dir)
-    if cols is None:
-        cols = int(math.ceil(math.sqrt(n)))
-    rows = int(math.ceil(n / cols))
-    cw = max(im.width for _, im in imgs)
-    ch = max(im.height for _, im in imgs)
-    atlas_w = pad + cols * (cw + pad)
-    atlas_h = pad + rows * (ch + pad)
-    atlas = Image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
 
-    # extrusion must fit the gutter shared by two neighboring cells
+    # SHELF PACKING (rows by descending height), not a uniform grid: a grid
+    # sizes every cell to the LARGEST sprite, so mixed-size packs (512px
+    # tiles + 3px strokes) explode past the 4096 GPU max texture size and
+    # the driver silently degrades the page (real case: 5142x4628).
+    imgs = sorted(imgs, key=lambda t: (-t[1].height, -t[1].width, t[0]))
     extrude = max(1, pad // 2) if pad > 0 else 0
 
+    placements = []
+    x, y = pad, pad
+    shelf_h = 0
+    atlas_w = 0
+    for name, im in imgs:
+        if x + im.width + pad > MAX_ATLAS_W and x > pad:
+            x = pad
+            y += shelf_h + pad
+            shelf_h = 0
+        placements.append((name, im, x, y))
+        atlas_w = max(atlas_w, x + im.width + pad)
+        shelf_h = max(shelf_h, im.height)
+        x += im.width + pad
+    atlas_h = y + shelf_h + pad
+    if atlas_w > 4096 or atlas_h > 4096:
+        raise SystemExit("atlas %dx%d exceeds 4096 GPU limit" % (atlas_w, atlas_h))
+
+    atlas = Image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
     entries = []
-    for i, (name, im) in enumerate(imgs):
-        c, r = i % cols, i // cols
-        x = pad + c * (cw + pad)
-        y = pad + r * (ch + pad)
-        atlas.paste(im, (x, y))
+    for name, im, px, py in placements:
+        atlas.paste(im, (px, py))
         if extrude > 0:
-            _extrude(atlas, im, x, y, extrude)
-        entries.append((prefix + name, x, y, im.width, im.height, 0, 0, im.width, im.height))
+            _extrude(atlas, im, px, py, extrude)
+        entries.append((prefix + name, px, py, im.width, im.height, 0, 0, im.width, im.height))
 
     png_buf = io.BytesIO()
     atlas.save(png_buf, format="PNG")
