@@ -27,6 +27,7 @@ require "sir_icon_overlay"   -- wraps UIMock's ISInventoryItem.renderItemIcon to
 require "sir_details"
 require "sir_render"
 require "sir_search"         -- SIRSearchBar (real SIR search + category chips)
+require "sir_window"         -- full-window ledger dress (hooks the real ISInventoryPage)
 require "sir_craftindex"     -- craft reverse-index (skill-lens relevance; mocked below)
 require "sir_lens"           -- lens engine (Combat lane microcharts)
 
@@ -401,7 +402,7 @@ local function realWindow(stacks, opts)
     local contentH = headerHgt + listH
     local W = opts.width or 340
     local titleH = 16
-    local H = titleH + contentH + 6
+    local H = titleH + contentH + 12   -- + the status/resize rail (BUTTON_HGT/2+2)
     local buttonSize = 28          -- bag-tab column width
 
     -- shared inventory the page's weight readout compares to the player's own.
@@ -449,7 +450,7 @@ local function realWindow(stacks, opts)
     end
     local listTop = th + searchH
     -- grow the window to fit the search band, keep the resize nub at the bottom
-    H = listTop + contentH + 6
+    H = listTop + contentH + 12   -- + the status/resize rail (BUTTON_HGT/2+2)
     page.height = H
     if page.setHeight then page:setHeight(H) end
 
@@ -487,6 +488,7 @@ local function realWindow(stacks, opts)
         cbp:addChild(btn)
         page.backpacks[i] = btn
     end
+    page.backpackChoice = 1   -- in-game: which bag tab is active (dress washes it)
 
     return page, inv
 end
