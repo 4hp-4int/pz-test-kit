@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KIT = os.path.dirname(HERE)
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "shots", "palette_filter.gif")
 FPS = 18
-ROOTS = [os.path.join(KIT, "..", d) for d in ("sauce-shortorder", "PZ-TooltipLib", "SauceTooltips")]
+ROOTS = [os.path.join(KIT, "..", d) for d in ("sauce-shortorder", "SauceCanonical", "PZ-TooltipLib", "SauceTooltips")]
 
 # 1. one harness run -> all palette_type_* JSON blocks, in order
 # Run pztest from git-bash into out/_harness.txt FIRST (Python's `bash` resolves to a
