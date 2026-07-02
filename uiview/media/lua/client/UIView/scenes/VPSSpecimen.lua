@@ -47,7 +47,7 @@ local MODEL = {
         { active = true,  teal = false, name = "Keen",             stats = "+8% crit",            cond = nil },
     },
     mendsUsed = 4, mendBudget = 13,
-    margin = "What the mendings take, they do not give back.",
+    margin = "What the repairs take, they do not give back.",
     signoff = "- R.L.M.",
 }
 
@@ -82,6 +82,21 @@ function Page:layout(draw)
         y = y + 1; gap(0.55)
     end
     local function measure(font, s) return math.floor(#tostring(s) * fm(font).w + 0.5) end
+    -- fieldset: hairline box whose top edge BREAKS around the section label
+    -- ("hard to tell what's separate" — the one critique both skins earned)
+    local function fieldset(yTop, yBot, labelW)
+        if not draw then return end
+        local c = P.RULE
+        local a = 0.45
+        local x0, x1 = math.floor(pad * 0.45), w - math.floor(pad * 0.45)
+        local lx0, lx1 = pad - 4, pad + labelW + 4
+        self:drawRect(x0, yTop, lx0 - x0, 1, a, c[1], c[2], c[3])
+        self:drawRect(lx1, yTop, x1 - lx1, 1, a, c[1], c[2], c[3])
+        self:drawRect(x0, yBot, x1 - x0, 1, a, c[1], c[2], c[3])
+        self:drawRect(x0, yTop, 1, yBot - yTop, a, c[1], c[2], c[3])
+        self:drawRect(x1 - 1, yTop, 1, yBot - yTop + 1, a, c[1], c[2], c[3])
+    end
+
     local function wrapped(s, x, font, c, maxW, lineMult)
         local line = ""
         for word in tostring(s):gmatch("%S+") do
@@ -151,8 +166,9 @@ function Page:layout(draw)
     do
         local R = math.floor(H(UIFont.Small) * 3.0)
         local dot = math.max(3, math.floor(H(UIFont.Small) * 0.3))
+        local gsz = math.max(8, math.floor(H(UIFont.Small) * 0.75))  -- moon/sun anchors
         local ccx = pad + R + dot * 2
-        local ccy = y + R + dot
+        local ccy = y + R + dot + gsz
         if draw then
             -- Per-HOUR kill density: night is 8 hours, day is 16 — normalize so
             -- a true night-hunter's night dots ink darker than its day dots.
@@ -189,9 +205,17 @@ function Page:layout(draw)
                     self:drawRectBorder(dx - 3, dy - 3, dsz + 6, dsz + 6, 0.9, P.RED[1], P.RED[2], P.RED[3])
                 end
             end
-            -- caption beneath the dial (locale-safe: the ring interior is too
-            -- tight once cardinal ticks claim the horizontal axis)
-            self:drawTextCentre("hours active", ccx, ccy + R + dot * 3,
+            -- cold-read anchors: moon at midnight (top), sun at noon (bottom)
+            local moon, sun = getTexture("vps_glyph_moon"), getTexture("vps_glyph_sun")
+            if moon then
+                self:drawTextureScaled(moon, ccx - math.floor(gsz / 2), ccy - R - dot * 2 - gsz,
+                    gsz, gsz, 0.9, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3])
+            end
+            if sun then
+                self:drawTextureScaled(sun, ccx - math.floor(gsz / 2), ccy + R + dot * 2,
+                    gsz, gsz, 0.9, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3])
+            end
+            self:drawTextCentre("hours active", ccx, ccy + R + dot * 2 + gsz + 2,
                 P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3], 0.9, UIFont.Small)
         end
         -- beside the clock: big numerals + temper/mood in existing words
@@ -214,7 +238,9 @@ function Page:layout(draw)
     gap(0.5)
 
     -- ── observed behaviors: checkbox + existing-key strings only ──
+    local obsTop = y + math.floor(H(UIFont.Small) / 2)
     text("OBSERVED", pad, UIFont.Small, P.INK_FADE)
+    local obsLabelW = measure(UIFont.Small, "OBSERVED")
     advance(UIFont.Small, 1.35)
     local cb = math.max(7, math.floor(H(UIFont.Small) * 0.62))
     for _, b in ipairs(m.behaviors) do
@@ -256,10 +282,13 @@ function Page:layout(draw)
             advance(UIFont.Small, 1.25)
         end
     end
-    gap(0.35)
+    fieldset(obsTop, y, obsLabelW)
+    gap(0.85)
 
     -- ── mendings: tallies + numerals ──
-    text("MENDINGS", pad, UIFont.Small, P.INK_FADE)
+    local mendTop = y + math.floor(H(UIFont.Small) / 2)
+    text("REPAIRS", pad, UIFont.Small, P.INK_FADE)
+    local mendLabelW = measure(UIFont.Small, "REPAIRS")
     advance(UIFont.Small, 1.35)
     do
         local th = math.floor(H(UIFont.Medium) * 0.85)
@@ -287,7 +316,9 @@ function Page:layout(draw)
         end
         y = y + th
     end
-    gap(0.6)
+    gap(0.35)
+    fieldset(mendTop, y, mendLabelW)
+    gap(0.85)
 
     -- ── marginalia + signoff ──
     rule()
