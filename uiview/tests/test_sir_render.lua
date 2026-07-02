@@ -17,6 +17,8 @@ do
     pcall(function() Render.emit(SIRInv.build({}), nil, nil, "sirdaylight") end)
     pcall(function() Render.emit(SIRInv.build({ opacity = 3 }), nil, nil, "sirglass") end)
     pcall(function() Render.emit(SIRInv.build({ opacity = 3, scroll = -50, equipped = true }), nil, nil, "sirscroll") end)
+    pcall(function() Render.emit(SIRInv.build({ fontScale = 1.8 }), nil, nil, "sirbigfont") end)
+    if UIMock_setFontScale then UIMock_setFontScale(1) end
     if not ok then print("[sirinv] BUILD/EMIT ERROR: " .. tostring(err)) end
 end
 
@@ -105,6 +107,32 @@ tests["window_dress_bares_vanilla_children"] = function()
         and Assert.equal(page.closeButton.width, 12, "rail buttons shrunk to 12px")
         and Assert.isTrue(page.closeButton._sirGlyph == true, "rail glyph swapped in (sir_ui-close)")
         and Assert.isTrue(pane.expandAll._sirGlyph == true, "header glyph swapped in (sir_ui-expand)")
+end
+
+tests["font_scale_clamps_hold"] = function()
+    -- The in-game font-size option scales the band and rail; the glyph MARKS
+    -- must stay icon-sized (forced dims) and the header glyph slots must stay
+    -- left of column2 (the Item sort header). Both were real in-game bugs the
+    -- 1x-only harness could not see.
+    local page = SIRInv.build({ fontScale = 1.8 })
+    Render.frame(page, page.width + 16, page.height + 16)
+    local ops = Recorder.ops
+    local col2 = page.inventoryPane.column2
+    local sawFunnel, fits, capped = false, true, true
+    for _, o in ipairs(ops) do
+        local n = tostring(o.name or "")
+        if n:find("sir_ui-funnel", 1, true) then
+            sawFunnel = true
+            if (o.x or 0) + (o.w or 0) > col2 then fits = false end
+        end
+        if n:find("sir_ui-", 1, true) and (o.w or 0) > 16 then capped = false end
+    end
+    if UIMock_setFontScale then UIMock_setFontScale(1) end
+    local T = require "sir_theme"
+    if T.metricsRefresh then T.metricsRefresh() end
+    return Assert.isTrue(sawFunnel, "funnel glyph rendered at 1.8x font")
+        and Assert.isTrue(fits, "header glyphs clamped left of column2")
+        and Assert.isTrue(capped, "glyph marks capped at icon size")
 end
 
 return tests

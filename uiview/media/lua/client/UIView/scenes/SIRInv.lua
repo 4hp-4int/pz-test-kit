@@ -265,7 +265,7 @@ local function mockPane(stacks, opts)
     pane.dragging    = false
     pane.dragStarted = false
     pane.font        = UIFont.Small
-    pane.fontHgt     = 14
+    pane.fontHgt     = getTextManager():getFontHeight(UIFont.Small)
     pane.hotbar      = nil
 
     -- plumbing stubs
@@ -419,11 +419,14 @@ end
 local function realWindow(stacks, opts)
     opts = opts or {}
     local rowH = opts.itemHgt or 36
-    local headerHgt = 15           -- vanilla reserves fontHgt+1 for the column headers
+    -- font-DERIVED chrome heights, like vanilla (fixed 15/16 hid every
+    -- font-scale bug: the harness always rendered at 1x)
+    local fhS = getTextManager():getFontHeight(UIFont.Small)
+    local headerHgt = fhS + 1      -- vanilla reserves fontHgt+1 for the column headers
     local listH = #stacks * rowH
     local contentH = headerHgt + listH
     local W = opts.width or 340
-    local titleH = 16
+    local titleH = math.max(16, fhS + 2)
     local H = titleH + contentH + 12   -- + the status/resize rail (BUTTON_HGT/2+2)
     local buttonSize = 28          -- bag-tab column width
 
@@ -558,6 +561,15 @@ function Scene.build(opts)
     ensureGlobals()
     _id = 0
     opts = opts or {}
+    -- UI font scale (models the in-game font-size option). Modules that cache
+    -- metrics refresh here; sir_search's band PAD/GAP are load-time locals
+    -- (fine in-game -- the option needs a restart -- so cross-build staleness
+    -- in the harness is accepted).
+    if UIMock_setFontScale then
+        UIMock_setFontScale(opts.fontScale or 1)
+        local T = require "sir_theme"
+        if T.metricsRefresh then T.metricsRefresh() end
+    end
     -- look selection (daylight default / "lamplight" = the dark kraft ledger):
     -- stub the Mod Options combo the render polls, so the look system runs its
     -- REAL apply path (T.setLook via SIR.optIndex) rather than being forced.

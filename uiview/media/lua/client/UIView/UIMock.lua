@@ -71,8 +71,18 @@ local FONT = {
     Cred1     = { h = 20, w = 9.0 },
     Code      = { h = 14, w = 7.0 },
 }
+-- Global font scale (models the in-game UI font-size option: fixed-pixel
+-- layouts that ignore it are a real bug class -- see SIR's metrics tokens).
+-- Scenes set it via PZTestKit-style: UIMock_setFontScale(1.8); modules that
+-- cache metrics must refresh after (e.g. sir_theme's T.metricsRefresh()).
+local _fontScale = 1
+function _G.UIMock_setFontScale(s) _fontScale = s or 1 end
+function _G.UIMock_getFontScale() return _fontScale end
+
 local function fontMetrics(font)
-    return FONT[font] or FONT.Small
+    local m = FONT[font] or FONT.Small
+    if _fontScale == 1 then return m end
+    return { h = math.floor(m.h * _fontScale + 0.5), w = m.w * _fontScale }
 end
 
 local _textManager = {
