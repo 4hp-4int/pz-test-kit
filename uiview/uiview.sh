@@ -61,7 +61,7 @@ fi
 printf '%s\n' "$JSON" > "$JSONOUT"
 
 # Inline replay core + base64 icons + frame/storyboard JSON into a self-contained shell.
-ROOTS=("$KIT/../sauce-shortorder" "$KIT/../sauce-invrender" "$KIT/../PZ-TooltipLib" "$KIT/../SauceTooltips")
+ROOTS=("$KIT/../sauce-shortorder" "$KIT/../sauce-invrender" "$KIT/../PZ-TooltipLib" "$KIT/../SauceTooltips" "$KIT/../VorpallySauced")
 python "$HERE/build_view.py" \
   --template "$TEMPLATE" \
   --json "$JSONOUT" \

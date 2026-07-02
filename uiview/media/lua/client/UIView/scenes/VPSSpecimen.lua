@@ -221,10 +221,16 @@ function Page:layout(draw)
         local ink = b.teal and P.TEAL_INK or P.INK
         if draw then
             local cy = y + math.floor((H(UIFont.Small) - cb) / 2)
-            self:drawRectBorder(pad, cy, cb, cb, 0.9, ink[1], ink[2], ink[3])
-            if b.active then
-                local inset = math.max(1, math.floor(cb * 0.2))
-                self:drawRect(pad + inset, cy + inset, cb - inset * 2, cb - inset * 2, 0.85, ink[1], ink[2], ink[3])
+            local ct = getTexture((b.teal and "vps_checkbox_teal_" or "vps_checkbox_walnut_")
+                .. (b.active and "filled" or "empty"))
+            if ct then
+                self:drawTextureScaled(ct, pad, cy, cb, cb, 1, 1, 1, 1)
+            else
+                self:drawRectBorder(pad, cy, cb, cb, 0.9, ink[1], ink[2], ink[3])
+                if b.active then
+                    local inset = math.max(1, math.floor(cb * 0.2))
+                    self:drawRect(pad + inset, cy + inset, cb - inset * 2, cb - inset * 2, 0.85, ink[1], ink[2], ink[3])
+                end
             end
         end
         local bx = pad + cb + math.floor(cb * 0.7)
@@ -295,7 +301,33 @@ function Page:layout(draw)
 end
 
 function Page:measure() return self:layout(false) end
-function Page:render() self:layout(true) end
+
+-- Textured render: same chrome the mod draws, resolved from VPSChrome.pack
+-- by build_view via the VorpallySauced asset root. Falls back to the flat
+-- paper panel when a texture is missing.
+function Page:render()
+    local paper = getTexture("vps_paper_tile")
+    if paper then
+        local tile = 256
+        for ix = 0, math.ceil(self.width / tile) - 1 do
+            for iy = 0, math.ceil(self.height / tile) - 1 do
+                self:drawTextureScaled(paper, ix * tile, iy * tile, tile, tile, 1, 1, 1, 1)
+            end
+        end
+    end
+    self:layout(true)
+    if getTexture("vps_frame_tl") then
+        local c = 24
+        local w, h = self.width, self.height
+        local function piece(n, x, y2, pw, ph)
+            self:drawTextureScaled(getTexture(n), x, y2, pw, ph, 1, 1, 1, 1)
+        end
+        piece("vps_frame_tl", 0, 0, c, c);          piece("vps_frame_tr", w - c, 0, c, c)
+        piece("vps_frame_bl", 0, h - c, c, c);      piece("vps_frame_br", w - c, h - c, c, c)
+        piece("vps_frame_t", c, 0, w - c * 2, c);   piece("vps_frame_b", c, h - c, w - c * 2, c)
+        piece("vps_frame_l", 0, c, c, h - c * 2);   piece("vps_frame_r", w - c, c, c, h - c * 2)
+    end
+end
 
 function VPSSpecimen.build()
     local root = Page:new(40, 30, MODEL)
