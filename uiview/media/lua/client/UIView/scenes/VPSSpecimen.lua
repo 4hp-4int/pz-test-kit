@@ -306,6 +306,12 @@ function Page:measure() return self:layout(false) end
 -- by build_view via the VorpallySauced asset root. Falls back to the flat
 -- paper panel when a texture is missing.
 function Page:render()
+    -- chromeless: the parent supplies paper/frame (journal-lite card); this
+    -- page contributes only its ink
+    if self.chromeless then
+        self:layout(true)
+        return
+    end
     local paper = getTexture("vps_paper_tile")
     if paper then
         -- clamp edge tiles to the page bounds: the headless mock has no

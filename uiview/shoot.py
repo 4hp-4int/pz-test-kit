@@ -3,6 +3,7 @@
 
     shoot.py <html> <png> [width height]      # viewer: full page
     shoot.py <html> <png> --seek <t>           # player: drive seek(t), shoot #stage
+    shoot.py <html> <png> --el <selector>      # shoot one element (e.g. canvas)
 """
 import os
 import sys
@@ -13,12 +14,15 @@ def main():
     html = os.path.abspath(sys.argv[1])
     png = os.path.abspath(sys.argv[2])
     seek = None
+    el = None
     w, h = 1320, 868
     args = sys.argv[3:]
     i = 0
     while i < len(args):
         if args[i] == "--seek":
             seek = float(args[i + 1]); i += 2
+        elif args[i] == "--el":
+            el = args[i + 1]; i += 2
         else:
             w = int(args[i]); h = int(args[i + 1]); i += 2
     url = "file:///" + html.replace("\\", "/")
@@ -36,7 +40,10 @@ def main():
             page = browser.new_page(viewport={"width": w, "height": h})
             page.goto(url, wait_until="networkidle")
             page.wait_for_timeout(450)
-            page.screenshot(path=png, type="png", full_page=True)
+            if el:
+                page.locator(el).first.screenshot(path=png)
+            else:
+                page.screenshot(path=png, type="png", full_page=True)
         browser.close()
     print("[shoot] %s -> %s%s" % (html, png, ("  seek=%s" % seek) if seek is not None else ""))
 
