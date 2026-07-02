@@ -545,6 +545,17 @@ local function realWindow(stacks, opts)
     xfer.textColor = { r = 1, g = 1, b = 1, a = 1 }
     cui:addChild(xfer)
     cui.controls[1] = xfer
+    -- vanilla's same-type transfer image button (wide strip icon) -- the dress
+    -- must swap it for the square sir_ui-xfer glyph
+    local xferType = ISButton:new(100, 3, 34, controlsH - 6, "", page, function() end)
+    xferType:initialise()
+    xferType:setImage(getTexture("media/ui/inventoryPanes/TransferSameTypeOneContainer.png"))
+    xferType.backgroundColor = { r = 0.15, g = 0.15, b = 0.17, a = 1.0 }
+    xferType.borderColor = { r = 0.4, g = 0.4, b = 0.45, a = 1 }
+    xferType.textColor = { r = 1, g = 1, b = 1, a = 1 }
+    xferType.textureColor = { r = 1, g = 1, b = 1, a = 1 }
+    cui:addChild(xferType)
+    cui.controls[2] = xferType
     page:addChild(cui)
     page.controlsUI = cui
 

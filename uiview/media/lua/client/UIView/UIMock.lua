@@ -385,6 +385,7 @@ function ISUIElement:drawItemIcon(item, x, y, a, w, h)
 end
 
 -- stencil / scroll no-ops mods sometimes call
+function ISUIElement:setScrollWithParent(b) self._scrollWithParent = b end
 function ISUIElement:setStencilRect() end
 function ISUIElement:clearStencilRect() end
 function ISUIElement:suspendStencil() end
