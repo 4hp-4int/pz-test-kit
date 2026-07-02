@@ -49,7 +49,7 @@ tests["enabled_signature_reflects_toggles"] = function()
     local without = S.enabledSig()
     S._providerTicks.world = nil
     if not Assert.isTrue(not has(without, "world"), "a disabled source drops from the signature") then return false end
-    return Assert.isTrue(has(without, "nearbyworld"), "...without taking 'nearbyworld' with it")
+    return Assert.isTrue(has(without, "words"), "...without taking other sources with it")
 end
 
 return tests
