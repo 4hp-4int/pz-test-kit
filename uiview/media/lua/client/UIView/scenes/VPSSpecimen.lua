@@ -29,6 +29,7 @@ local P = {
     RULE      = { 0.50, 0.44, 0.34, 0.55 },
     RED       = { 0.55, 0.20, 0.16, 1.0 },
     TEAL_INK  = { 0.16, 0.42, 0.38, 1.0 },
+    AMBER_INK = { 0.55, 0.42, 0.10, 1.0 },
 }
 
 -- Only already-localized strings + numerals live here.
@@ -43,8 +44,13 @@ local MODEL = {
     moodFlavor = "It has drunk deep, and sits heavy in the hand.",
     behaviors = {
         { active = false, teal = true,  name = "Undying-Wrought", stats = "wear -75%  tree +60", cond = "near breaking" },
-        { active = true,  teal = true,  name = "of the Red Feast", stats = "+14% crit",           cond = "in blood" },
+        { active = true,  teal = true,  name = "of the Red Feast", stats = "+14% crit  stamina +30%", cond = "in blood", flawed = true },
         { active = true,  teal = false, name = "Keen",             stats = "+8% crit",            cond = nil },
+    },
+    lineage = {
+        { gen = "II",  kind = "drift" },
+        { gen = "II",  kind = "species", name = "of the Red Feast" },
+        { gen = "III", kind = "apex",    name = "Undying-Wrought" },
     },
     mendsUsed = 4, mendBudget = 13,
     margin = "What the repairs take, they do not give back.",
@@ -125,14 +131,18 @@ function Page:layout(draw)
         local bg = math.max(7, math.floor(H(UIFont.Small) * 0.7))
         local bgap = math.floor(bg * 0.7)
         if draw then
+            local tomb = getTexture("vps_glyph_tomb")
             for i = 1, m.generation do
                 local bx2 = pad + (i - 1) * (bg + bgap)
                 local dead = i < m.generation
                 local c = dead and P.INK_LIGHT or P.TEAL_INK
-                self:drawRectBorder(bx2, y, bg, bg, dead and 0.7 or 1.0, c[1], c[2], c[3])
-                if dead then
+                if dead and tomb then
+                    self:drawTextureScaled(tomb, bx2, y - 1, bg, bg + 2, 0.85, c[1], c[2], c[3])
+                elseif dead then
+                    self:drawRectBorder(bx2, y, bg, bg, 0.7, c[1], c[2], c[3])
                     self:drawRect(bx2 - 1, y + math.floor(bg / 2) - 1, bg + 2, 2, 0.85, P.RED[1], P.RED[2], P.RED[3])
                 else
+                    self:drawRectBorder(bx2, y, bg, bg, 1.0, c[1], c[2], c[3])
                     local inset = math.max(2, math.floor(bg * 0.3))
                     self:drawRect(bx2 + inset, y + inset, bg - inset * 2, bg - inset * 2, 0.9, c[1], c[2], c[3])
                 end
@@ -161,6 +171,37 @@ function Page:layout(draw)
         end
     end
     advance(UIFont.Medium, 1.6)
+
+    -- ── lineage: the chronicle, one inked line per chapter ──
+    if m.lineage and #m.lineage > 0 then
+        local lineTop = y + math.floor(H(UIFont.Small) / 2)
+        text("LINEAGE", pad, UIFont.Small, P.INK_FADE)
+        advance(UIFont.Small, 1.35)
+        local numW = measure(UIFont.Small, "XXXII") + math.floor(H(UIFont.Small) * 0.6)
+        local gsz2 = math.max(8, math.floor(H(UIFont.Small) * 0.8))
+        for _, ev in ipairs(m.lineage) do
+            text(ev.gen, pad, UIFont.Small, P.INK_FADE)
+            local lx = pad + numW
+            if ev.name then
+                local ink = ev.kind == "apex" and P.AMBER_INK or P.TEAL_INK
+                if draw then
+                    local g = getTexture(ev.kind == "apex" and "vps_glyph_crown" or "vps_glyph_branch")
+                    if g then
+                        self:drawTextureScaled(g, lx, y + math.floor((H(UIFont.Small) - gsz2) / 2),
+                            gsz2, gsz2, 0.9, ink[1], ink[2], ink[3])
+                        lx = lx + gsz2 + math.floor(gsz2 * 0.5)
+                    end
+                    self:drawText(ev.name, lx, y, ink[1], ink[2], ink[3], 1, UIFont.Small)
+                end
+            elseif draw then
+                self:drawText("the bond deepened", lx, y,
+                    P.INK_LIGHT[1], P.INK_LIGHT[2], P.INK_LIGHT[3], 0.9, UIFont.Small)
+            end
+            advance(UIFont.Small, 1.25)
+        end
+        fieldset(lineTop, y, measure(UIFont.Small, "LINEAGE"))
+        gap(0.85)
+    end
 
     -- ── THE KILL CLOCK + the numbers ──
     do
@@ -222,6 +263,13 @@ function Page:layout(draw)
         local rxx = ccx + R + dot * 5
         local yy = y + math.floor(H(UIFont.Small) * 0.5)
         if draw then
+            local skull = getTexture("vps_glyph_skull")
+            if skull then
+                local sg = math.max(10, math.floor(H(UIFont.Large) * 0.55))
+                self:drawTextureScaled(skull, rxx, yy + math.floor((H(UIFont.Large) - sg) / 2),
+                    sg, sg, 0.9, P.INK[1], P.INK[2], P.INK[3])
+                rxx = rxx + sg + math.floor(H(UIFont.Small) * 0.4)
+            end
             self:drawText(tostring(m.kills), rxx, yy, P.INK[1], P.INK[2], P.INK[3], 1, UIFont.Large)
             self:drawText("kills", rxx + measure(UIFont.Large, tostring(m.kills)) + math.floor(H(UIFont.Small) * 0.4),
                 yy + H(UIFont.Large) - H(UIFont.Small) - 2, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3], 1, UIFont.Small)
@@ -261,6 +309,15 @@ function Page:layout(draw)
         end
         local bx = pad + cb + math.floor(cb * 0.7)
         text(b.name, bx, UIFont.Small, ink)
+        if b.flawed and draw then
+            local crack = getTexture("vps_glyph_crack")
+            if crack then
+                local cs = math.max(8, math.floor(H(UIFont.Small) * 0.8))
+                self:drawTextureScaled(crack, bx + measure(UIFont.Small, b.name) + math.floor(cs * 0.4),
+                    y + math.floor((H(UIFont.Small) - cs) / 2), math.floor(cs * 0.66), cs,
+                    0.9, P.RED[1], P.RED[2], P.RED[3])
+            end
+        end
         -- stats column; if it would collide with the right-aligned condition,
         -- the condition drops to its own right-aligned line below.
         local statX = pad + math.floor((w - pad * 2) * 0.42)
