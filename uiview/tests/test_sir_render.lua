@@ -15,6 +15,7 @@ local SIRInv  = require "UIView/scenes/SIRInv"
 do
     local ok, err = pcall(function() Render.emit(SIRInv.build({ look = "lamplight" }), nil, nil, "sirinv") end)
     pcall(function() Render.emit(SIRInv.build({}), nil, nil, "sirdaylight") end)
+    pcall(function() Render.emit(SIRInv.build({ opacity = 3 }), nil, nil, "sirglass") end)
     if not ok then print("[sirinv] BUILD/EMIT ERROR: " .. tostring(err)) end
 end
 

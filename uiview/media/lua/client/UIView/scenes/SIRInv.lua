@@ -506,6 +506,9 @@ function Scene.build(opts)
         SIR.Keys = SIR.Keys or {}
         local idx = (opts.look == "lamplight") and 2 or 1
         SIR.Keys["sir_look"] = { getValue = function() return idx end }
+        -- window opacity combo (1 Solid / 2 Smoked / 3 Glass / 4 Vapor)
+        local oidx = opts.opacity or 1
+        SIR.Keys["sir_opacity"] = { getValue = function() return oidx end }
     end
     local stacks = (opts.fixture == "woodwork") and woodworkArchetypes() or archetypes()
     local page, inv = realWindow(stacks, opts)
