@@ -78,20 +78,21 @@ tests["header_band_masks_scrolled_rows"] = function()
             bandAlpha = o.a
         end
     end
-    -- scroll-transform truth (UIMock models PZ's java transform now): row
-    -- content shifts by YScroll, the Static-drawn band stays PINNED at y=0
-    local bandY, rowBleeds = nil, false
+    -- scroll-transform + stencil truth: the Static-pinned band stays at y>=0,
+    -- and the first row (scrolled above the viewport) is CLIPPED -- its text
+    -- must not paint at all (the mock models the pane's GL-scissor stencil).
+    local bandY, pistolPainted = nil, false
     for i, o in ipairs(ops) do
         if o.op == "texture" and tostring(o.name):find("ledghead", 1, true) and bandY == nil then
             bandY = o.y
         end
-        if o.op == "rect" and o.y and o.y < 0 then rowBleeds = true end
+        if o.op == "text" and tostring(o.str):find("Pistol", 1, true) then pistolPainted = true end
     end
     return Assert.isTrue(firstBand ~= nil, "header band painted")
         and Assert.greater(firstBand, lastRowText, "band draws AFTER the row content (opaque mask)")
         and Assert.equal(bandAlpha, 1, "band ignores the opacity slider")
         and Assert.isTrue(bandY ~= nil and bandY >= 0, "band is scroll-PINNED (Static draw)")
-        and Assert.isTrue(rowBleeds, "row content actually shifted by the scroll transform")
+        and Assert.isTrue(not pistolPainted, "scrolled-off row clipped by the pane stencil")
 end
 
 tests["window_dress_bares_vanilla_children"] = function()

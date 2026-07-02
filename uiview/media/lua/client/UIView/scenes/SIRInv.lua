@@ -282,7 +282,8 @@ local function mockPane(stacks, opts)
         self._yscroll = y
     end
     function pane:onMouseWheel(del)
-        self:setYScroll(self._yscroll - del * rowH)
+        -- wheel down (positive del) advances the list (content moves up)
+        self:setYScroll(self._yscroll + del * rowH)
         return true
     end
     function pane:getHeight() return self.height end
@@ -304,6 +305,8 @@ local function mockPane(stacks, opts)
     pane.background = true
     pane.backgroundColor = { r = 0, g = 0, b = 0, a = 0.8 }   -- vanilla's black fill
     function pane:prerender()
+        -- vanilla ISInventoryPane:prerender sets the stencil before drawing
+        self:setStencilRect(0, 0, self.width - 1, self.height - 1)
         if self.background and self.backgroundColor.a > 0 then
             local bc = self.backgroundColor
             self:drawRect(0, 0, self.width, self.height, bc.a, bc.r, bc.g, bc.b)
@@ -312,6 +315,7 @@ local function mockPane(stacks, opts)
         -- capsule scrollbar (the real ISScrollBar is a java-backed child; the
         -- dress swaps its textures -- draw the same capsule from pane state)
         if self:isVScrollBarVisible() then
+            self:clearStencilRect()
             local content = #stacks * rowH + (opts.headerHgt or 0)
             local trackH = self.height
             local thumbH = math.max(24, math.floor(trackH * trackH / content))
@@ -321,12 +325,14 @@ local function mockPane(stacks, opts)
             self:drawRectStatic(tx, 0, 9, trackH, 0.18, 0.3, 0.25, 0.18)
             local vt = self.vscroll
             if vt and vt.toptex then
-                self:drawTextureStatic(vt.toptex, tx, ty, 1, 1, 1, 1)
+                self:drawTextureScaledStatic(vt.toptex, tx, ty, 9, 4, 1, 1, 1, 1)
                 self:drawTextureScaledStatic(vt.midtex, tx, ty + 4, 9, thumbH - 8, 1, 1, 1, 1)
-                self:drawTextureStatic(vt.bottex, tx, ty + thumbH - 4, 1, 1, 1, 1)
+                self:drawTextureScaledStatic(vt.bottex, tx, ty + thumbH - 4, 9, 4, 1, 1, 1, 1)
             else
                 self:drawRectStatic(tx + 1, ty, 7, thumbH, 0.7, 0.79, 0.73, 0.61)
             end
+        else
+            self:clearStencilRect()
         end
     end
     function pane:render() end

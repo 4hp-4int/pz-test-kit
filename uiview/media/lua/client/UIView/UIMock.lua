@@ -288,12 +288,28 @@ local function scrollXY(self)
            (self.getYScroll and self:getYScroll() or 0)
 end
 
+-- clip an op to the element's active stencil (absolute coords). Returns
+-- nil,nil to DROP, else the clipped y,h (x/w pass through: vertical scroll is
+-- the case that matters; horizontal clipping can join when something needs it)
+local function clipY(self, y, h)
+    local st = self._stencil
+    if not st or self._stencilOff then return y, h end
+    local top, bot = st.y, st.y + st.h
+    local y2 = y + (h or 0)
+    if y2 <= top or y >= bot then return nil, nil end
+    if y < top then h = h - (top - y); y = top end
+    if y + h > bot then h = bot - y end
+    return y, h
+end
+
 local function pushRect(self, op, x, y, w, h, a, r, g, b, static)
     local c = rgba(r, g, b, a)
     local sx, sy = 0, 0
     if not static then sx, sy = scrollXY(self) end
-    Recorder.push({ op = op, x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy,
-        w = w, h = h, r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
+    local ay, ah = clipY(self, self:getAbsoluteY() + y + sy, h)
+    if not ay then return end
+    Recorder.push({ op = op, x = self:getAbsoluteX() + x + sx, y = ay,
+        w = w, h = ah, r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
 end
 
 function ISUIElement:drawRect(x, y, w, h, a, r, g, b)
@@ -317,6 +333,8 @@ local function pushText(self, str, x, y, r, g, b, a, font, align, static)
     local c = rgba(r, g, b, a)
     local sx, sy = 0, 0
     if not static then sx, sy = scrollXY(self) end
+    local ay = clipY(self, self:getAbsoluteY() + y + sy, fontMetrics(font or UIFont.Small).h)
+    if not ay then return end
     Recorder.push({ op = "text", str = tostring(str),
         x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy,
         r = c.r, g = c.g, b = c.b, a = c.a,
@@ -351,8 +369,10 @@ local function pushTexture(self, name, x, y, w, h, a, r, g, b, static)
     local c = rgba(r, g, b, a)
     local sx, sy = 0, 0
     if not static then sx, sy = scrollXY(self) end
+    local ay, ah = clipY(self, self:getAbsoluteY() + y + sy, h or 0)
+    if not ay then return end
     Recorder.push({ op = "texture", name = name and tostring(name) or "",
-        x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy, w = w or 0, h = h or 0,
+        x = self:getAbsoluteX() + x + sx, y = ay, w = w or 0, h = ah,
         r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
 end
 
@@ -384,17 +404,25 @@ function ISUIElement:drawItemIcon(item, x, y, a, w, h)
     local name = "item"
     if item and item.getName then local ok, n = pcall(function() return item:getName() end); if ok and n then name = n end end
     local sx, sy = scrollXY(self)
+    local ay, ah = clipY(self, self:getAbsoluteY() + y + sy, h or 32)
+    if not ay then return end
     Recorder.push({ op = "itemicon", name = name,
-        x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy, w = w or 32, h = h or 32,
+        x = self:getAbsoluteX() + x + sx, y = ay, w = w or 32, h = ah,
         a = a == nil and 1 or a, el = self._uid })
 end
 
--- stencil / scroll no-ops mods sometimes call
+-- stencil: modeled as a GL scissor on the DRAWING element (vanilla panes
+-- clip their scrolled rows with it -- a no-op here let rows paint past the
+-- viewport, which the live bridge made very visible)
 function ISUIElement:setScrollWithParent(b) self._scrollWithParent = b end
-function ISUIElement:setStencilRect() end
-function ISUIElement:clearStencilRect() end
-function ISUIElement:suspendStencil() end
-function ISUIElement:resumeStencil() end
+function ISUIElement:setStencilRect(x, y, w, h)
+    self._stencil = { x = self:getAbsoluteX() + (x or 0), y = self:getAbsoluteY() + (y or 0),
+                      w = w or 0, h = h or 0 }
+end
+function ISUIElement:clearStencilRect() self._stencil = nil end
+function ISUIElement:suspendStencil() self._stencilOff = true end
+function ISUIElement:resumeStencil() self._stencilOff = false end
+function ISUIElement:repaintStencilRect() end
 function ISUIElement:updateScrollbars() end
 function ISUIElement:setScrollHeight() end
 function ISUIElement:setScrollWidth() end
