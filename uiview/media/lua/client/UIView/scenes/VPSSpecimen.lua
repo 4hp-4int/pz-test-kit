@@ -308,10 +308,15 @@ function Page:measure() return self:layout(false) end
 function Page:render()
     local paper = getTexture("vps_paper_tile")
     if paper then
+        -- clamp edge tiles to the page bounds: the headless mock has no
+        -- stencil, so an unclamped tile spills past the frame (in-game the
+        -- real SpecimenPage stencils this)
         local tile = 256
         for ix = 0, math.ceil(self.width / tile) - 1 do
             for iy = 0, math.ceil(self.height / tile) - 1 do
-                self:drawTextureScaled(paper, ix * tile, iy * tile, tile, tile, 1, 1, 1, 1)
+                local tw = math.min(tile, self.width - ix * tile)
+                local th = math.min(tile, self.height - iy * tile)
+                self:drawTextureScaled(paper, ix * tile, iy * tile, tw, th, 1, 1, 1, 1)
             end
         end
     end
@@ -334,5 +339,10 @@ function VPSSpecimen.build()
     root:initialise()
     return root
 end
+
+-- exported so VPSJournal can embed the page as the journal's content area
+VPSSpecimen.Page = Page
+VPSSpecimen.MODEL = MODEL
+VPSSpecimen.P = P
 
 return VPSSpecimen

@@ -104,6 +104,31 @@
     return Promise.all(tasks).then(function () { return cache; });
   }
 
+  // PZ's DrawTextureScaled multiplies texture pixels by the call's rgb —
+  // chrome packs bake strokes near-white and rely on that tint (one texture,
+  // any ink). Mirror it here or tinted assets preview as white. Multiply the
+  // image by the rgb color, then restore the image's own alpha.
+  var tintCache = typeof WeakMap !== "undefined" ? new WeakMap() : null;
+  function tintedImage(img, r, g, b) {
+    var key = r.toFixed(3) + "," + g.toFixed(3) + "," + b.toFixed(3);
+    var perImg = tintCache && tintCache.get(img);
+    if (perImg && perImg[key]) return perImg[key];
+    var c = document.createElement("canvas");
+    c.width = img.width || 1; c.height = img.height || 1;
+    var cx = c.getContext("2d");
+    cx.drawImage(img, 0, 0);
+    cx.globalCompositeOperation = "multiply";
+    cx.fillStyle = "rgb(" + Math.round(r * 255) + "," + Math.round(g * 255) + "," + Math.round(b * 255) + ")";
+    cx.fillRect(0, 0, c.width, c.height);
+    cx.globalCompositeOperation = "destination-in";
+    cx.drawImage(img, 0, 0);
+    if (tintCache) {
+      if (!perImg) { perImg = {}; tintCache.set(img, perImg); }
+      perImg[key] = c;
+    }
+    return c;
+  }
+
   function drawFrame(ctx, frame, opts) {
     opts = opts || {};
     var images = opts.images;
@@ -146,8 +171,11 @@
           var w = op.w || 32, h = op.h || 32;
           if (img) {
             ctx.globalAlpha = op.a == null ? 1 : op.a;
-            // tint is rarely meaningful for icon previews; draw straight pixels.
-            ctx.drawImage(img, op.x, op.y, w, h);
+            var needsTint = (op.r != null && op.r < 0.995)
+              || (op.g != null && op.g < 0.995)
+              || (op.b != null && op.b < 0.995);
+            ctx.drawImage(needsTint ? tintedImage(img, op.r, op.g, op.b) : img,
+              op.x, op.y, w, h);
             ctx.globalAlpha = 1;
           } else {
             placeholderBox(ctx, op.x, op.y, w, h);
