@@ -264,76 +264,113 @@ function ISUIElement:render() end
 -- ── DRAW PRIMITIVES → RECORDER (vanilla-exact signatures) ───────────────────
 -- All take element-local coords; we add the element's absolute origin so the
 -- recorded op is in screen space.
+--
+-- SCROLL TRANSFORM (matches PZ's java UIElement): ordinary draws shift by the
+-- DRAWING element's own X/YScroll -- that's how row content scrolls inside a
+-- pane. The *Static variants do NOT shift: they're vanilla's pinning mechanism
+-- for in-pane chrome (header strips, backdrops). Children are screen-space
+-- (vanilla counter-offsets contextButtons by +getYScroll to FOLLOW content,
+-- which proves they don't inherit the transform). This gap hid SIR's
+-- band-rides-the-scroll bug: perfect in harness, broken in game.
+
+local function scrollXY(self)
+    return (self.getXScroll and self:getXScroll() or 0),
+           (self.getYScroll and self:getYScroll() or 0)
+end
+
+local function pushRect(self, op, x, y, w, h, a, r, g, b, static)
+    local c = rgba(r, g, b, a)
+    local sx, sy = 0, 0
+    if not static then sx, sy = scrollXY(self) end
+    Recorder.push({ op = op, x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy,
+        w = w, h = h, r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
+end
 
 function ISUIElement:drawRect(x, y, w, h, a, r, g, b)
     if self.isCollapsed then return end
-    local c = rgba(r, g, b, a)
-    Recorder.push({ op = "rect", x = self:getAbsoluteX() + x, y = self:getAbsoluteY() + y,
-        w = w, h = h, r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
+    pushRect(self, "rect", x, y, w, h, a, r, g, b, false)
 end
-ISUIElement.drawRectStatic = ISUIElement.drawRect
+function ISUIElement:drawRectStatic(x, y, w, h, a, r, g, b)
+    if self.isCollapsed then return end
+    pushRect(self, "rect", x, y, w, h, a, r, g, b, true)
+end
 
 function ISUIElement:drawRectBorder(x, y, w, h, a, r, g, b)
-    local c = rgba(r, g, b, a)
-    Recorder.push({ op = "rectborder", x = self:getAbsoluteX() + x, y = self:getAbsoluteY() + y,
-        w = w, h = h, r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
+    pushRect(self, "rectborder", x, y, w, h, a, r, g, b, false)
 end
-ISUIElement.drawRectBorderStatic = ISUIElement.drawRectBorder
+function ISUIElement:drawRectBorderStatic(x, y, w, h, a, r, g, b)
+    pushRect(self, "rectborder", x, y, w, h, a, r, g, b, true)
+end
 
-local function pushText(self, str, x, y, r, g, b, a, font, align)
+local function pushText(self, str, x, y, r, g, b, a, font, align, static)
     if self.isCollapsed or str == nil then return end
     local c = rgba(r, g, b, a)
+    local sx, sy = 0, 0
+    if not static then sx, sy = scrollXY(self) end
     Recorder.push({ op = "text", str = tostring(str),
-        x = self:getAbsoluteX() + x, y = self:getAbsoluteY() + y,
+        x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy,
         r = c.r, g = c.g, b = c.b, a = c.a,
         font = font or UIFont.Small, align = align, el = self._uid })
 end
 
 function ISUIElement:drawText(str, x, y, r, g, b, a, font)
-    pushText(self, str, x, y, r, g, b, a, font, "left")
+    pushText(self, str, x, y, r, g, b, a, font, "left", false)
 end
-ISUIElement.drawTextStatic = ISUIElement.drawText
 ISUIElement.drawTextUntrimmed = ISUIElement.drawText
+function ISUIElement:drawTextStatic(str, x, y, r, g, b, a, font)
+    pushText(self, str, x, y, r, g, b, a, font, "left", true)
+end
 function ISUIElement:drawTextCentre(str, x, y, r, g, b, a, font)
-    pushText(self, str, x, y, r, g, b, a, font, "centre")
+    pushText(self, str, x, y, r, g, b, a, font, "centre", false)
 end
-ISUIElement.drawTextCentreStatic = ISUIElement.drawTextCentre
+function ISUIElement:drawTextCentreStatic(str, x, y, r, g, b, a, font)
+    pushText(self, str, x, y, r, g, b, a, font, "centre", true)
+end
 function ISUIElement:drawTextRight(str, x, y, r, g, b, a, font)
-    pushText(self, str, x, y, r, g, b, a, font, "right")
+    pushText(self, str, x, y, r, g, b, a, font, "right", false)
 end
-ISUIElement.drawTextRightStatic = ISUIElement.drawTextRight
+function ISUIElement:drawTextRightStatic(str, x, y, r, g, b, a, font)
+    pushText(self, str, x, y, r, g, b, a, font, "right", true)
+end
 
 function ISUIElement:drawTextZoomed(str, x, y, zoom, r, g, b, a, font)
-    pushText(self, str, x, y, r, g, b, a, font, "left")
+    pushText(self, str, x, y, r, g, b, a, font, "left", false)
 end
 
-local function pushTexture(self, name, x, y, w, h, a, r, g, b)
+local function pushTexture(self, name, x, y, w, h, a, r, g, b, static)
     local c = rgba(r, g, b, a)
+    local sx, sy = 0, 0
+    if not static then sx, sy = scrollXY(self) end
     Recorder.push({ op = "texture", name = name and tostring(name) or "",
-        x = self:getAbsoluteX() + x, y = self:getAbsoluteY() + y, w = w or 0, h = h or 0,
+        x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy, w = w or 0, h = h or 0,
         r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
 end
 
 function ISUIElement:drawTextureScaled(tex, x, y, w, h, a, r, g, b)
-    pushTexture(self, tex, x, y, w, h, a, r, g, b)
+    pushTexture(self, tex, x, y, w, h, a, r, g, b, false)
 end
 ISUIElement.drawTextureScaledColor = ISUIElement.drawTextureScaled
-ISUIElement.drawTextureScaledStatic = ISUIElement.drawTextureScaled
+function ISUIElement:drawTextureScaledStatic(tex, x, y, w, h, a, r, g, b)
+    pushTexture(self, tex, x, y, w, h, a, r, g, b, true)
+end
 function ISUIElement:drawTexture(tex, x, y, a, r, g, b)
     -- unknown native size; record a small marker box. Mods that need real size
     -- use drawTextureScaled.
-    pushTexture(self, tex, x, y, 32, 32, a, r, g, b)
+    pushTexture(self, tex, x, y, 32, 32, a, r, g, b, false)
 end
-ISUIElement.drawTextureStatic = ISUIElement.drawTexture
+function ISUIElement:drawTextureStatic(tex, x, y, a, r, g, b)
+    pushTexture(self, tex, x, y, 32, 32, a, r, g, b, true)
+end
 function ISUIElement:drawTextureScaledAspect(tex, x, y, w, h, a, r, g, b)
-    pushTexture(self, tex, x, y, w, h, a, r, g, b)
+    pushTexture(self, tex, x, y, w, h, a, r, g, b, false)
 end
 
 function ISUIElement:drawItemIcon(item, x, y, a, w, h)
     local name = "item"
     if item and item.getName then local ok, n = pcall(function() return item:getName() end); if ok and n then name = n end end
+    local sx, sy = scrollXY(self)
     Recorder.push({ op = "itemicon", name = name,
-        x = self:getAbsoluteX() + x, y = self:getAbsoluteY() + y, w = w or 32, h = h or 32,
+        x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy, w = w or 32, h = h or 32,
         a = a == nil and 1 or a, el = self._uid })
 end
 

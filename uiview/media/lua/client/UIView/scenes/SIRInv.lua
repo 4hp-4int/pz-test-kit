@@ -278,7 +278,9 @@ local function mockPane(stacks, opts)
     function pane:isVScrollBarVisible() return false end
     function pane:setScrollHeight() end
     function pane:setScrollWidth() end
-    function pane:drawRectStatic(x, y, ww, hh, a, r, g, b) self:drawRect(x, y, ww, hh, a, r, g, b) end
+    -- (no drawRectStatic override: UIMock now models the scroll transform, and
+    -- Static draws must stay PINNED -- aliasing them to drawRect hid the
+    -- band-rides-the-scroll bug)
 
     -- Vanilla PHASES, faithfully: ISInventoryPane:prerender draws the panel
     -- background then renderdetails(false); the header sort/glyph buttons are
@@ -448,9 +450,22 @@ local function realWindow(stacks, opts)
     page.capacity = true           -- show "weight / maxWeight"
     page.blink = false
     page.isCollapsed = false
-    -- geometry-only stand-ins for the buttons createChildren normally makes
-    page.infoButton = { getRight = function() return 24 end, getX = function() return 2 end }
-    page.pinButton  = { getX = function() return W - 18 end }
+    -- REAL title-rail buttons (close / info / pin), vanilla-configured, so the
+    -- rail dress -- shrink, glyph swap, metric insets -- runs headlessly (they
+    -- were geometry-only stubs before, which left the rail work untested)
+    local railBH = titleH - 2
+    local function railBtn(x)
+        local b = ISButton:new(x, 1, railBH, railBH, "", page, function() end)
+        b:initialise()
+        b.borderColor = { r = 1, g = 1, b = 1, a = 0 }
+        b.backgroundColor = { r = 0, g = 0, b = 0, a = 0 }
+        b.textureColor = { r = 1, g = 1, b = 1, a = 1 }
+        page:addChild(b)
+        return b
+    end
+    page.closeButton = railBtn(1)
+    page.infoButton  = railBtn(1 + railBH + 1)
+    page.pinButton   = railBtn(W - 1 - railBH)
 
     local th = page:titleBarHeight()
     page.sirFilter = { text = "", cat = nil }

@@ -76,9 +76,20 @@ tests["header_band_masks_scrolled_rows"] = function()
             bandAlpha = o.a
         end
     end
+    -- scroll-transform truth (UIMock models PZ's java transform now): row
+    -- content shifts by YScroll, the Static-drawn band stays PINNED at y=0
+    local bandY, rowBleeds = nil, false
+    for i, o in ipairs(ops) do
+        if o.op == "texture" and tostring(o.name):find("ledghead", 1, true) and bandY == nil then
+            bandY = o.y
+        end
+        if o.op == "rect" and o.y and o.y < 0 then rowBleeds = true end
+    end
     return Assert.isTrue(firstBand ~= nil, "header band painted")
         and Assert.greater(firstBand, lastRowText, "band draws AFTER the row content (opaque mask)")
         and Assert.equal(bandAlpha, 1, "band ignores the opacity slider")
+        and Assert.isTrue(bandY ~= nil and bandY >= 0, "band is scroll-PINNED (Static draw)")
+        and Assert.isTrue(rowBleeds, "row content actually shifted by the scroll transform")
 end
 
 tests["window_dress_bares_vanilla_children"] = function()
@@ -91,6 +102,9 @@ tests["window_dress_bares_vanilla_children"] = function()
         and Assert.equal(pane.nameHeader.backgroundColor.a, 0, "sort-header plate bared")
         and Assert.isTrue(pane.vscroll.toptex ~= nil, "scrollbar capsule fields swapped")
         and Assert.equal(page.borderColor.a, 0, "square window border gone")
+        and Assert.equal(page.closeButton.width, 12, "rail buttons shrunk to 12px")
+        and Assert.isTrue(page.closeButton._sirGlyph == true, "rail glyph swapped in (sir_ui-close)")
+        and Assert.isTrue(pane.expandAll._sirGlyph == true, "header glyph swapped in (sir_ui-expand)")
 end
 
 return tests
