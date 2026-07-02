@@ -113,6 +113,18 @@ tests["setCombo_writes_option_and_saves_ini"] = function()
     return Assert.isTrue(saved, "ModOptions:save() persists to ini")
 end
 
+tests["position_and_size_families_enumerate"] = function()
+    local nLoc, nSize = 0, 0
+    withQueue({}, function()
+        for _, c in ipairs(SF.collect(0)) do
+            if c.familyKey == "self.location" then nLoc = nLoc + 1 end
+            if c.familyKey == "self.size" then nSize = nSize + 1 end
+        end
+    end)
+    if not Assert.equal(nLoc, #S.LOC, "one row per screen position (9 spots + upper)") then return false end
+    return Assert.equal(nSize, #S.SIZE, "one row per palette size")
+end
+
 tests["setCombo_rejects_bad_index"] = function()
     if not Assert.isTrue(S.setCombo("theme", 0) == false, "0 rejected") then return false end
     if not Assert.isTrue(S.setCombo("theme", #S.THEME + 1) == false, "past-end rejected") then return false end
