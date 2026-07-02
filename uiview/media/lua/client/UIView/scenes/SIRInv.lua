@@ -501,6 +501,7 @@ local function realWindow(stacks, opts)
     page:addChild(pane)
     pane.parent = page
     page.inventoryPane = pane
+    pane.inventoryPage = page   -- vanilla back-ref; renderdetails reads sirFilter through it
 
     -- ── real container/bag-tab column ──────────────────────────────────────
     -- The vanilla page builds these via refreshBackpacks (enumerating the player's
