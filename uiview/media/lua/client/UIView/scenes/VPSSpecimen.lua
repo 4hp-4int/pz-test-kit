@@ -282,9 +282,8 @@ function Page:layout(draw)
             self:drawText("trait", rxx + measure(UIFont.Medium, m.trait) + math.floor(H(UIFont.Small) * 0.4),
                 ty2 + labelY, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3], 1, UIFont.Small)
             local my2 = ty2 + math.floor(H(UIFont.Medium) * 1.2)
-            self:drawRect(rxx + 1, my2 + math.floor(H(UIFont.Medium) / 2) - 3, 6, 6, 1, m.moodColor[1], m.moodColor[2], m.moodColor[3])
-            self:drawText(m.mood, rxx + 12, my2, m.moodColor[1], m.moodColor[2], m.moodColor[3], 1, UIFont.Medium)
-            self:drawText("mood", rxx + 12 + measure(UIFont.Medium, m.mood) + math.floor(H(UIFont.Small) * 0.4),
+            self:drawText(m.mood, rxx, my2, m.moodColor[1], m.moodColor[2], m.moodColor[3], 1, UIFont.Medium)
+            self:drawText("mood", rxx + measure(UIFont.Medium, m.mood) + math.floor(H(UIFont.Small) * 0.4),
                 my2 + labelY, P.INK_FADE[1], P.INK_FADE[2], P.INK_FADE[3], 1, UIFont.Small)
         end
         y = ccy + R + dot * 3 + math.floor(H(UIFont.Small) * 1.5)
