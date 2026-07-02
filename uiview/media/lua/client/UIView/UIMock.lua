@@ -480,6 +480,13 @@ function ISTextEntryBox:new(text, x, y, width, height)
     o._focused = false
     o._editable = true
     o.placeholder = nil
+    -- the real widget's chrome is java-side: setHasFrame(false) bares it (SIR's
+    -- search band does this before laying its own recessed field under the box)
+    o._hasFrame = true
+    o.javaObject = {
+        setHasFrame = function(_, b) o._hasFrame = b and true or false end,
+        setTextColor = function() end,
+    }
     return o
 end
 
@@ -497,6 +504,8 @@ function ISTextEntryBox:setMaxTextLength(n) end
 function ISTextEntryBox:setClearButton(b) end
 
 function ISTextEntryBox:prerender()
+    -- java frame bared (setHasFrame(false)): the host draws its own field
+    if self._hasFrame == false then return end
     -- honor backgroundColor / borderColor like the real ISTextEntryBox, so a
     -- re-themed field (e.g. the cream order-ticket) renders faithfully headless.
     local bg = self.backgroundColor
