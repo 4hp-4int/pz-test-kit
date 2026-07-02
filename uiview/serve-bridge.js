@@ -101,10 +101,13 @@ const server = http.createServer((req, res) => {
   // GET /icon/Item_Bandage  -> pre-resolved PNG from .iconcache (warmed by a
   // static build); 404 -> replay.js falls back to a placeholder box.
   if (req.method === "GET" && url.startsWith("/icon/")) {
-    const name = decodeURIComponent(url.slice("/icon/".length)).replace(/[^A-Za-z0-9_]/g, "");
-    const file = path.join(HERE, ".iconcache", name + ".png");
+    // keep hyphens (sir_ui-close etc.); try the loose-file name, then the
+    // mod-pack namespace build_view warms as "_mp_<name>.png"
+    const name = decodeURIComponent(url.slice("/icon/".length)).replace(/[^A-Za-z0-9_\-]/g, "");
     res.setHeader("Cache-Control", "public, max-age=86400");
-    return sendFile(res, file, "image/png");
+    const bare = path.join(HERE, ".iconcache", name + ".png");
+    if (fs.existsSync(bare)) return sendFile(res, bare, "image/png");
+    return sendFile(res, path.join(HERE, ".iconcache", "_mp_" + name + ".png"), "image/png");
   }
   if (req.method === "POST" && url === "/event") {
     let body = "";
