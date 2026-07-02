@@ -22,7 +22,19 @@ const SCENE = process.argv[2] || "SaucePalette";
 const PORT = parseInt(process.argv[3] || "8753", 10);
 
 // ── resident harness ────────────────────────────────────────────────────────
-const child = spawn("bash", [path.join(KIT, "pztest"), "--serve", SCENE], {
+// On Windows, bare "bash" can resolve to the WSL shim (System32ash.exe),
+// which fails without a distro. Prefer Git Bash explicitly.
+function bashPath() {
+  if (process.platform === "win32") {
+    for (const c of [
+      "C:\Program Files\Git\bin\bash.exe",
+      "C:\Program Files (x86)\Git\bin\bash.exe",
+    ]) if (fs.existsSync(c)) return c;
+  }
+  return "bash";
+}
+
+const child = spawn(bashPath(), [path.join(KIT, "pztest"), "--serve", SCENE], {
   cwd: HERE,
   stdio: ["pipe", "pipe", "inherit"],
 });
