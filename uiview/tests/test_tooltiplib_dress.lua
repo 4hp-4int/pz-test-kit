@@ -82,14 +82,63 @@ local function makeTT()
     function t.setMeasureOnly(self, b) self._measure = b end
     function t.isMeasureOnly(self) return self._measure end
     function t.getLineSpacing(self) return 14 end
+    -- Faithful ObjectTooltip.Layout model: LayoutItem-shaped entries with the
+    -- PUBLIC JAVA FIELDS the geometry walk reads (labelWidth, valueWidthRight,
+    -- hasValue, rightJustify, progressFraction, height), an ArrayList-shaped
+    -- items collection (:size()/:get(i), 0-based), and a render() that runs
+    -- calcSizes (8px/char measure stand-in) and advances y by item height —
+    -- the exact contract Hook.lua's buildLayoutGeometry depends on.
+    t._layouts = {}
     function t.beginLayout(self)
-        return {
-            setMinValueWidth = function() end,
-            render = function(_, x, y, tooltip)
-                seq[#seq + 1] = "layout"
-                return 40
-            end,
-        }
+        local L = { items = {}, minLabelWidth = 0, minValueWidth = 0 }
+        L.items.size = function(items) return #items end
+        L.items.get = function(items, i) return items[i + 1] end
+        function L.addItem(layout)
+            local it = {
+                hasValue = false, rightJustify = false, progressFraction = -1,
+                labelWidth = 0, valueWidth = 0, valueWidthRight = 0,
+                progressWidth = 0, height = 14,
+            }
+            function it.setLabel(item, txt, r, g, b, a)
+                item.label = txt
+                item.lr, item.lg, item.lb, item.la = r, g, b, a
+            end
+            function it.setValue(item, txt, r, g, b, a)
+                item.value = txt
+                item.hasValue = true
+                item.rightJustify = true
+            end
+            function it.setValueRight(item, v, hg)
+                item.value = tostring(v)
+                item.hasValue = true
+                item.rightJustify = true
+            end
+            function it.setProgress(item, f, r, g, b, a)
+                item.progressFraction = f
+                item.r1, item.g1, item.b1, item.a1 = r, g, b, a
+                item.hasValue = true
+            end
+            layout.items[#layout.items + 1] = it
+            return it
+        end
+        function L.setMinValueWidth(layout, w) layout.minValueWidth = w end
+        function L.render(layout, x, y, tooltip)
+            seq[#seq + 1] = "layout"
+            for i = 1, #layout.items do
+                local it = layout.items[i]
+                it.labelWidth = it.label and (#tostring(it.label) * 8) or 0
+                if it.hasValue and it.value then
+                    local vw = #tostring(it.value) * 8
+                    if it.rightJustify then it.valueWidthRight = vw
+                    else it.valueWidth = vw end
+                end
+                it.height = 14
+                y = y + it.height
+            end
+            return y
+        end
+        t._layouts[#t._layouts + 1] = L
+        return L
     end
     function t.endLayout(self, layout) end
     function t.DrawText(self, ...) end
@@ -394,6 +443,191 @@ tests["callback_declared_accent_reaches_dress_same_frame"] = function()
     ok = Assert.nearEqual(seen[1] and seen[1][3] or 0, 0.9, 0.001, "the declared colour") and ok
     TooltipLib.removeProvider("AccentWarm")
     reset()
+    return ok
+end
+
+tests["section_undressed_label_plus_divider_rows"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "SectionPlain",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:beginSection("Nutrition")
+            ctx:addKeyValue("Calories:", "120")
+        end,
+        description = "plain section probe",
+    })
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local L = p.tooltip._layouts[#p.tooltip._layouts]   -- real-pass layout
+    local ok = Assert.equal(#L.items, 3, "label + divider rule + content row")
+    ok = Assert.equal(L.items[1].label, "NUTRITION", "uppercased section label") and ok
+    ok = Assert.nearEqual(L.items[2].progressFraction or -1, 1.0, 0.001,
+        "plain divider rule row (classic look)") and ok
+    ok = Assert.equal(L.items[3].value, "120", "content row follows the rule") and ok
+    TooltipLib.removeProvider("SectionPlain")
+    return ok
+end
+
+tests["section_dressed_geometry_reaches_ornaments"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "SectionGeom",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:beginSection("Nutrition")
+            ctx:addKeyValue("Calories:", "120")
+            ctx:addProgress("Freshness:", 0.5)
+        end,
+        description = "section geometry probe",
+    })
+    local d = makeDress()
+    local ornCalls, gotGeom, gotSurface = 0, nil, nil
+    d.spec.ornaments = function(panel, tooltip, geom, surface, accent)
+        ornCalls = ornCalls + 1
+        gotGeom, gotSurface = geom, surface
+    end
+    TooltipLib.setPanelDress(d.spec)
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local L = p.tooltip._layouts[#p.tooltip._layouts]
+    local ok = Assert.equal(#L.items, 3, "divider row OMITTED while ornaments active")
+    ok = Assert.equal(ornCalls, 1, "ornaments once per render (real pass only)") and ok
+    ok = Assert.equal(gotSurface, "item", "surface tag") and ok
+    ok = Assert.equal(#(gotGeom and gotGeom.sections or {}), 1, "one declared section") and ok
+    local s = gotGeom and gotGeom.sections[1] or {}
+    ok = Assert.equal(s.label, "NUTRITION", "section label in geometry") and ok
+    -- startY = padTop(5) + lineSpacing(14); the label is the first layout row
+    ok = Assert.equal(s.y, 19, "section label row y = startY") and ok
+    ok = Assert.equal(s.h, 14, "row height = lineSpacing") and ok
+    local rows = gotGeom and gotGeom.rows or {}
+    ok = Assert.equal(#rows, 3, "one geometry entry per layout row") and ok
+    ok = Assert.equal(rows[1].kind, "label", "section label row kind") and ok
+    ok = Assert.equal(rows[2].kind, "kv", "key/value row kind") and ok
+    ok = Assert.equal(rows[2].y, 33, "second row advances by lineSpacing") and ok
+    ok = Assert.isTrue(rows[2].labelW > 0 and rows[2].valueW > 0,
+        "kv row carries measured label/value widths") and ok
+    ok = Assert.equal(rows[3].kind, "bar", "progress row kind") and ok
+    ok = Assert.isTrue((gotGeom.valueRightX or 0) > (gotGeom.left or 0),
+        "value column right edge computed") and ok
+    ok = Assert.isTrue(rows[1].provider and rows[2].provider,
+        "rows attributed to the provider region") and ok
+    TooltipLib.removeProvider("SectionGeom")
+    reset()
+    return ok
+end
+
+tests["bar_rows_carry_fraction_and_colour_dividers_are_rules"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "BarGeom",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:addProgress("Freshness:", 0.62, nil, { 0.2, 0.8, 0.3, 1 })
+            ctx:addDivider()
+        end,
+        description = "bar geometry probe",
+    })
+    local d = makeDress()
+    local gotGeom
+    d.spec.ornaments = function(panel, tooltip, geom) gotGeom = geom end
+    TooltipLib.setPanelDress(d.spec)
+    hookedRender(makePanel(makeItem()))
+    local rows = gotGeom and gotGeom.rows or {}
+    local ok = Assert.equal(#rows, 2, "bar + divider rows")
+    ok = Assert.equal(rows[1] and rows[1].kind, "bar", "labelled progress row = bar") and ok
+    ok = Assert.nearEqual(rows[1] and rows[1].fraction or 0, 0.62, 0.001,
+        "bar fraction in geometry") and ok
+    ok = Assert.nearEqual(rows[1] and rows[1].barColor and rows[1].barColor[2] or 0,
+        0.8, 0.001, "bar's declared colour in geometry") and ok
+    ok = Assert.equal(rows[2] and rows[2].kind, "rule",
+        "labelless divider row = rule (not restyled as a gauge)") and ok
+    ok = Assert.equal(gotGeom and gotGeom.barH, 5, "vanilla bar height for Small font") and ok
+    TooltipLib.removeProvider("BarGeom")
+    reset()
+    return ok
+end
+
+tests["section_label_takes_dress_declared_color"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "SectionTint",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:beginSection("Bait") end,
+        description = "section label colour probe",
+    })
+    local d = makeDress()
+    d.spec.sectionLabelColor = { 0.9, 0.2, 0.3, 1 }
+    TooltipLib.setPanelDress(d.spec)
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local L = p.tooltip._layouts[#p.tooltip._layouts]
+    local lbl
+    for i = 1, #L.items do
+        if L.items[i].label == "BAIT" then lbl = L.items[i] end
+    end
+    local ok = Assert.notNil(lbl, "section label row present")
+    ok = Assert.nearEqual(lbl and lbl.lr or 0, 0.9, 0.001,
+        "label wears the dress's sectionLabelColor") and ok
+    TooltipLib.removeProvider("SectionTint")
+    reset()
+    return ok
+end
+
+tests["cacheable_replay_keeps_sections"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "SectionCached",
+        target = "item",
+        enabled = function() return true end,
+        cacheable = true,
+        callback = function(ctx)
+            ctx:beginSection("Trap")
+            ctx:addKeyValue("Catch:", "Rabbit")
+        end,
+        description = "cacheable section probe",
+    })
+    local d = makeDress()
+    local geoms = {}
+    d.spec.ornaments = function(panel, tooltip, geom) geoms[#geoms + 1] = geom end
+    TooltipLib.setPanelDress(d.spec)
+    local p = makePanel(makeItem())
+    hookedRender(p)   -- frame 1: records the display list
+    hookedRender(p)   -- frame 2: replays it from the L2 cache
+    local ok = Assert.equal(#geoms, 2, "ornaments both frames")
+    ok = Assert.equal(#(geoms[2] and geoms[2].sections or {}), 1,
+        "replayed frame still declares the section") and ok
+    ok = Assert.equal(geoms[2] and geoms[2].sections[1].label, "TRAP",
+        "replayed section label intact") and ok
+    TooltipLib.removeProvider("SectionCached")
+    reset()
+    return ok
+end
+
+tests["ornaments_error_clears_dress_fail_open"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "SectionBoom",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:beginSection("Boom") end,
+        description = "ornaments fail-open probe",
+    })
+    local d = makeDress()
+    d.spec.ornaments = function() error("ornament boom") end
+    TooltipLib.setPanelDress(d.spec)
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local ok = Assert.isNil(TooltipLib.getPanelDress(), "dress cleared on ornaments error")
+    ok = Assert.equal(p.backgroundColor.a, 0.5, "bg alpha restored despite error") and ok
+    boxRec.bgA = nil
+    hookedRender(makePanel(makeItem()))
+    ok = Assert.equal(boxRec.bgA, 0.5, "next render is fully vanilla") and ok
+    TooltipLib.removeProvider("SectionBoom")
     return ok
 end
 

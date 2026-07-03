@@ -62,6 +62,24 @@ function CardPanel:render()
         self:drawText(r[2], 120, y, r[3][1], r[3][2], r[3][3], 1, UIFont.Small)
         y = y + 18
     end
+    if self.geom then
+        -- the freshness bar: label + vanilla's FLAT progress rect, which the
+        -- gauge (ornaments, below) must repaint completely
+        self:drawText("Freshness", 8, 106, 0.85, 0.85, 0.85, 1, UIFont.Small)
+        self:drawRect(120, 114, 120, 6, 1, 0.2, 0.8, 0.3)
+        -- the sectioned block (SauceTooltips' bait list shape): cream
+        -- section label, then indented rows — the ornaments hook rules them
+        self:drawText("ATTRACTS", 8, 142, 0.93, 0.86, 0.70, 1, UIFont.Small)
+        self:drawText("  Rat",    8, 160, 1, 1, 1, 1, UIFont.Small)
+        self:drawText("High",   120, 160, 0.3, 0.9, 0.4, 1, UIFont.Small)
+        self:drawText("  Rabbit", 8, 178, 1, 1, 1, 1, UIFont.Small)
+        self:drawText("Medium", 120, 178, 0.9, 0.8, 0.3, 1, UIFont.Small)
+        -- in-game TooltipLib invokes ornaments at the END of the real pass
+        -- (after all layout ink) — mirror that order here
+        local SIR = _G.SauceInvRender
+        SIR.TTDress.ornaments(self, tooltipShim(self), self.geom, "item",
+            self.accent)
+    end
 end
 
 -- accent = optional {r,g,b,a} from TooltipLib's accent channel: the rail
@@ -69,6 +87,40 @@ end
 function TooltipDressItem.build(accent)
     local card = CardPanel:new(24, 24)
     card.accent = accent
+    return card
+end
+
+-- The ruled card: same dress, taller, with a section + kv rows and the
+-- geometry TooltipLib would compute for them (labelW/valueW measured the
+-- same way the Java layout measures its items).
+function TooltipDressItem.buildSectioned(accent)
+    local card = CardPanel:new(24, 24)
+    card.accent = accent
+    card:setHeight(208)
+    local tm = getTextManager()
+    local function lw(s) return tm:MeasureStringX(UIFont.Small, s) end
+    local VRX = 240   -- value column right edge (constant column, like Java)
+    local function kv(y, label)
+        return { y = y, h = 18, kind = "kv",
+                 labelW = lw(label), valueW = VRX - 120 }
+    end
+    card.geom = {
+        left = 8, startY = 34, lineSpacing = 18, width = W,
+        midX = 120, valueRightX = VRX, barH = 6,
+        rows = {
+            kv(34, "Type"), kv(52, "Condition"), kv(70, "Weight"),
+            kv(88, "Damage"),
+            { y = 106, h = 18, kind = "bar", labelW = lw("Freshness"),
+              valueW = 0, fraction = 0.62, barColor = { 0.2, 0.8, 0.3, 1 } },
+            { y = 124, h = 18, kind = "blank" },
+            { y = 142, h = 18, kind = "label", labelW = lw("ATTRACTS") },
+            kv(160, "  Rat"), kv(178, "  Rabbit"),
+        },
+        sections = {
+            { y = 142, h = 18, label = "ATTRACTS", labelW = lw("ATTRACTS"),
+              rowIndex = 7 },
+        },
+    }
     return card
 end
 

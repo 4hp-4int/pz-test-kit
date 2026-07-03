@@ -167,6 +167,15 @@
           ctx.textAlign = "left";
           break;
         case "texture": {
+          // NIL-texture draw (name ""): the engine's DrawTextureScaledColor
+          // with a null texture paints a SOLID colour quad (how TooltipLib's
+          // accent line and SIR's ledger dot-leaders/rules draw). A hatched
+          // placeholder here misreads as a missing asset — render the truth.
+          if (!op.name) {
+            ctx.fillStyle = css(op.r, op.g, op.b, op.a);
+            ctx.fillRect(op.x, op.y, op.w || 0, op.h || 0);
+            break;
+          }
           var img = images && images.get(op.name);
           var w = op.w || 32, h = op.h || 32;
           if (img) {
