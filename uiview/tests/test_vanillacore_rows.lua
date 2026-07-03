@@ -411,6 +411,149 @@ tests["multiline_labels_count_translated_lines"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Clothing / InventoryContainer / Food rows
+-- ---------------------------------------------------------------------------
+
+local function clothingFacts(over, clOver)
+    local C = {
+        insulation = 0.4, windResistance = 0, waterResistance = 0,
+        bloodLevel = 0, dirtyness = 0, wetness = 0, holes = 0,
+        biteDefense = 0, scratchDefense = 0, bulletDefense = 0,
+        runSpeedModifier = 1, combatSpeedModifier = 1,
+    }
+    for k, v in pairs(clOver or {}) do C[k] = v end
+    local F = plainFacts({ isClothing = true, clothing = C,
+        condition = 10, conditionMax = 10 })
+    for k, v in pairs(over or {}) do F[k] = v end
+    return F
+end
+
+local function foodFacts(over, fdOver)
+    local D = {
+        hungerChange = 0, thirstChange = 0, enduranceChange = 0,
+        stressChange = 0, boredomChange = 0, unhappyChange = 0,
+        heat = 1, freezingTime = 0, hasCharacter = true,
+    }
+    for k, v in pairs(fdOver or {}) do D[k] = v end
+    local F = plainFacts({ isFood = true, food = D })
+    for k, v in pairs(over or {}) do F[k] = v end
+    return F
+end
+
+tests["clothing_core_block_gates_on_cosmetic"] = function()
+    -- java:157 — condition + insulation always for non-cosmetic; wind/water
+    -- resist only when > 0; cosmetic items get NONE of the block.
+    local plain = VC.rowsFor(clothingFacts(), ENV)
+    local resists = VC.rowsFor(clothingFacts({}, { windResistance = 0.3,
+        waterResistance = 0.5 }), ENV)
+    local cosmetic = VC.rowsFor(clothingFacts({}, { cosmetic = true }), ENV)
+    return Assert.equal(plain, 3, "weight + condition + insulation")
+        and Assert.equal(resists, 5, "+ wind + water resist bars")
+        and Assert.equal(cosmetic, 1, "cosmetic = weight only")
+end
+
+tests["clothing_defense_compare_mode"] = function()
+    -- unequipped with character: row when new != worn sum OR stat nonzero
+    local delta = VC.rowsFor(clothingFacts({}, { compareMode = true,
+        biteDefense = 20, prevBite = 10 }), ENV)
+    local equal = VC.rowsFor(clothingFacts({}, { compareMode = true,
+        biteDefense = 0, prevBite = 0 }), ENV)
+    local equipped = VC.rowsFor(clothingFacts({}, { compareMode = false,
+        biteDefense = 20 }), ENV)
+    return Assert.equal(delta, 4, "delta row shown")
+        and Assert.equal(equal, 3, "0 == 0 -> no row")
+        and Assert.equal(equipped, 4, "equipped nonzero stat -> plain row")
+end
+
+tests["clothing_filter_and_condition_bars"] = function()
+    local mask = VC.rowsFor(clothingFacts({}, { gasMask = true, hasFilter = true,
+        filterName = "Filter", usedDelta = 0.5 }), ENV)
+    local maskNoFilter = VC.rowsFor(clothingFacts({}, { gasMask = true }), ENV)
+    local wornOut = VC.rowsFor(clothingFacts({}, { bloodLevel = 30,
+        dirtyness = 40, wetness = 50, holes = 2, runSpeedModifier = 0.9 }), ENV)
+    -- weight + condition + insulation + blood + dirt + wet + holes + runSpeed
+    return Assert.equal(mask, 4, "filter bar")
+        and Assert.equal(maskNoFilter, 4, "NoFilter label")
+        and Assert.equal(wornOut, 8, "blood/dirt/wet/holes/runSpeed rows")
+end
+
+tests["container_rows"] = function()
+    local F = plainFacts({ isInventoryContainer = true, containerFacts = {
+        effectiveCapacity = 20, weightReduction = 60, maxItemSize = 10,
+        hasBloodType = true, bloodLevel = 0.5,
+    } })
+    local n = VC.rowsFor(F, ENV)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, F, ENV)
+    return Assert.equal(n, 5, "weight + capacity + reduction + maxSize + blood")
+        and Assert.equal(ctx.rows, n, "container emit parity")
+        and Assert.equal(emitted, n)
+end
+
+tests["food_nutrition_visibility_matrix"] = function()
+    -- java:1579-1608 — full panel for nutritionist/readable-package/debug;
+    -- 2-row stub for packaged+illiterate or packaged+tooDark; else nothing.
+    local hidden = VC.rowsFor(foodFacts(), ENV)
+    local nutri = VC.rowsFor(foodFacts({}, { nutritionist = true }), ENV)
+    local package_ = VC.rowsFor(foodFacts({}, { packaged = true,
+        canReadPackage = true }), ENV)
+    local illit = VC.rowsFor(foodFacts({}, { packaged = true, illiterate = true }), ENV)
+    local dark = VC.rowsFor(foodFacts({}, { packaged = true, tooDark = true }), ENV)
+    return Assert.equal(hidden, 1, "unpackaged non-nutritionist: weight only")
+        and Assert.equal(nutri, 6, "nutritionist: + Nutrition + 4 macros")
+        and Assert.equal(package_, 6, "readable package: same")
+        and Assert.equal(illit, 3, "+ Nutrition + Illiterate stub")
+        and Assert.equal(dark, 3, "+ Nutrition + TooDark stub")
+end
+
+tests["food_state_rows"] = function()
+    local F = foodFacts({}, {
+        hungerChange = -0.2, thirstChange = -0.1, enduranceChange = 0.05,
+        stressChange = -0.1, boredomChange = -10, unhappyChange = -10,
+        cookable = true, heat = 2.0, cookingTime = 5, minutesToCook = 10,
+        minutesToBurn = 20, freezingTime = 50,
+        dangerousUncooked = true, goodHot = true,
+        cookedInMicrowave = true, milkType = "Cow",
+        removeUnhappyWhenCooked = true,
+    })
+    local n = VC.rowsFor(F, ENV)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, F, ENV)
+    -- weight + hunger + thirst + endurance + stress + boredom + unhappy
+    -- + cooking + freezing + dangerous + cookToRemove + microwave + milk
+    -- (betterHot suppressed: heat 2.0 >= 1.3)
+    return Assert.equal(n, 13, "food state row set")
+        and Assert.equal(ctx.rows, n, "food emit parity")
+        and Assert.equal(emitted, n)
+end
+
+tests["food_hunger_hidden_by_tag_and_egg_danger"] = function()
+    local hidden = VC.rowsFor(foodFacts({}, { hungerChange = -0.2,
+        hideHungerTag = true }), ENV)
+    local egg = foodFacts({}, { dangerousUncooked = true, eggTag = true })
+    local n = VC.rowsFor(egg, ENV)
+    return Assert.equal(hidden, 1, "HIDE_HUNGER_CHANGE suppresses hunger row")
+        and Assert.equal(n, 2, "egg slight-danger label")
+end
+
+tests["clothing_emit_parity_kitchen_sink"] = function()
+    local F = clothingFacts({ equippedNoSprint = true }, {
+        windResistance = 0.2, waterResistance = 0.3,
+        bloodLevel = 10, dirtyness = 20, wetness = 30, holes = 1,
+        compareMode = true, biteDefense = 15, prevBite = 5,
+        scratchDefense = 10, prevScratch = 10, bulletDefense = 0, prevBullet = 4,
+        gasMask = true, hasFilter = true, filterName = "Filter", usedDelta = 0.4,
+        runSpeedModifier = 1.1, combatSpeedModifier = 0.9,
+    })
+    local predicted = VC.rowsFor(F, ENV)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, F, ENV)
+    return Assert.equal(ctx.rows, predicted, "clothing ctx rows == predicted")
+        and Assert.equal(emitted, predicted)
+        and Assert.isTrue(predicted >= 13, "clothing sink fired: " .. predicted)
+end
+
+-- ---------------------------------------------------------------------------
 -- Claim discipline
 -- ---------------------------------------------------------------------------
 
@@ -423,9 +566,12 @@ end
 tests["claims_refuses_override_classes_and_components"] = function()
     local refusals = {
         { plainFacts({ isHandWeapon = true }), "weapon-facts-missing" },
-        { plainFacts({ isFood = true }), "class-Food" },
-        { plainFacts({ isClothing = true }), "class-Clothing" },
-        { plainFacts({ isInventoryContainer = true }), "class-InventoryContainer" },
+        { plainFacts({ isFood = true }), "food-facts-missing" },
+        { plainFacts({ isFood = true, food = {}, hasSpices = true }), "spices-strip" },
+        { plainFacts({ isClothing = true }), "clothing-facts-missing" },
+        { plainFacts({ isClothing = true, clothing = {}, isAlarmClockClothing = true }),
+            "class-AlarmClockClothing" },
+        { plainFacts({ isInventoryContainer = true }), "container-facts-missing" },
         { plainFacts({ isLiterature = true }), "class-Literature" },
         { plainFacts({ hasFluidContainer = true }), "fluid-container" },
         { plainFacts({ hasExtraItems = true }), "extra-items-strip" },
