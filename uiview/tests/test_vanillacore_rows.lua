@@ -26,7 +26,7 @@ local Corpus = SauceTooltips_VanillaCore_Corpus
 
 local ENV = {
     scriptSpam = false, taintedText = true,
-    debugMode = false, admin = false, showModInfo = false,
+    debugMode = false, tooltipDebugInfo = false, admin = false, showModInfo = false,
 }
 
 local function plainFacts(over)
@@ -297,21 +297,51 @@ tests["claims_refuses_override_classes_and_components"] = function()
     return Assert.isTrue(true)
 end
 
-tests["claims_refuses_debug_admin_and_modinfo_sessions"] = function()
-    local dbg = { scriptSpam = false, taintedText = true, debugMode = true,
-        admin = false, showModInfo = false }
+tests["claims_debug_admin_and_modinfo_sessions"] = function()
+    -- Debug/admin sessions are claimable (the debug rows are ported) — the
+    -- Lua console needs debug mode, so the audit MUST be able to claim there.
+    -- Only an UNREADABLE Tooltip.Info option (nil) refuses.
+    local dbgUnknown = { scriptSpam = false, taintedText = true, debugMode = true,
+        tooltipDebugInfo = nil, admin = false, showModInfo = false }
+    local dbgOff = { scriptSpam = false, taintedText = true, debugMode = true,
+        tooltipDebugInfo = false, admin = false, showModInfo = false }
     local adm = { scriptSpam = false, taintedText = true, debugMode = false,
-        admin = true, showModInfo = false }
+        tooltipDebugInfo = false, admin = true, showModInfo = false }
     local modinfo = { scriptSpam = false, taintedText = true, debugMode = false,
-        admin = false, showModInfo = true }
-    local okD = VC.claims(plainFacts(), dbg)
+        tooltipDebugInfo = false, admin = false, showModInfo = true }
+    local okU, reasonU = VC.claims(plainFacts(), dbgUnknown)
+    local okD = VC.claims(plainFacts(), dbgOff)
     local okA = VC.claims(plainFacts(), adm)
     local okM = VC.claims(plainFacts({ isVanilla = false }), modinfo)
     local okMVanilla = VC.claims(plainFacts({ isVanilla = true }), modinfo)
-    return Assert.isTrue(not okD, "debug refused")
-        and Assert.isTrue(not okA, "admin refused")
+    return Assert.isTrue(not okU, "unreadable Tooltip.Info refused")
+        and Assert.equal(reasonU, "debug-option-unreadable")
+        and Assert.isTrue(okD and true, "debug session with Tooltip.Info off claims")
+        and Assert.isTrue(okA and true, "admin session claims (Loot Category ported)")
         and Assert.isTrue(not okM, "mod item refused while ShowItemModInfo on")
         and Assert.isTrue(okMVanilla and true, "vanilla item fine with ShowItemModInfo on")
+end
+
+tests["debug_rows_gate_and_emit_parity"] = function()
+    -- java:950-992 — 5 weight KVs + ID + DictionaryID (7), +keyId, +ClothingItem,
+    -- and Loot Category fires on tooltipDebugInfo OR admin.
+    local dbgOn = { scriptSpam = false, taintedText = true, debugMode = true,
+        tooltipDebugInfo = true, admin = false, showModInfo = false }
+    local admOnly = { scriptSpam = false, taintedText = true, debugMode = false,
+        tooltipDebugInfo = false, admin = true, showModInfo = false }
+    local plain = plainFacts({ itemId = 12, registryId = 340, lootType = "Tool" })
+    local keyed = plainFacts({ itemId = 12, registryId = 340, lootType = "Tool",
+        keyDebugRow = true, keyId = 77, clothingItemName = "Vest" })
+    local nPlain = VC.rowsFor(plain, dbgOn)
+    local nKeyed = VC.rowsFor(keyed, dbgOn)
+    local nAdmin = VC.rowsFor(plain, admOnly)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, keyed, dbgOn)
+    return Assert.equal(nPlain, 9, "weight + 7 debug rows + Loot Category")
+        and Assert.equal(nKeyed, 11, "+ keyId + ClothingItem")
+        and Assert.equal(nAdmin, 2, "admin only = weight + Loot Category")
+        and Assert.equal(ctx.rows, nKeyed, "debug emit parity")
+        and Assert.equal(emitted, nKeyed, "emitAll return parity")
 end
 
 -- ---------------------------------------------------------------------------
