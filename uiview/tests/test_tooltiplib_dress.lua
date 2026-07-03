@@ -59,8 +59,11 @@ function ItemProto.DoTooltip(item, tooltip)
     tooltip:setWidth(200)
     tooltip:setHeight(80)
 end
-function ItemProto.DoTooltipEmbedded(item, tooltip, layout, offset) end
+function ItemProto.DoTooltipEmbedded(item, tooltip, layout, offset)
+    item._embedCalls = (item._embedCalls or 0) + 1
+end
 function ItemProto.getID(item) return item._id end
+function ItemProto.getName(item) return "Mock Item" end
 local ItemMT = { __index = ItemProto }
 
 local nextId = 9000
@@ -139,7 +142,11 @@ local function makeTT()
         return L
     end
     function t.endLayout(self, layout) end
-    function t.DrawText(self, ...) end
+    function t.getFont(self) return UIFont.Small end
+    t.texts = {}
+    function t.DrawText(self, font, str, x, y, r, g, b, a)
+        t.texts[#t.texts + 1] = { str = str, x = x, y = y }
+    end
     function t.DrawTextRight(self, ...) end
     t.draws = {}
     function t.DrawTextureScaledColor(self, tex, x, y, w, h, r, g, b, a)
@@ -668,6 +675,50 @@ tests["ornaments_error_clears_dress_fail_open"] = function()
     hookedRender(makePanel(makeItem()))
     ok = Assert.equal(boxRec.bgA, 0.5, "next render is fully vanilla") and ok
     TooltipLib.removeProvider("SectionBoom")
+    return ok
+end
+
+tests["replacing_provider_claims_vanilla_rows"] = function()
+    reset()
+    local accepted = TooltipLib.registerProvider({
+        id = "VanillaClaim",
+        target = "item",
+        replacesVanilla = true,
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:addKeyValue("Weight:", "2.0")
+        end,
+        description = "vanilla-claim probe",
+    })
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local ok = Assert.isTrue(accepted, "replacesVanilla accepted on the item target")
+    ok = Assert.equal(p.item._embedCalls or 0, 0,
+        "DoTooltipEmbedded skipped — the provider owns the rows") and ok
+    -- the framework draws the name line the embed would have (real pass only)
+    local names = 0
+    for _, tx in ipairs(p.tooltip.texts) do
+        if tx.str == "Mock Item" then names = names + 1 end
+    end
+    ok = Assert.equal(names, 1, "framework drew the name line once (real pass)") and ok
+    TooltipLib.removeProvider("VanillaClaim")
+    return ok
+end
+
+tests["non_replacing_provider_keeps_vanilla_rows"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "NoClaim",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) end,
+        description = "no-claim probe",
+    })
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local ok = Assert.equal(p.item._embedCalls, 2,
+        "DoTooltipEmbedded ran both passes as before")
+    TooltipLib.removeProvider("NoClaim")
     return ok
 end
 
