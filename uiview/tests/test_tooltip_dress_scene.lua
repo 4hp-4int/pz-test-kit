@@ -141,13 +141,19 @@ tests["ornaments_rule_sections_and_dot_kv_rows"] = function()
     for _ in pairs(dotRows) do rowsWithDots = rowsWithDots + 1 end
     ok = Assert.greater(rowsWithDots, 3, "leaders on several kv rows") and ok
     -- dashes sit on the section label's line: y = 24 + 142 + 18 - 4 = 180
-    local dashOnSection = false
+    local dashOnSection, dashOnDivider, feints = false, false, 0
     for _, op in ipairs(Recorder.ops) do
-        if op.op == "texture" and op.name == "" and op.w == 3 and op.y == 180 then
-            dashOnSection = true
+        if op.op == "texture" and op.name == "" then
+            if op.w == 3 and op.y == 180 then dashOnSection = true end
+            -- provider divider rule, centred on its row: 24 + 124 + 9 = 157
+            if op.w == 3 and op.y == 157 then dashOnDivider = true end
+            -- feint ledger ruling spans the full body width
+            if op.h == 1 and op.w == 284 then feints = feints + 1 end
         end
     end
     ok = Assert.isTrue(dashOnSection, "rule anchored to the section row") and ok
+    ok = Assert.isTrue(dashOnDivider, "provider divider wears the dotted rule") and ok
+    ok = Assert.greater(feints, 5, "feint ledger ruling across the body") and ok
     return ok
 end
 

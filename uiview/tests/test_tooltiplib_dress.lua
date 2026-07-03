@@ -549,6 +549,48 @@ tests["bar_rows_carry_fraction_and_colour_dividers_are_rules"] = function()
     return ok
 end
 
+tests["dress_only_frame_still_gets_ruling_geometry"] = function()
+    reset()
+    local d = makeDress()
+    local gotGeom
+    d.spec.ornaments = function(panel, tooltip, geom) gotGeom = geom end
+    TooltipLib.setPanelDress(d.spec)
+    hookedRender(makePanel(makeItem()))   -- no providers: dress-only frame
+    local ok = Assert.notNil(gotGeom, "ornaments fire on a pure-vanilla tooltip")
+    ok = Assert.equal(#(gotGeom and gotGeom.rows or { 1 }), 0,
+        "no rows described (nothing declared)") and ok
+    -- line grid from vanilla metrics: padTop 5 + lineSpacing 14
+    ok = Assert.equal(gotGeom and gotGeom.top, 19, "grid top under the name line") and ok
+    ok = Assert.equal(gotGeom and gotGeom.endY, 75, "grid extent = height - padBottom") and ok
+    reset()
+    return ok
+end
+
+tests["divider_flat_bar_suppressed_under_ornaments"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "DividerChrome",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:addDivider() end,
+        description = "divider suppression probe",
+    })
+    local d = makeDress()
+    local gotGeom
+    d.spec.ornaments = function(panel, tooltip, geom) gotGeom = geom end
+    TooltipLib.setPanelDress(d.spec)
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local L = p.tooltip._layouts[#p.tooltip._layouts]
+    local ok = Assert.nearEqual(L._items[1].progressFraction or -1, -1, 0.001,
+        "flat Java bar suppressed (skin draws the rule)")
+    ok = Assert.equal(gotGeom and gotGeom.rows[1] and gotGeom.rows[1].kind, "rule",
+        "row still noted as a rule for the skin") and ok
+    TooltipLib.removeProvider("DividerChrome")
+    reset()
+    return ok
+end
+
 tests["section_label_takes_dress_declared_color"] = function()
     reset()
     TooltipLib.registerProvider({

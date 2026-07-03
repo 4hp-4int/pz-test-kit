@@ -106,13 +106,16 @@ function TooltipDressItem.buildSectioned(accent)
     end
     card.geom = {
         left = 8, startY = 34, lineSpacing = 18, width = W,
+        top = 34, endY = 196,   -- the ruling grid (feint ledger lines)
         midX = 120, valueRightX = VRX, barH = 6,
         rows = {
             kv(34, "Type"), kv(52, "Condition"), kv(70, "Weight"),
             kv(88, "Damage"),
             { y = 106, h = 18, kind = "bar", labelW = lw("Freshness"),
               valueW = 0, fraction = 0.62, barColor = { 0.2, 0.8, 0.3, 1 } },
-            { y = 124, h = 18, kind = "blank" },
+            -- a provider divider: TooltipLib suppresses its flat bar while
+            -- the ornaments hook is active; the skin draws the dotted rule
+            { y = 124, h = 18, kind = "rule", fraction = 1 },
             { y = 142, h = 18, kind = "label", labelW = lw("ATTRACTS") },
             kv(160, "  Rat"), kv(178, "  Rabbit"),
         },
