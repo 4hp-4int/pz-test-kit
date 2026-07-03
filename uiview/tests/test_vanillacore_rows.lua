@@ -383,6 +383,33 @@ tests["claims_accepts_weapons_with_facts"] = function()
     return Assert.isTrue(ok and true, "HandWeapon with weapon facts claims")
 end
 
+tests["multiline_labels_count_translated_lines"] = function()
+    -- Tooltip_weapon_NoMaintenanceXp is "...XP<br>when used as a weapon."
+    -- in EN — ONE setLabel, TWO layout rows (the 65-weapon +1 mismatch of
+    -- 2026-07-03). env.lines records translated line counts live; gates
+    -- multiply, emitLabel splits, and the corpus carries the counts so the
+    -- replay uses the recorded truth instead of the mock's single-line keys.
+    local envL = { scriptSpam = false, taintedText = true, debugMode = false,
+        tooltipDebugInfo = false, admin = false, showModInfo = false,
+        lines = { ["Tooltip_weapon_NoMaintenanceXp"] = 2 } }
+    local F = weaponFacts({}, { noMaintXp = true })
+    local n = VC.rowsFor(F, envL)
+    local nDefault = VC.rowsFor(F, ENV)
+    -- emit parity when the translation really is two lines
+    local oldGetText = getText
+    getText = function(k)
+        if k == "Tooltip_weapon_NoMaintenanceXp" then return "line one\nline two" end
+        return oldGetText(k)
+    end
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, F, envL)
+    getText = oldGetText
+    return Assert.equal(n, 4, "weight + wpnCondition + 2 NoMaintXp lines")
+        and Assert.equal(nDefault, 3, "no env.lines entry -> 1 line")
+        and Assert.equal(ctx.rows, n, "emitLabel splits to match the gate")
+        and Assert.equal(emitted, n, "emitAll return parity")
+end
+
 -- ---------------------------------------------------------------------------
 -- Claim discipline
 -- ---------------------------------------------------------------------------
