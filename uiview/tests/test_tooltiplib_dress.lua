@@ -82,17 +82,15 @@ local function makeTT()
     function t.setMeasureOnly(self, b) self._measure = b end
     function t.isMeasureOnly(self) return self._measure end
     function t.getLineSpacing(self) return 14 end
-    -- Faithful ObjectTooltip.Layout model: LayoutItem-shaped entries with the
-    -- PUBLIC JAVA FIELDS the geometry walk reads (labelWidth, valueWidthRight,
-    -- hasValue, rightJustify, progressFraction, height), an ArrayList-shaped
-    -- items collection (:size()/:get(i), 0-based), and a render() that runs
-    -- calcSizes (8px/char measure stand-in) and advances y by item height —
-    -- the exact contract Hook.lua's buildLayoutGeometry depends on.
+    -- Faithful ObjectTooltip.Layout model: the inner class's METHODS work
+    -- (addItem / render / setMinValueWidth) but its Java instance FIELDS are
+    -- NOT Lua-exposed — reading layout.items in-game returns nil (the
+    -- 2026-07-03 error-spam lesson). Internal state lives under underscore
+    -- names so framework code that wrongly reads Java fields fails here the
+    -- way it fails in-game. render() advances y per item like Layout.render.
     t._layouts = {}
     function t.beginLayout(self)
-        local L = { items = {}, minLabelWidth = 0, minValueWidth = 0 }
-        L.items.size = function(items) return #items end
-        L.items.get = function(items, i) return items[i + 1] end
+        local L = { _items = {} }
         function L.addItem(layout)
             local it = {
                 hasValue = false, rightJustify = false, progressFraction = -1,
@@ -118,14 +116,14 @@ local function makeTT()
                 item.r1, item.g1, item.b1, item.a1 = r, g, b, a
                 item.hasValue = true
             end
-            layout.items[#layout.items + 1] = it
+            layout._items[#layout._items + 1] = it
             return it
         end
-        function L.setMinValueWidth(layout, w) layout.minValueWidth = w end
+        function L.setMinValueWidth(layout, w) layout._minValueWidth = w end
         function L.render(layout, x, y, tooltip)
             seq[#seq + 1] = "layout"
-            for i = 1, #layout.items do
-                local it = layout.items[i]
+            for i = 1, #layout._items do
+                local it = layout._items[i]
                 it.labelWidth = it.label and (#tostring(it.label) * 8) or 0
                 if it.hasValue and it.value then
                     local vw = #tostring(it.value) * 8
@@ -461,11 +459,11 @@ tests["section_undressed_label_plus_divider_rows"] = function()
     local p = makePanel(makeItem())
     hookedRender(p)
     local L = p.tooltip._layouts[#p.tooltip._layouts]   -- real-pass layout
-    local ok = Assert.equal(#L.items, 3, "label + divider rule + content row")
-    ok = Assert.equal(L.items[1].label, "NUTRITION", "uppercased section label") and ok
-    ok = Assert.nearEqual(L.items[2].progressFraction or -1, 1.0, 0.001,
+    local ok = Assert.equal(#L._items, 3, "label + divider rule + content row")
+    ok = Assert.equal(L._items[1].label, "NUTRITION", "uppercased section label") and ok
+    ok = Assert.nearEqual(L._items[2].progressFraction or -1, 1.0, 0.001,
         "plain divider rule row (classic look)") and ok
-    ok = Assert.equal(L.items[3].value, "120", "content row follows the rule") and ok
+    ok = Assert.equal(L._items[3].value, "120", "content row follows the rule") and ok
     TooltipLib.removeProvider("SectionPlain")
     return ok
 end
@@ -493,7 +491,7 @@ tests["section_dressed_geometry_reaches_ornaments"] = function()
     local p = makePanel(makeItem())
     hookedRender(p)
     local L = p.tooltip._layouts[#p.tooltip._layouts]
-    local ok = Assert.equal(#L.items, 3, "divider row OMITTED while ornaments active")
+    local ok = Assert.equal(#L._items, 3, "divider row OMITTED while ornaments active")
     ok = Assert.equal(ornCalls, 1, "ornaments once per render (real pass only)") and ok
     ok = Assert.equal(gotSurface, "item", "surface tag") and ok
     ok = Assert.equal(#(gotGeom and gotGeom.sections or {}), 1, "one declared section") and ok
@@ -567,8 +565,8 @@ tests["section_label_takes_dress_declared_color"] = function()
     hookedRender(p)
     local L = p.tooltip._layouts[#p.tooltip._layouts]
     local lbl
-    for i = 1, #L.items do
-        if L.items[i].label == "BAIT" then lbl = L.items[i] end
+    for i = 1, #L._items do
+        if L._items[i].label == "BAIT" then lbl = L._items[i] end
     end
     local ok = Assert.notNil(lbl, "section label row present")
     ok = Assert.nearEqual(lbl and lbl.lr or 0, 0.9, 0.001,
