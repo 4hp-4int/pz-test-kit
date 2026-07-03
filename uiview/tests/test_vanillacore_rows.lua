@@ -554,6 +554,118 @@ tests["clothing_emit_parity_kitchen_sink"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Literature / WeaponPart / AlarmClock / Animal / Fluid rows
+-- ---------------------------------------------------------------------------
+
+local function litFacts(over, ltOver)
+    local L = {
+        hasCharacter = true, statsVisible = true,
+        boredomChange = 0, stressChange = 0, unhappyChange = 0,
+        numberOfPages = -1, lvlSkillTrained = -1, maxLevelTrained = -1,
+    }
+    for k, v in pairs(ltOver or {}) do L[k] = v end
+    local F = plainFacts({ isLiterature = true, lit = L })
+    for k, v in pairs(over or {}) do F[k] = v end
+    return F
+end
+
+tests["literature_stat_and_page_rows"] = function()
+    local skill = VC.rowsFor(litFacts({}, { boredomChange = -20,
+        unhappyChange = -10, numberOfPages = 220, alreadyRead = 40,
+        lvlSkillTrained = 1, maxLevelTrained = 3 }), ENV)
+    -- weight + boredom + unhappy + pages + skillXp
+    local readTitle = VC.rowsFor(litFacts({}, { title = "abc", titleRead = true,
+        statsVisible = false, boredomChange = -20 }), ENV)
+    -- weight + RecentlyRead (stats hidden once read)
+    return Assert.equal(skill, 5, "skill book rows")
+        and Assert.equal(readTitle, 2, "read title hides stats, shows RecentlyRead")
+end
+
+tests["literature_recipe_book_rows"] = function()
+    local unread = VC.rowsFor(litFacts({}, { recipes = { "A", "B", "C" },
+        allKnown = false }), ENV)
+    -- weight + 3 recipe rows + NotBeenRead
+    local known = VC.rowsFor(litFacts({}, { recipes = { "A" },
+        allKnown = true, alreadyKnownRow = true }), ENV)
+    -- weight + 1 recipe + HasBeenRead + AlreadyKnown
+    local illit = VC.rowsFor(litFacts({}, { recipes = { "A", "B" },
+        illiterate = true }), ENV)
+    -- weight + single illiterate stub
+    return Assert.equal(unread, 5, "unread recipe book")
+        and Assert.equal(known, 4, "known recipe book + granted row")
+        and Assert.equal(illit, 2, "illiterate stub")
+end
+
+tests["weaponpart_alarm_animal_rows"] = function()
+    local part = plainFacts({ isWeaponPart = true, wpart = {
+        partType = "Scope", mountText = "Rifle, Shotgun",
+        batteryRow = true, batteryUses = 0.5 } })
+    local clock = plainFacts({ isAlarmClock = true,
+        alarm = { set = true, hour = 7, minutes = 30 } })
+    local clockOff = plainFacts({ isAlarmClock = true, alarm = { set = false } })
+    local animal = plainFacts({ isAnimal = true, animalFacts = {
+        typeText = "Chicken", female = true, ageText = "Adult",
+        appearanceText = "White", healthText = "Good" } })
+    local nPart = VC.rowsFor(part, ENV)
+    local nClock = VC.rowsFor(clock, ENV)
+    local nClockOff = VC.rowsFor(clockOff, ENV)
+    local nAnimal = VC.rowsFor(animal, ENV)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, animal, ENV)
+    return Assert.equal(nPart, 4, "part: weight + type + mount + battery")
+        and Assert.equal(nClock, 3, "clock: weight + time + alarm")
+        and Assert.equal(nClockOff, 2, "clock unset: weight + time")
+        and Assert.equal(nAnimal, 6, "animal: weight + 5 info rows")
+        and Assert.equal(ctx.rows, nAnimal, "animal emit parity")
+        and Assert.equal(emitted, nAnimal)
+end
+
+tests["alarmclockclothing_shows_alarm_not_clothing_rows"] = function()
+    -- AlarmClockClothing.DoTooltip REPLACES the clothing rows (no super call)
+    local F = plainFacts({ isClothing = true, isAlarmClockClothing = true,
+        alarm = { set = true, hour = 6, minutes = 0 } })
+    local n, breakdown = VC.rowsFor(F, ENV)
+    local ids = {}
+    for i = 1, #breakdown do ids[breakdown[i].id] = true end
+    local ok = VC.claims(F, ENV)
+    return Assert.equal(n, 3, "weight + time + alarm, NO clothing rows")
+        and Assert.isNil(ids.clCore and true, "clCore suppressed")
+        and Assert.isTrue(ok and true, "AlarmClockClothing claims via alarm facts")
+end
+
+tests["fluid_rows_and_claims"] = function()
+    local empty = plainFacts({ hasFluidContainer = true, fluid = {
+        amount = 0, capacity = 10, empty = true, mixture = false,
+        amountText = "0 / 10" } })
+    local single = plainFacts({ hasFluidContainer = true, fluid = {
+        amount = 5, capacity = 10, empty = false, mixture = false,
+        amountText = "5 / 10", fluidName = "Water", fluidRatio = 0.5,
+        poisonous = true, poisonEffectNone = false, tainted = true,
+        otherPoison = false } })
+    local mixture = plainFacts({ hasFluidContainer = true, fluid = {
+        amount = 5, capacity = 10, empty = false, mixture = true } })
+    local nEmpty = VC.rowsFor(empty, ENV)
+    local nSingle = VC.rowsFor(single, ENV) -- taintedText=true -> poison row
+    local okE = VC.claims(empty, ENV)
+    local okS = VC.claims(single, ENV)
+    local okM, reasonM = VC.claims(mixture, ENV)
+    local dbgEnv = { scriptSpam = false, taintedText = true, debugMode = true,
+        tooltipDebugInfo = false, admin = false, showModInfo = false }
+    local okDbg, reasonDbg = VC.claims(single, dbgEnv)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, single, ENV)
+    return Assert.equal(nEmpty, 2, "empty: weight + Amount")
+        and Assert.equal(nSingle, 4, "single: weight + Amount + bar + tainted")
+        and Assert.isTrue(okE and okS and true, "empty/single claim")
+        and Assert.isTrue(not okM, "mixture refused")
+        and Assert.equal(reasonM, "fluid-mixture")
+        and Assert.isTrue(not okDbg, "fluid refuses in debug")
+        and Assert.equal(reasonDbg, "fluid-debug-rows")
+        and Assert.equal(ctx.rows, nSingle, "fluid emit parity")
+        and Assert.equal(emitted, nSingle)
+end
+
+-- ---------------------------------------------------------------------------
 -- Claim discipline
 -- ---------------------------------------------------------------------------
 
@@ -570,10 +682,14 @@ tests["claims_refuses_override_classes_and_components"] = function()
         { plainFacts({ isFood = true, food = {}, hasSpices = true }), "spices-strip" },
         { plainFacts({ isClothing = true }), "clothing-facts-missing" },
         { plainFacts({ isClothing = true, clothing = {}, isAlarmClockClothing = true }),
-            "class-AlarmClockClothing" },
+            "alarm-facts-missing" },
         { plainFacts({ isInventoryContainer = true }), "container-facts-missing" },
-        { plainFacts({ isLiterature = true }), "class-Literature" },
-        { plainFacts({ hasFluidContainer = true }), "fluid-container" },
+        { plainFacts({ isLiterature = true }), "literature-facts-missing" },
+        { plainFacts({ isWeaponPart = true }), "weaponpart-facts-missing" },
+        { plainFacts({ isAnimal = true }), "animal-facts-missing" },
+        { plainFacts({ isAnimal = true, animalFacts = { cheat = true } }),
+            "animal-cheat-rows" },
+        { plainFacts({ hasFluidContainer = true }), "fluid-facts-missing" },
         { plainFacts({ hasExtraItems = true }), "extra-items-strip" },
         { plainFacts({ incomplete = true }), "facts-incomplete" },
     }
