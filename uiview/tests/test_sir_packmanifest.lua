@@ -57,6 +57,10 @@ tests["explicit_window_render_pieces_packed"] = function()
     local miss = missing({
         "sir_blank", "sir_rowbevel",
         "sir_vthumb_t", "sir_vthumb_m", "sir_vthumb_b",
+        -- sir_window resolves these directly (not through sir_icons' ptex)
+        "sir_ui-close", "sir_ui-info", "sir_ui-pin",
+        "sir_ui-expand", "sir_ui-collapse", "sir_ui-funnel",
+        "sir_ui-xfer-ink", "sir_ui-xfer-multi-ink",
     })
     return Assert.equal(#miss, 0,
         "window/render singles packed (missing: " .. table.concat(miss, ", ") .. ")")

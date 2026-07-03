@@ -13,6 +13,7 @@ return {
         "../../sauce-invrender",    -- the inventory rendering (sir_*)
         "../../PZ-TooltipLib",
         "../../VorpallySauced",
+        "../../SauceTooltips",      -- theme accents (cross-mod colour coherence)
     },
 
     -- Load the REAL vanilla inventory window Lua so the render is like-for-like

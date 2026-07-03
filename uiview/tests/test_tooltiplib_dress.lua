@@ -368,6 +368,35 @@ tests["accent_reaches_dress_next_frame_no_bar"] = function()
     return ok
 end
 
+tests["callback_declared_accent_reaches_dress_same_frame"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "AccentWarm",
+        target = "item",
+        enabled = function() return true end,
+        -- CALLBACK declaration (the recommended path): runs on the measure
+        -- pass, which warms the accent cache before this same render's real
+        -- pass — the dress never flashes its default rail
+        callback = function(ctx) ctx:setAccentColor({ 0.1, 0.2, 0.9, 1 }) end,
+        description = "callback-declared accent",
+    })
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    local calls, seen = 0, {}
+    d.spec.draw = function(panel, tooltip, w, h, surface, accent)
+        calls = calls + 1
+        seen[calls] = accent
+    end
+    local p = makePanel(makeItem())
+    hookedRender(p)   -- ONE render: measure pass warms, real pass reads
+    local ok = Assert.equal(calls, 1, "one real-pass draw")
+    ok = Assert.notNil(seen[1], "accent known on the FIRST frame") and ok
+    ok = Assert.nearEqual(seen[1] and seen[1][3] or 0, 0.9, 0.001, "the declared colour") and ok
+    TooltipLib.removeProvider("AccentWarm")
+    reset()
+    return ok
+end
+
 tests["set_clear_validation"] = function()
     reset()
     local ok = Assert.isFalse(TooltipLib.setPanelDress(nil), "nil spec rejected")
