@@ -25,6 +25,12 @@ do
     Render.emit(card, card:getWidth() + 48, card:getHeight() + 48, "tooltipdressitem")
 end
 
+do
+    -- SauceTooltips' firearm red on the accent channel -> the rail wears it
+    local card = TooltipDressItem.build({ 0.90, 0.30, 0.30, 1.0 })
+    Render.emit(card, card:getWidth() + 48, card:getHeight() + 48, "tooltipdressitemaccent")
+end
+
 local function findOp(pred)
     for _, op in ipairs(Recorder.ops) do
         if pred(op) then return op end
@@ -87,6 +93,26 @@ tests["item_card_wears_ledger_and_cherry_rail"] = function()
     ok = Assert.notNil(findOp(function(op)
         return op.op == "text" and tostring(op.str):find("Frying Pan", 1, true)
     end), "name ink painted over the rail") and ok
+    return ok
+end
+
+tests["accent_rail_replaces_cherry_on_the_item_card"] = function()
+    local card = TooltipDressItem.build({ 0.90, 0.30, 0.30, 1.0 })
+    Render.frame(card, card:getWidth() + 48, card:getHeight() + 48)
+    local ok = Assert.notNil(findOp(function(op)
+        return op.op == "texture" and tostring(op.name) == "sauce_chip_tl"
+    end), "accent rail drawn from the tintable chip nine")
+    ok = Assert.isNil(findOp(function(op)
+        return op.op == "texture" and tostring(op.name) == "sauce_wincap_tl"
+    end), "cherry wincap stands down when an accent is on the channel") and ok
+    -- the chip is tinted with the ENAMEL-deepened accent (0.90 * 0.62)
+    local tinted = findOp(function(op)
+        return op.op == "texture" and tostring(op.name) == "sauce_chip_c"
+    end)
+    ok = Assert.notNil(tinted, "rail centre painted") and ok
+    if tinted then
+        ok = Assert.nearEqual(tinted.r, 0.90 * 0.62, 0.01, "rail tint = enamel-deep accent") and ok
+    end
     return ok
 end
 

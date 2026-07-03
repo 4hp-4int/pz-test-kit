@@ -94,8 +94,20 @@ local function makeTT()
     function t.endLayout(self, layout) end
     function t.DrawText(self, ...) end
     function t.DrawTextRight(self, ...) end
-    function t.DrawTextureScaledColor(self, ...) end
+    t.draws = {}
+    function t.DrawTextureScaledColor(self, tex, x, y, w, h, r, g, b, a)
+        t.draws[#t.draws + 1] = { tex = tex, x = x, y = y, w = w, h = h,
+                                  r = r, g = g, b = b, a = a }
+    end
     return t
+end
+
+-- the framework accent line: a nil-texture 2px-wide draw at x=1
+local function findBarDraw(tt)
+    for _, d in ipairs(tt.draws) do
+        if d.tex == nil and d.x == 1 and d.w == 2 then return d end
+    end
+    return nil
 end
 
 local function makePanel(item, impl)
@@ -268,6 +280,90 @@ tests["provider_path_dress_under_content"] = function()
     ok = Assert.equal(seq[2], "dress", "dress opens the real pass") and ok
     ok = Assert.equal(seq[3], "layout", "content paints over the dress") and ok
     TooltipLib.removeProvider("DressPathProbe")
+    reset()
+    return ok
+end
+
+tests["accent_channel_framework_draws_one_bar"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "AccentProbe",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) end,
+        postRender = function(ctx) ctx:setAccentColor({ 0.9, 0.3, 0.3, 1 }) end,
+        description = "accent channel probe",
+    })
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local bar = findBarDraw(p.tooltip)
+    local ok = Assert.notNil(bar, "framework drew the accent line")
+    ok = Assert.nearEqual(bar and bar.r or 0, 0.9, 0.001, "declared colour used") and ok
+    local n = 0
+    for _, d in ipairs(p.tooltip.draws) do
+        if d.tex == nil and d.x == 1 and d.w == 2 then n = n + 1 end
+    end
+    ok = Assert.equal(n, 1, "exactly one bar (real pass only, one source)") and ok
+    TooltipLib.removeProvider("AccentProbe")
+    return ok
+end
+
+tests["accent_last_write_wins"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "AccentTheme",
+        target = "item",
+        priority = TooltipLib.Priorities.FIRST,
+        enabled = function() return true end,
+        callback = function(ctx) end,
+        postRender = function(ctx) ctx:setAccentColor({ 0.1, 0.1, 0.1, 1 }) end,
+        description = "theme colour (first)",
+    })
+    TooltipLib.registerProvider({
+        id = "AccentTier",
+        target = "item",
+        priority = 100,
+        enabled = function() return true end,
+        callback = function(ctx) end,
+        postRender = function(ctx) ctx:setAccentColor({ 0.6, 0.2, 0.8, 1 }) end,
+        description = "tier colour (later, wins)",
+    })
+    local p = makePanel(makeItem())
+    hookedRender(p)
+    local bar = findBarDraw(p.tooltip)
+    local ok = Assert.notNil(bar, "bar drawn")
+    ok = Assert.nearEqual(bar and bar.b or 0, 0.8, 0.001, "later provider's colour wins") and ok
+    TooltipLib.removeProvider("AccentTheme")
+    TooltipLib.removeProvider("AccentTier")
+    return ok
+end
+
+tests["accent_reaches_dress_next_frame_no_bar"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "AccentProbe2",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) end,
+        postRender = function(ctx) ctx:setAccentColor({ 0.2, 0.8, 0.4, 1 }) end,
+        description = "accent channel probe",
+    })
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    local calls, seen = 0, {}
+    d.spec.draw = function(panel, tooltip, w, h, surface, accent)
+        calls = calls + 1
+        seen[calls] = accent
+    end
+    local p = makePanel(makeItem())
+    hookedRender(p)   -- frame 1: providers declare, dress drew before them
+    hookedRender(p)   -- frame 2: dress catches up from the accent cache
+    local ok = Assert.equal(calls, 2, "one dress draw per render")
+    ok = Assert.isNil(seen[1], "frame 1: accent not yet known to the dress") and ok
+    ok = Assert.notNil(seen[2], "frame 2: dress receives the accent") and ok
+    ok = Assert.nearEqual(seen[2] and seen[2][2] or 0, 0.8, 0.001, "the declared colour") and ok
+    ok = Assert.isNil(findBarDraw(p.tooltip), "no framework bar while dressed") and ok
+    TooltipLib.removeProvider("AccentProbe2")
     reset()
     return ok
 end

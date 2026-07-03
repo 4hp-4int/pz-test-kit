@@ -43,7 +43,8 @@ end
 
 function CardPanel:prerender()
     local SIR = _G.SauceInvRender
-    SIR.TTDress.draw(self, tooltipShim(self), self.width, self.height, "item")
+    SIR.TTDress.draw(self, tooltipShim(self), self.width, self.height, "item",
+        self.accent)
 end
 
 function CardPanel:render()
@@ -63,8 +64,12 @@ function CardPanel:render()
     end
 end
 
-function TooltipDressItem.build()
-    return CardPanel:new(24, 24)
+-- accent = optional {r,g,b,a} from TooltipLib's accent channel: the rail
+-- takes the item's colour (tinted chip enamel); nil = the cherry wincap.
+function TooltipDressItem.build(accent)
+    local card = CardPanel:new(24, 24)
+    card.accent = accent
+    return card
 end
 
 return TooltipDressItem
