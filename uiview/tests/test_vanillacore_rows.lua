@@ -95,11 +95,16 @@ tests["ammo_and_gun_rows_gate_on_facts"] = function()
 end
 
 tests["ammo_rows_suppressed_for_handweapons"] = function()
-    -- java:930/936 gate ammo rows on NOT instanceof HandWeapon (weapons show
-    -- ammo in their own DoTooltip override).
-    local F = plainFacts({ isHandWeapon = true, maxAmmo = 6, ammoTypeName = "Bullets" })
-    local n = VC.rowsFor(F, ENV)
-    return Assert.equal(n, 1, "weapon ammo rows belong to the override, not the base")
+    -- java:930/936 gate the BASE ammo rows on NOT instanceof HandWeapon —
+    -- weapons get their own wpnAmmo row (HandWeapon.java:405) instead.
+    local F = plainFacts({ isHandWeapon = true, maxAmmo = 6, ammoTypeName = "Bullets",
+        weapon = { bulletName = "Bullets" } })
+    local n, breakdown = VC.rowsFor(F, ENV)
+    local ids = {}
+    for i = 1, #breakdown do ids[breakdown[i].id] = breakdown[i].n end
+    return Assert.equal(n, 3, "weight + wpnCondition + wpnAmmo")
+        and Assert.isNil(ids.ammoCount, "base ammoCount suppressed")
+        and Assert.equal(ids.wpnAmmo, 1, "override ammo row fires")
 end
 
 tests["condition_gate_matches_vanilla_exclusions"] = function()
@@ -267,6 +272,118 @@ tests["emit_parity_weight_branches"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Weapon rows (HandWeapon.DoTooltip port, at the java:1030 hook)
+-- ---------------------------------------------------------------------------
+
+local function weaponFacts(over, wpnOver)
+    local W = {
+        headCondition = 10, headConditionMax = 10,
+        maxDamage = 0, minDamage = 0, bloodLevel = 0,
+        attachments = {},
+    }
+    for k, v in pairs(wpnOver or {}) do W[k] = v end
+    local F = plainFacts({ isHandWeapon = true, weapon = W })
+    for k, v in pairs(over or {}) do F[k] = v end
+    return F
+end
+
+tests["weapon_baseline_is_weight_plus_condition"] = function()
+    -- wpnCondition is UNCONDITIONAL for weapons (HandWeapon.java:287) —
+    -- unlike the base condition row, which is suppressed for weapons.
+    local n, breakdown = VC.rowsFor(weaponFacts(), ENV)
+    local ids = {}
+    for i = 1, #breakdown do ids[breakdown[i].id] = true end
+    return Assert.equal(n, 2, "weight + wpnCondition")
+        and Assert.isTrue(ids.wpnCondition == true)
+        and Assert.isNil(ids.condition and true, "base condition row stays suppressed")
+end
+
+tests["weapon_melee_axe_rows"] = function()
+    -- damaged two-hand axe with sharpness and blood
+    local F = weaponFacts({ hasSharpness = true, sharpness = 0.6,
+        condition = 6, conditionMax = 10 },
+        { maxDamage = 1.5, minDamage = 0.5, bloodLevel = 0.3, twoHand = true })
+    local n = VC.rowsFor(F, ENV)
+    return Assert.equal(n, 6,
+        "weight + sharpness + condition + damage + bloody + twoHand")
+end
+
+tests["weapon_firearm_rows"] = function()
+    local F = weaponFacts({ maxAmmo = 6, currentAmmo = 2 }, {
+        maxDamage = 1.2, ranged = true, maxRange = 10,
+        fireMode = "Single", magazineType = "Base.9mmClip",
+        containsClip = true, bulletName = "9mm Magazine",
+        jammed = true,
+    })
+    local n = VC.rowsFor(F, ENV)
+    -- weight + condition + damage + range + fireMode + ammo + jammed + clip
+    return Assert.equal(n, 8, "firearm row set")
+end
+
+tests["weapon_chamber_chain_is_exclusive"] = function()
+    -- java:424-453 — jammed / no-round-chambered / spent-rounds are an
+    -- if-else chain: exactly one row (or none) ever fires.
+    local jammed = weaponFacts({ maxAmmo = 6, currentAmmo = 2 },
+        { jammed = true, haveChamber = true, spentRoundCount = 3 })
+    local noRound = weaponFacts({ maxAmmo = 6, currentAmmo = 2 },
+        { haveChamber = true, spentRoundCount = 3 })
+    local spentOnly = weaponFacts({ maxAmmo = 6, currentAmmo = 0 },
+        { spentRoundCount = 3 })
+    local clean = weaponFacts({ maxAmmo = 6, currentAmmo = 0 }, {})
+    local function chamberN(F)
+        for i = 1, #VC.ROWS do
+            if VC.ROWS[i].id == "wpnChamber" then return VC.ROWS[i].gate(F, ENV) end
+        end
+    end
+    return Assert.equal(chamberN(jammed), 1, "jammed wins the chain")
+        and Assert.equal(chamberN(noRound), 1, "chamber empty with ammo")
+        and Assert.equal(chamberN(spentOnly), 1, "spent rounds")
+        and Assert.equal(chamberN(clean), 0, "clean gun, no chamber row")
+end
+
+tests["weapon_fishing_and_attachments"] = function()
+    local F = weaponFacts({}, {
+        fishingRod = true, lineCondition = 0.8, lineName = "Fishing Line",
+        hookName = "Hook", lureName = nil,
+        attachments = {
+            { partType = "Scope", name = "x8 Scope" },
+            { partType = "RedDot", name = "Red Dot", battery = true, batteryUses = 0.4 },
+        },
+    })
+    local n = VC.rowsFor(F, ENV)
+    -- weight + condition + fishing(4) + attachments(2 + 1 battery)
+    return Assert.equal(n, 9, "fishing block is 4 rows; battery part adds a bar")
+end
+
+tests["weapon_emit_parity_kitchen_sink"] = function()
+    local F = weaponFacts({ hasSharpness = true, sharpness = 0.5,
+        hasHeadCondition = true, maxAmmo = 8, currentAmmo = 3 }, {
+        headCondition = 7, headConditionMax = 10,
+        maxDamage = 1.1, minDamage = 0.4, bloodLevel = 0.2,
+        fishingRod = true, lineCondition = 0.9,
+        ranged = true, maxRange = 12, twoHand = true,
+        fireMode = "Auto", exertionBlock = true,
+        haveChamber = true, roundChambered = false,
+        spentRoundCount = 0, magazineType = "Base.Mag",
+        containsClip = false, bulletName = "Mag",
+        attachments = { { partType = "Laser", name = "Laser",
+            battery = true, batteryUses = 0.7 } },
+        noMaintXp = true,
+    })
+    local predicted = VC.rowsFor(F, ENV)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, F, ENV)
+    return Assert.equal(ctx.rows, predicted, "weapon ctx rows == predicted")
+        and Assert.equal(emitted, predicted, "weapon emitAll return parity")
+        and Assert.isTrue(predicted >= 15, "weapon kitchen sink fired: " .. predicted)
+end
+
+tests["claims_accepts_weapons_with_facts"] = function()
+    local ok = VC.claims(weaponFacts(), ENV)
+    return Assert.isTrue(ok and true, "HandWeapon with weapon facts claims")
+end
+
+-- ---------------------------------------------------------------------------
 -- Claim discipline
 -- ---------------------------------------------------------------------------
 
@@ -278,7 +395,7 @@ end
 
 tests["claims_refuses_override_classes_and_components"] = function()
     local refusals = {
-        { plainFacts({ isHandWeapon = true }), "class-HandWeapon" },
+        { plainFacts({ isHandWeapon = true }), "weapon-facts-missing" },
         { plainFacts({ isFood = true }), "class-Food" },
         { plainFacts({ isClothing = true }), "class-Clothing" },
         { plainFacts({ isInventoryContainer = true }), "class-InventoryContainer" },
