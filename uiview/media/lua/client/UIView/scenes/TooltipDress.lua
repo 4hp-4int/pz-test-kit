@@ -4,7 +4,7 @@
     The Tooltip scene's REAL TooltipLib pipeline (Core + HookWorldObject +
     WorldObjectPanel), with sauce-invrender's REAL panel dress registered via
     the real API (sir_ttdress -> TooltipLib.setPanelDress). The panel's
-    prerender then swaps its flat box for the sauce_ledger_* nine-patch —
+    prerender then swaps its flat box for the sir_ledger_* nine-patch —
     exactly the code path the in-game object tooltip takes.
 
     Returns build() -> the dressed WorldObjectPanel, and teardown() to clear
