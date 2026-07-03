@@ -12,11 +12,17 @@ local Assert      = PZTestKit.Assert
 local Recorder    = require "UIView/Recorder"
 local Render      = require "UIView/Render"
 local TooltipDress = require "UIView/scenes/TooltipDress"
+local TooltipDressItem = require "UIView/scenes/TooltipDressItem"
 
 do
     local panel = TooltipDress.build()
     Render.emit(panel, panel:getWidth() + 48, panel:getHeight() + 48, "tooltipdress")
     TooltipDress.teardown()   -- top-level: later files' emits stay flat
+end
+
+do
+    local card = TooltipDressItem.build()
+    Render.emit(card, card:getWidth() + 48, card:getHeight() + 48, "tooltipdressitem")
 end
 
 local function findOp(pred)
@@ -66,6 +72,21 @@ tests["content_still_renders_on_the_card"] = function()
         return op.op == "text" and tostring(op.str):find("Portable Generator", 1, true)
     end), "title painted over the dress")
     TooltipDress.teardown()
+    return ok
+end
+
+tests["item_card_wears_ledger_and_cherry_rail"] = function()
+    local card = TooltipDressItem.build()
+    Render.frame(card, card:getWidth() + 48, card:getHeight() + 48)
+    local ok = Assert.notNil(findOp(function(op)
+        return op.op == "texture" and tostring(op.name) == "sauce_ledger_c"
+    end), "kraft ledger body on the item card")
+    ok = Assert.notNil(findOp(function(op)
+        return op.op == "texture" and tostring(op.name) == "sauce_wincap_tl"
+    end), "cherry title rail on the item card") and ok
+    ok = Assert.notNil(findOp(function(op)
+        return op.op == "text" and tostring(op.str):find("Frying Pan", 1, true)
+    end), "name ink painted over the rail") and ok
     return ok
 end
 
