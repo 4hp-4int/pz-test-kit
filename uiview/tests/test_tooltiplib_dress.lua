@@ -556,6 +556,67 @@ tests["bar_rows_carry_fraction_and_colour_dividers_are_rules"] = function()
     return ok
 end
 
+tests["vps_shaped_cacheable_provider_keeps_bar_geometry_across_frames"] = function()
+    -- Repro harness for the 2026-07-03 report "VPS tooltips don't get chrome
+    -- gauges": VPS's provider is cacheable + hasDetailContent with long KV
+    -- labels, indented addProgress bars, headers and wrapped lore. The bar
+    -- rows must land in the ornament geometry with correct fraction and
+    -- aligned y on BOTH the record frame and the cache-replay frame.
+    reset()
+    TooltipLib.registerProvider({
+        id = "VpsShaped",
+        target = "item",
+        cacheable = true,
+        hasDetailContent = true,
+        maxAge = 120,
+        minWidth = 180,
+        separator = false,
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:addHeader("Mark: Deadly", { 0.7, 0.62, 0.97, 1 }, true)
+            ctx:addKeyValue("Personality Stage:", "Proven  2/5",
+                { 0.7, 0.7, 0.7, 1 }, { 0.9, 0.6, 0.3, 1 })
+            ctx:addProgress("  Power  85%", 0.85,
+                { 0.9, 0.6, 0.3, 1 }, { 0.9, 0.6, 0.3, 1 })
+            ctx:addText("It remembers every kill, and asks for more of them.",
+                { 0.72, 0.66, 0.55, 1 }, 200)
+            ctx:addProgress("Condition:", 0.5, nil, { 0.2, 0.8, 0.3, 1 })
+        end,
+        description = "VPS-shaped geometry probe",
+    })
+    local d = makeDress()
+    local geoms = {}
+    d.spec.ornaments = function(panel, tooltip, geom)
+        geoms[#geoms + 1] = geom
+    end
+    TooltipLib.setPanelDress(d.spec)
+    local p = makePanel(makeItem())
+    hookedRender(p)   -- frame 1: measure records, real pass replays from L2
+    hookedRender(p)   -- frame 2: both passes replay from L2
+    local ok = Assert.equal(#geoms, 2, "ornaments ran on both real passes")
+    for f = 1, #geoms do
+        local g = geoms[f]
+        local bars, lastY = {}, nil
+        for i = 1, #g.rows do
+            local r = g.rows[i]
+            if lastY then
+                ok = Assert.equal(r.y, lastY + g.lineSpacing,
+                    "frame " .. f .. " row " .. i .. " y advances one lineSpacing") and ok
+            end
+            lastY = r.y
+            if r.kind == "bar" then bars[#bars + 1] = r end
+        end
+        ok = Assert.equal(#bars, 2, "frame " .. f .. ": both bars in geometry") and ok
+        ok = Assert.nearEqual(bars[1] and bars[1].fraction or 0, 0.85, 0.001,
+            "frame " .. f .. ": indented bar fraction") and ok
+        ok = Assert.greater((g.valueRightX or 0) - (g.midX or 0), 8,
+            "frame " .. f .. ": gauge band wider than the draw threshold") and ok
+    end
+    TooltipLib.removeProvider("VpsShaped")
+    reset()
+    return ok
+end
+
 tests["dress_only_frame_still_gets_ruling_geometry"] = function()
     reset()
     local d = makeDress()
