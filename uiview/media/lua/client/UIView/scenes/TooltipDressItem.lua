@@ -48,6 +48,35 @@ function CardPanel:prerender()
 end
 
 function CardPanel:render()
+    -- promo variant: coherent ink (a real bait item) instead of the row-kind
+    -- exercise fixture — same dress, same geometry machinery
+    if self.ink then
+        local k = self.ink
+        self:drawText(k.name, 6, 6, 1, 1, 1, 1, UIFont.Small)
+        for _, r in ipairs(k.rows) do
+            self:drawText(r[1], 8, r[4], 0.85, 0.85, 0.85, 1, UIFont.Small)
+            if r[2] then
+                self:drawText(r[2], 120, r[4], r[3][1], r[3][2], r[3][3], 1, UIFont.Small)
+            end
+        end
+        if k.bar then
+            self:drawText(k.bar.label, 8, k.bar.y, 0.85, 0.85, 0.85, 1, UIFont.Small)
+            self:drawRect(120, k.bar.y + 8, 120, 6, 1, k.bar.c[1], k.bar.c[2], k.bar.c[3])
+        end
+        if k.section then
+            self:drawText(k.section.label, 8, k.section.y, 0.93, 0.86, 0.70, 1, UIFont.Small)
+            for _, r in ipairs(k.section.rows) do
+                self:drawText("  " .. r[1], 8, r[4], 1, 1, 1, 1, UIFont.Small)
+                self:drawText(r[2], 120, r[4], r[3][1], r[3][2], r[3][3], 1, UIFont.Small)
+            end
+        end
+        if self.geom then
+            local SIR = _G.SauceInvRender
+            SIR.TTDress.ornaments(self, tooltipShim(self), self.geom, "item",
+                self.accent)
+        end
+        return
+    end
     -- representative vanilla tooltip ink (white name, pale labels, values)
     self:drawText("Frying Pan", 6, 6, 1, 1, 1, 1, UIFont.Small)
     local rows = {
@@ -122,6 +151,57 @@ function TooltipDressItem.buildSectioned(accent)
         sections = {
             { y = 142, h = 18, label = "ATTRACTS", labelW = lw("ATTRACTS"),
               rowIndex = 7 },
+        },
+    }
+    return card
+end
+
+-- PROMO card: a COHERENT item (Cabbage — real trap bait, so the ATTRACTS
+-- section is true) for marketing shots. Same dress + geometry machinery as
+-- buildSectioned; only the ink is curated. (The fixture card above shows a
+-- frying pan that attracts rats — great row-kind coverage, nonsense promo.)
+function TooltipDressItem.buildPromo(accent)
+    local card = CardPanel:new(24, 24)
+    card.accent = accent
+    card:setHeight(208)
+    local tm = getTextManager()
+    local function lw(s) return tm:MeasureStringX(UIFont.Small, s) end
+    local VRX = 240
+    local function kv(y, label)
+        return { y = y, h = 18, kind = "kv",
+                 labelW = lw(label), valueW = VRX - 120 }
+    end
+    card.ink = {
+        name = "Cabbage",
+        rows = {
+            { "Type",   "Food", { 1, 1, 1 }, 34 },
+            { "Hunger", "-19",  { 0.2, 0.9, 0.2 }, 52 },
+            { "Weight", "0.5",  { 1, 1, 1 }, 70 },
+        },
+        bar = { label = "Freshness", y = 88, c = { 0.2, 0.8, 0.3 } },
+        section = {
+            label = "ATTRACTS", y = 124,
+            rows = {
+                { "Rabbit", "High",   { 0.3, 0.9, 0.4 }, 142 },
+                { "Rat",    "Medium", { 0.9, 0.8, 0.3 }, 160 },
+            },
+        },
+    }
+    card.geom = {
+        left = 8, startY = 34, lineSpacing = 18, width = W,
+        top = 34, endY = 178,
+        midX = 120, valueRightX = VRX, barH = 6,
+        rows = {
+            kv(34, "Type"), kv(52, "Hunger"), kv(70, "Weight"),
+            { y = 88, h = 18, kind = "bar", labelW = lw("Freshness"),
+              valueW = 0, fraction = 0.78, barColor = { 0.2, 0.8, 0.3, 1 } },
+            { y = 106, h = 18, kind = "rule", fraction = 1 },
+            { y = 124, h = 18, kind = "label", labelW = lw("ATTRACTS") },
+            kv(142, "  Rabbit"), kv(160, "  Rat"),
+        },
+        sections = {
+            { y = 124, h = 18, label = "ATTRACTS", labelW = lw("ATTRACTS"),
+              rowIndex = 6 },
         },
     }
     return card
