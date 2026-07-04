@@ -116,10 +116,11 @@ function CraftMock.install(items)
                 setIsoObject = function() end,
                 findCraftSurface = function() return nil end,
                 -- pin state models vanilla's manual-select mode: the context
-                -- click PINS (manual), plain setRecipe is auto-select
+                -- click PINS (and flips manual on, like the real one); plain
+                -- setRecipe leaves whatever mode was set
                 setRecipe = function(self, r) self._recipe = r; self._pinned = false end,
                 setRecipeFromContextClick = function(self, r, it)
-                    self._recipe = r; self._item = it; self._pinned = true
+                    self._recipe = r; self._item = it; self._pinned = true; self._manual = true
                 end,
                 getRecipeData = function() return {
                     getAllInputItems = function() return jlist({}) end,
@@ -156,8 +157,15 @@ function CraftMock.install(items)
     -- caller wires); adds to the queue itself only when addToQueue is true.
     _G.ISEntityUI = {
         -- single craft (craftOne): returns an action; caller wires completion
-        -- and hands it to logic:startCraftAction
+        -- and hands it to logic:startCraftAction. Models the FromLogic trap:
+        -- vanilla hardcodes manualInputs=false (a BOOLEAN) for non-manual
+        -- logic and ISHandcraftAction:new's convertToPZNetTable throws
+        -- 'expected KahluaTable, got Boolean' (ISHandcraftAction.lua:399) —
+        -- any craft start on a non-manual logic must fail here like in-game.
         HandcraftStart = function(_, logic)
+            if not logic._manual then
+                error("FromLogic: expected argument of type KahluaTable, got Boolean")
+            end
             local a = {
                 recipe = logic._recipe and logic._recipe._recipe or (logic._recipe and logic._recipe:getName()),
                 pinned = logic._pinned,
