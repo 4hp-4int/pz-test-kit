@@ -133,7 +133,15 @@ local function makeTT()
                     if it.rightJustify then it.valueWidthRight = vw
                     else it.valueWidth = vw end
                 end
-                it.height = 14
+                -- calcSizes counts embedded \n: a multi-line label is ONE
+                -- item spanning lines * lineSpacing (ObjectTooltip.java)
+                local lines = 1
+                if it.label then
+                    for _ in string.gmatch(tostring(it.label), "\n") do
+                        lines = lines + 1
+                    end
+                end
+                it.height = 14 * lines
                 y = y + it.height
             end
             return y
@@ -613,6 +621,44 @@ tests["vps_shaped_cacheable_provider_keeps_bar_geometry_across_frames"] = functi
             "frame " .. f .. ": gauge band wider than the draw threshold") and ok
     end
     TooltipLib.removeProvider("VpsShaped")
+    reset()
+    return ok
+end
+
+tests["multiline_label_keeps_geometry_grid_aligned"] = function()
+    -- The VPS shard-lore pattern: ONE addLabel carrying multi-paragraph text
+    -- with embedded \n is a single layout item spanning several lines. The
+    -- geometry must account its true height or every row (and the whole
+    -- provider region's startY) shifts — the 2026-07-03 shard report.
+    reset()
+    TooltipLib.registerProvider({
+        id = "LoreShaped",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:addKeyValue("Uses:", "3")
+            ctx:addLabel("line one\nline two\n\nline four", { 1, 1, 0.8, 1 })
+            ctx:addProgress("Charge:", 0.5, nil, { 0.9, 0.4, 0.2, 1 })
+        end,
+        description = "multi-line lore geometry probe",
+    })
+    local d = makeDress()
+    local gotGeom
+    d.spec.ornaments = function(panel, tooltip, geom) gotGeom = geom end
+    TooltipLib.setPanelDress(d.spec)
+    hookedRender(makePanel(makeItem()))
+    local g = gotGeom
+    local rows = g and g.rows or {}
+    local ls = g and g.lineSpacing or 14
+    local ok = Assert.equal(#rows, 3, "three noted rows")
+    ok = Assert.equal(rows[2] and rows[2].h, 4 * ls,
+        "multi-line label row spans its 4 lines") and ok
+    ok = Assert.equal(rows[3] and rows[3].y, (rows[2] and rows[2].y or 0) + 4 * ls,
+        "bar row sits BELOW the full lore block, not one line into it") and ok
+    ok = Assert.equal((rows[3] and rows[3].y or 0) + ls, g and g.endY or -1,
+        "last row ends at the layout end (grid re-anchored)") and ok
+    ok = Assert.equal(rows[3] and rows[3].kind, "bar", "bar row keeps its kind") and ok
+    TooltipLib.removeProvider("LoreShaped")
     reset()
     return ok
 end

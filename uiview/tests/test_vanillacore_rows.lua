@@ -718,14 +718,43 @@ tests["claims_debug_admin_and_modinfo_sessions"] = function()
     local okU, reasonU = VC.claims(plainFacts(), dbgUnknown)
     local okD = VC.claims(plainFacts(), dbgOff)
     local okA = VC.claims(plainFacts(), adm)
-    local okM = VC.claims(plainFacts({ isVanilla = false }), modinfo)
+    local okM, reasonM = VC.claims(plainFacts({ isVanilla = false }), modinfo)
+    local okMRead = VC.claims(plainFacts({ isVanilla = false,
+        modInfo = { name = "VPS", overrides = 0, names = {} } }), modinfo)
     local okMVanilla = VC.claims(plainFacts({ isVanilla = true }), modinfo)
     return Assert.isTrue(not okU, "unreadable Tooltip.Info refused")
         and Assert.equal(reasonU, "debug-option-unreadable")
         and Assert.isTrue(okD and true, "debug session with Tooltip.Info off claims")
         and Assert.isTrue(okA and true, "admin session claims (Loot Category ported)")
-        and Assert.isTrue(not okM, "mod item refused while ShowItemModInfo on")
+        and Assert.isTrue(not okM, "mod item with unreadable WorldDictionary refused")
+        and Assert.equal(reasonM, "mod-info-unreadable")
+        and Assert.isTrue(okMRead and true, "mod item with readable mod info claims")
         and Assert.isTrue(okMVanilla and true, "vanilla item fine with ShowItemModInfo on")
+end
+
+tests["modinfo_rows_gate_and_emit"] = function()
+    -- java:1213-1232 — 'Mod: X' + override rows (1 => inline, >1 => header +
+    -- one per mod), only while the ShowItemModInfo option is on.
+    local modinfo = { scriptSpam = false, taintedText = true, debugMode = false,
+        tooltipDebugInfo = false, admin = false, showModInfo = true }
+    local plain = plainFacts({ isVanilla = false,
+        modInfo = { name = "VorpallySauced", overrides = 0, names = {} } })
+    local one = plainFacts({ isVanilla = false,
+        modInfo = { name = "VPS", overrides = 1, names = { "OtherMod" } } })
+    local many = plainFacts({ isVanilla = false,
+        modInfo = { name = "VPS", overrides = 3, names = { "A", "B", "C" } } })
+    local offOpt = VC.rowsFor(plain, ENV) -- option off: no rows
+    local nPlain = VC.rowsFor(plain, modinfo)
+    local nOne = VC.rowsFor(one, modinfo)
+    local nMany = VC.rowsFor(many, modinfo)
+    local ctx = mockCtx()
+    local emitted = VC.emitAll(ctx, many, modinfo)
+    return Assert.equal(offOpt, 1, "option off: weight only")
+        and Assert.equal(nPlain, 2, "weight + Mod name")
+        and Assert.equal(nOne, 3, "+ inline override")
+        and Assert.equal(nMany, 6, "+ header + 3 override rows")
+        and Assert.equal(ctx.rows, nMany, "modinfo emit parity")
+        and Assert.equal(emitted, nMany)
 end
 
 tests["debug_rows_gate_and_emit_parity"] = function()
