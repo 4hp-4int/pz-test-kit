@@ -18,6 +18,9 @@ do
     pcall(function() Render.emit(SIRInv.build({ opacity = 3 }), nil, nil, "sirglass") end)
     pcall(function() Render.emit(SIRInv.build({ opacity = 3, scroll = -50, equipped = true }), nil, nil, "sirscroll") end)
     pcall(function() Render.emit(SIRInv.build({ fontScale = 1.8 }), nil, nil, "sirbigfont") end)
+    -- midnight emits LAST: the harness element-id counter is global per run,
+    -- so inserting a scene mid-list would shift every later golden's el ids
+    pcall(function() Render.emit(SIRInv.build({ look = "midnight" }), nil, nil, "sirmidnight") end)
     if UIMock_setFontScale then UIMock_setFontScale(1) end
     if not ok then print("[sirinv] BUILD/EMIT ERROR: " .. tostring(err)) end
 end
@@ -108,6 +111,52 @@ tests["window_dress_bares_vanilla_children"] = function()
         and Assert.equal(page.closeButton.width, 12, "rail buttons shrunk to 12px")
         and Assert.isTrue(page.closeButton._sirGlyph == true, "rail glyph swapped in (sir_ui-close)")
         and Assert.isTrue(pane.expandAll._sirGlyph == true, "header glyph swapped in (sir_ui-expand)")
+end
+
+tests["midnight_look_swaps_glass_set"] = function()
+    -- Midnight is the only look with its OWN rails/entry/thumb: the window
+    -- must paint ledger_mid/wincap_mid pieces (not the kraft/cherry set) and
+    -- the scrollbar capsule must re-dress to the frosted _mid thumb.
+    local page = SIRInv.build({ look = "midnight" })
+    Render.frame(page, page.width + 16, page.height + 16)
+    local T = require "sir_theme"
+    local ops = Recorder.ops
+    local sawMidBody, sawMidCap, sawStockRail = false, false, false
+    for _, o in ipairs(ops) do
+        local n = tostring(o.name or "")
+        if n:find("sir_ledger_mid_", 1, true) then sawMidBody = true end
+        if n:find("sir_wincap_mid_", 1, true) then sawMidCap = true end
+        -- un-suffixed cherry rail pieces must NOT paint on midnight
+        if n:find("sir_wincap_t", 1, true) or n:find("sir_winfoot_t", 1, true) then
+            sawStockRail = true
+        end
+    end
+    local thumbMid = tostring(page.inventoryPane.vscroll.toptex or ""):find("vthumb_mid", 1, true) ~= nil
+        or (page.inventoryPane.vscroll._sirCapsuleLook == "midnight")
+    local ok = Assert.equal(T.look, "midnight", "look applied via the real optIndex path")
+        and Assert.isTrue(sawMidBody, "ledger_mid body painted")
+        and Assert.isTrue(sawMidCap, "wincap_mid rail painted")
+        and Assert.isTrue(not sawStockRail, "cherry rails do NOT paint on midnight")
+        and Assert.isTrue(thumbMid, "scrollbar capsule re-dressed to the _mid thumb")
+    return ok
+end
+
+tests["midnight_stripes_go_luminance_but_palette_stays_canonical"] = function()
+    -- catStripe maps stripes to the white luminance ramp on midnight WITHOUT
+    -- mutating T.color.cat (the cross-mod palette weld reads the canonical
+    -- hues; the tooltip card is kraft-pinned and keeps colour accents).
+    local T = require "sir_theme"
+    local wr, wg, wb = T.color.cat.weapon[1], T.color.cat.weapon[2], T.color.cat.weapon[3]
+    T.setLook("midnight")
+    local s = T.catStripe("weapon")
+    local lum = Assert.isTrue(s[1] == s[2] and s[2] == s[3], "midnight stripe is grayscale")
+    local canon = Assert.equal(T.color.cat.weapon[1], wr, "canonical hue untouched (r)")
+        and Assert.equal(T.color.cat.weapon[2], wg, "canonical hue untouched (g)")
+        and Assert.equal(T.color.cat.weapon[3], wb, "canonical hue untouched (b)")
+    T.setLook("lamplight")
+    local back = T.catStripe("weapon")
+    local restored = Assert.equal(back[1], wr, "non-midnight stripe returns the canonical hue")
+    return lum and canon and restored
 end
 
 tests["font_scale_clamps_hold"] = function()

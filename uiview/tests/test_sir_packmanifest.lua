@@ -41,7 +41,11 @@ tests["chrome_nine_families_all_packed"] = function()
     -- mirrors sir_chrome's TINTABLE/UNSKINNED/SKINNED x SUFFIX x KEYS9
     local KEYS9 = { "tl", "t", "tr", "l", "r", "bl", "b", "br", "c" }
     local bases = { "wash", "chip", "entry", "wincap", "winfoot",
-                    "ledger", "ledger_crm", "ledghead", "ledghead_crm" }
+                    "ledger", "ledger_crm", "ledghead", "ledghead_crm",
+                    -- midnight (2026 grayscale glass): its own skinned set
+                    -- PLUS per-look rails/entry (MIDNIGHT_ONLY in sir_chrome)
+                    "ledger_mid", "ledghead_mid",
+                    "entry_mid", "wincap_mid", "winfoot_mid" }
     local names = {}
     for _, base in ipairs(bases) do
         for _, k in ipairs(KEYS9) do
@@ -57,6 +61,7 @@ tests["explicit_window_render_pieces_packed"] = function()
     local miss = missing({
         "sir_blank", "sir_rowbevel",
         "sir_vthumb_t", "sir_vthumb_m", "sir_vthumb_b",
+        "sir_vthumb_mid_t", "sir_vthumb_mid_m", "sir_vthumb_mid_b",
         -- sir_window resolves these directly (not through sir_icons' ptex)
         "sir_ui-close", "sir_ui-info", "sir_ui-pin",
         "sir_ui-expand", "sir_ui-collapse", "sir_ui-funnel",

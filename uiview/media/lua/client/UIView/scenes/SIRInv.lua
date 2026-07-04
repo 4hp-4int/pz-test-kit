@@ -627,13 +627,15 @@ function Scene.build(opts)
         local T = require "sir_theme"
         if T.metricsRefresh then T.metricsRefresh() end
     end
-    -- look selection (daylight default / "lamplight" = the dark kraft ledger):
-    -- stub the Mod Options combo the render polls, so the look system runs its
-    -- REAL apply path (T.setLook via SIR.optIndex) rather than being forced.
+    -- look selection (daylight default / "lamplight" = dark kraft ledger /
+    -- "midnight" = grayscale night glass): stub the Mod Options combo the
+    -- render polls, so the look system runs its REAL apply path (T.setLook
+    -- via SIR.optIndex) rather than being forced.
     local SIR = _G.SauceInvRender
     if SIR then
         SIR.Keys = SIR.Keys or {}
-        local idx = (opts.look == "lamplight") and 2 or 1
+        local idx = (opts.look == "lamplight") and 2
+            or (opts.look == "midnight") and 3 or 1
         SIR.Keys["sir_look"] = { getValue = function() return idx end }
         -- window opacity combo (1 Solid / 2 Smoked / 3 Glass / 4 Vapor)
         local oidx = opts.opacity or 1
