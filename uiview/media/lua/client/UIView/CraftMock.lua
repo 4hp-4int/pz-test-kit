@@ -115,12 +115,28 @@ function CraftMock.install(items)
                 setContainers = function() end,
                 setIsoObject = function() end,
                 findCraftSurface = function() return nil end,
-                setRecipe = function(self, r) self._recipe = r end,
-                setRecipeFromContextClick = function(self, r, it) self._recipe = r; self._item = it end,
-                getRecipeData = function() return { getAllInputItems = function() return jlist({}) end } end,
+                -- pin state models vanilla's manual-select mode: the context
+                -- click PINS (manual), plain setRecipe is auto-select
+                setRecipe = function(self, r) self._recipe = r; self._pinned = false end,
+                setRecipeFromContextClick = function(self, r, it)
+                    self._recipe = r; self._item = it; self._pinned = true
+                end,
+                getRecipeData = function() return {
+                    getAllInputItems = function() return jlist({}) end,
+                    getAllPutBackInputItems = function() return jlist({}) end,
+                } end,
+                isUsingRecipeAtHandBenefit = function() return false end,
                 -- CraftMock.canCraft = false simulates "applies but you lack materials"
                 -- (for pal_repair's blocked-but-discoverable path). Default: craftable.
-                canPerformCurrentRecipe = function(self) return CraftMock.canCraft ~= false and self._recipe ~= nil end,
+                -- CraftMock.pinStarves = true models the MULTI-COUNT-INPUT trap
+                -- (Pack Nails): manual/pinned mode fails canPerform while the
+                -- auto-select path says craftable (BaseCraftingLogic passes
+                -- null allItems to canPerform when isManualSelectInputs).
+                canPerformCurrentRecipe = function(self)
+                    if CraftMock.canCraft == false then return false end
+                    if CraftMock.pinStarves and self._pinned then return false end
+                    return self._recipe ~= nil
+                end,
                 isInputSatisfied = function() return CraftMock.canCraft ~= false end,
                 getPossibleCraftCount = function() return CraftMock.craftCount end,
                 isCharacterInRangeOfWorkbench = function() return true end,
@@ -139,6 +155,17 @@ function CraftMock.install(items)
     -- multi-craft: returns `qty` actions (with setOnStart/setOnComplete hooks the
     -- caller wires); adds to the queue itself only when addToQueue is true.
     _G.ISEntityUI = {
+        -- single craft (craftOne): returns an action; caller wires completion
+        -- and hands it to logic:startCraftAction
+        HandcraftStart = function(_, logic)
+            local a = {
+                recipe = logic._recipe and logic._recipe._recipe or (logic._recipe and logic._recipe:getName()),
+                pinned = logic._pinned,
+                setOnComplete = function() end,
+            }
+            CraftMock.queue[#CraftMock.queue + 1] = a
+            return a
+        end,
         HandcraftStartMultiple = function(_, logic, _, qty, addToQueue)
             local acts = {}
             for i = 1, qty do
