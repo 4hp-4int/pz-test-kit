@@ -1159,4 +1159,46 @@ tests["deferred_append_clears_panel_extent_stats"] = function()
     return ok
 end
 
+tests["detail_toggle_never_draws_stale_extent"] = function()
+    reset()
+    -- detail mode legitimately RESIZES the card: the extent memory must be
+    -- keyed by detail state, or every Shift release drew the grown card for
+    -- a frame (a strobe while toggling — the detail-mode jank report)
+    TooltipLib.registerProvider({
+        id = "DetailProbe",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:addLabel("base row", { 1, 1, 1, 1 })
+            if ctx.detail then
+                for i = 1, 4 do ctx:addLabel("detail row " .. i, { 1, 1, 1, 1 }) end
+            end
+        end,
+        description = "detail probe",
+    })
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    local held = false
+    local savedRead = TooltipLib._readDetailKey
+    TooltipLib._readDetailKey = function() return held end
+
+    local p = makePanel(makeItem())
+    hookedRender(p)                 -- earn ownership, small card
+    hookedRender(p)
+    local smallH = d.calls[#d.calls].h
+    held = true
+    hookedRender(p); hookedRender(p)
+    local bigH = d.calls[#d.calls].h
+    local ok = Assert.greater(bigH, smallH, "detail grows the card")
+    held = false
+    hookedRender(p)                 -- RELEASE frame: must NOT reuse the grown extent
+    local releaseH = d.calls[#d.calls].h
+    ok = Assert.equal(releaseH, smallH, "release frame draws the small card, not last frame's grown one") and ok
+
+    TooltipLib._readDetailKey = savedRead
+    TooltipLib.removeProvider("DetailProbe")
+    reset()
+    return ok
+end
+
 return tests
