@@ -49,6 +49,10 @@ end
 
 require "TooltipLib/Core"
 require "TooltipLib/Hook"
+
+-- harness opts into MIXED dress (no PZAPI here, and consistency mode would
+-- kill the dress for every test after the first deferred frame)
+TooltipLib._mixedDressAllowed = function() return true end
 triggerEvent("OnGameStart")                  -- InstallHook wraps our mock
 local hookedRender = ISToolTipInv.render     -- stable capture (later OnGameStart
                                              -- triggers may re-wrap the global)
@@ -216,6 +220,7 @@ end
 
 local function reset()
     TooltipLib.clearPanelDress("TestDress")
+    TooltipLib._deferrerSeen = nil
     boxRec.bgA, boxRec.bdA = nil, nil
     for i = #seq, 1, -1 do seq[i] = nil end
 end
@@ -1084,6 +1089,33 @@ tests["dress_covers_panel_extent_render_replacers"] = function()
     local last = d.calls[#d.calls]
     local ok = Assert.equal(last and last.h, 80 + 42,
         "dress covers the panel's declared extent (tooltip + stats region)")
+    reset()
+    return ok
+end
+
+tests["consistency_mode_stands_dress_down_session_wide"] = function()
+    reset()
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    -- default (option off / absent): once a foreign framework is seen, the
+    -- dress stands down EVERYWHERE so every tooltip matches
+    local savedGate = TooltipLib._mixedDressAllowed
+    TooltipLib._mixedDressAllowed = function() return false end
+
+    local p = makePanel(makeItem())
+    hookedRender(p); hookedRender(p)
+    local ok = Assert.greater(#d.calls, 0, "dress active before any deferrer is seen")
+    local before = #d.calls
+
+    TooltipLib._deferrerSeen = true   -- what the deferred branches set
+    hookedRender(p)
+    ok = Assert.equal(#d.calls, before, "dress stands down session-wide (consistency)") and ok
+
+    TooltipLib._mixedDressAllowed = function() return true end
+    hookedRender(p)
+    ok = Assert.greater(#d.calls, before, "mixed option restores the dressed look") and ok
+
+    TooltipLib._mixedDressAllowed = savedGate
     reset()
     return ok
 end
