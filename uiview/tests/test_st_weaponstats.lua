@@ -144,4 +144,25 @@ tests["firearm_takes_the_gun_branch"] = function()
         and Assert.isTrue(has(ctx, "UI_ST_BreakChance") == nil, "melee-only break row absent on a gun")
 end
 
+tests["sections_only_when_ornamented"] = function()
+    local p = weaponProvider()
+    local item = meleeWeapon()
+
+    -- unchromed (Starlit / plain vanilla): ctx.ornamented false -> NO sections
+    local flat = recCtx(false, item)
+    flat.ornamented = false
+    p.callback(flat)
+    local ok = Assert.equal(#flat.sections, 0,
+        "no section headers when the card is not ornament-chromed (deferred/vanilla)")
+        and Assert.notNil(has(flat, "UI_ST_Damage"), "stat rows still show flat")
+
+    -- full chrome: ctx.ornamented true -> section headers present
+    local chromed = recCtx(false, item)
+    chromed.ornamented = true
+    p.callback(chromed)
+    ok = Assert.greater(#chromed.sections, 0,
+        "section headers appear in full chrome (Combat/Melee)") and ok
+    return ok
+end
+
 return tests
