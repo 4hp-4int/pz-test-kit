@@ -183,6 +183,8 @@ local function makePanel(item, impl)
         rects = {},
         setHeight = function(self, h) self._panelH = h end,
         setWidth = function(self, w) self._panelW = w end,
+        getHeight = function(self) return self._panelH or 0 end,
+        getWidth = function(self) return self._panelW or 0 end,
     }
     function p.drawRect(self, x, y, w, h, a, r, g, b)
         self.rects[#self.rects + 1] = { x = x, y = y, w = w, h = h, a = a }
@@ -1024,6 +1026,7 @@ tests["dress_covers_late_growers_next_frame"] = function()
             tooltip:setHeight(80)
             if not tooltip:isMeasureOnly() then
                 tooltip:setHeight(110)   -- real-pass growth (well-behaved skip-measure mod)
+                tooltip:setWidth(260)    -- ...and a long row widens it too
             end
         end,
     }, getmetatable(grower).__index and { __index = getmetatable(grower).__index } or nil) }
@@ -1035,6 +1038,39 @@ tests["dress_covers_late_growers_next_frame"] = function()
     local last = d.calls[#d.calls]
     local ok = Assert.equal(last and last.h, 110,
         "dress covers last frame's FINAL height (late growth included)")
+    ok = Assert.equal(last and last.w, 260,
+        "dress covers last frame's FINAL width (long late rows included)") and ok
+    reset()
+    return ok
+end
+
+tests["dress_covers_panel_extent_render_replacers"] = function()
+    reset()
+    -- SWSP-shaped mod: replaces the render for some items, sizes its extra
+    -- stats region on the PANEL (setHeight(tooltipH + extra)) before the
+    -- real DoTooltip, draws its own box from the panel bg fields (which the
+    -- dress suppresses), then stats below the tooltip extent. The card must
+    -- cover the panel's declared extent or the stats sit on empty space.
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    local swspImpl = function(self)
+        local tt = self.tooltip
+        tt:setWidth(50)
+        tt:setMeasureOnly(true)
+        if self.item then self.item:DoTooltip(tt) end
+        tt:setMeasureOnly(false)
+        self:setWidth(tt:getWidth())
+        self:setHeight(tt:getHeight() + 42)   -- extra stats region, panel-only
+        boxRec.bgA = self.backgroundColor.a
+        if self.item then self.item:DoTooltip(tt) end
+        -- (stats drawn here, below tt:getHeight())
+    end
+    local p = makePanel(makeItem(), swspImpl)
+    hookedRender(p)   -- ownership earned
+    hookedRender(p)
+    local last = d.calls[#d.calls]
+    local ok = Assert.equal(last and last.h, 80 + 42,
+        "dress covers the panel's declared extent (tooltip + stats region)")
     reset()
     return ok
 end
