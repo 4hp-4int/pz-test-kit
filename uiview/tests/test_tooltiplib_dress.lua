@@ -961,4 +961,82 @@ tests["deferred_drops_replacesVanilla_claimers"] = function()
     return ok
 end
 
+tests["deferred_once_per_hover_measurer_stays_appended"] = function()
+    reset()
+    -- the field-reported erratic case: a legit host that measures ONCE per
+    -- hover (touches the tooltip height only on its first frame, draws text
+    -- every frame). The old same-ref+same-height heuristic read the stable
+    -- height — OUR OWN last write — as an EHR bypass and stood down, so the
+    -- append flapped between accented and plain vanilla.
+    TooltipLib.registerProvider({
+        id = "OnceProbe",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:setAccentColor({ 0.3, 0.6, 0.9, 1 })
+            ctx:addLabel("appended", { 1, 1, 1, 1 })
+        end,
+        description = "once-measurer probe",
+    })
+    local measured = false
+    local onceImpl = function(self)
+        boxRec.bgA = self.backgroundColor.a
+        if not measured then
+            measured = true
+            self.tooltip:setWidth(120)
+            self.tooltip:setHeight(60)
+        end
+        -- every frame: draws text, never touches dimensions again
+    end
+    local p = makePanel(makeItem(), onceImpl)
+
+    hookedRender(p)                       -- frame 1: lays out, appends
+    local h1 = p.tooltip:getHeight()
+    local ok = Assert.greater(h1, 60, "frame 1 appends below the foreign card")
+
+    local heightsStable, accentEveryFrame = true, true
+    for _ = 1, 3 do                       -- frames 2-4: height untouched by host
+        for i = #p.tooltip.draws, 1, -1 do p.tooltip.draws[i] = nil end
+        hookedRender(p)
+        if p.tooltip:getHeight() ~= h1 then heightsStable = false end
+        if findBarDraw(p.tooltip) == nil then accentEveryFrame = false end
+    end
+    ok = Assert.isTrue(heightsStable, "no unbounded growth (append base is the remembered foreign extent)") and ok
+    ok = Assert.isTrue(accentEveryFrame, "append + accent on EVERY frame — no flapping to plain vanilla") and ok
+
+    TooltipLib.removeProvider("OnceProbe")
+    reset()
+    return ok
+end
+
+tests["dress_covers_late_growers_next_frame"] = function()
+    reset()
+    -- a non-TooltipLib mod that skips the measure pass and appends rows +
+    -- height during the real DoTooltip: the dress drew before the growth and
+    -- under-covered — foreign rows sat on empty space below the card.
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    local grower = makeItem()
+    local GrowerMT = { __index = setmetatable({
+        DoTooltip = function(item, tooltip)
+            item._doCalls = (item._doCalls or 0) + 1
+            tooltip:setWidth(200)
+            tooltip:setHeight(80)
+            if not tooltip:isMeasureOnly() then
+                tooltip:setHeight(110)   -- real-pass growth (well-behaved skip-measure mod)
+            end
+        end,
+    }, getmetatable(grower).__index and { __index = getmetatable(grower).__index } or nil) }
+    setmetatable(grower, GrowerMT)
+    local p = makePanel(grower)
+
+    hookedRender(p)   -- frame 1: dress drew at the pre-growth height
+    hookedRender(p)   -- frame 2: height memory covers the grown card
+    local last = d.calls[#d.calls]
+    local ok = Assert.equal(last and last.h, 110,
+        "dress covers last frame's FINAL height (late growth included)")
+    reset()
+    return ok
+end
+
 return tests
