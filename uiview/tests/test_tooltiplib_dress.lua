@@ -9,8 +9,9 @@
         vanilla/provider content, with final tooltip geometry
       - vanilla's flat box is suppressed during the render (alphas zeroed)
         and restored after — the shared panel fields never leak a zero
-      - a foreign framework that bypasses DoTooltip gets its box back from
-        the next frame on (foreign-owner latch), and a healthy panel re-arms
+      - a foreign framework's panel is NEVER suppressed — including the
+        very first frame (suppression is EARNED by a fired wrapper; the
+        latch starts foreign) — and a healthy panel re-arms after one frame
       - active()=false stands down; a draw error clears the dress (fail-open)
       - setPanelDress/clearPanelDress validate and scope by owner id
 ]]
@@ -173,15 +174,23 @@ local function findBarDraw(tt)
 end
 
 local function makePanel(item, impl)
-    return {
+    local p = {
         item = item,
         tooltip = makeTT(),
         backgroundColor = { r = 0, g = 0, b = 0, a = 0.5 },
         borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 },
         _impl = impl,
+        rects = {},
         setHeight = function(self, h) self._panelH = h end,
         setWidth = function(self, w) self._panelW = w end,
     }
+    function p.drawRect(self, x, y, w, h, a, r, g, b)
+        self.rects[#self.rects + 1] = { x = x, y = y, w = w, h = h, a = a }
+    end
+    function p.drawTextureScaled(self, tex, x, y, w, h, a, r, g, b)
+        self.rects[#self.rects + 1] = { tex = tex, x = x, y = y, w = w, h = h, a = a }
+    end
+    return p
 end
 
 -- recording dress; draw signature per the setPanelDress contract
@@ -242,6 +251,7 @@ tests["vanilla_box_suppressed_then_restored"] = function()
     local d = makeDress()
     TooltipLib.setPanelDress(d.spec)
     local p = makePanel(makeItem())
+    hookedRender(p)   -- ownership frame: latch starts foreign, wrapper earns it
     hookedRender(p)
     local ok = Assert.equal(boxRec.bgA, 0, "bg alpha zero at box-draw time")
     ok = Assert.equal(boxRec.bdA, 0, "border alpha zero at box-draw time") and ok
@@ -302,10 +312,9 @@ tests["foreign_owner_latch_and_rearm"] = function()
     end
     local p = makePanel(makeItem(), foreignImpl)
 
-    hookedRender(p)   -- frame 1: foreign discovered (documented one-frame blank)
+    hookedRender(p)   -- frame 1: latch starts foreign — NO boxless flash
     local ok = Assert.equal(#d.calls, 0, "foreign panel never dressed")
-    ok = Assert.equal(boxRec.bgA, 0, "frame 1 suppressed before discovery") and ok
-    ok = Assert.equal(p.backgroundColor.a, 0.5, "alphas restored after frame 1") and ok
+    ok = Assert.equal(boxRec.bgA, 0.5, "frame 1 box intact (suppression is earned, not assumed)") and ok
 
     hookedRender(p)   -- frame 2: latch holds, vanilla box left alone
     ok = Assert.equal(boxRec.bgA, 0.5, "no suppression while foreign owns the panel") and ok
@@ -313,9 +322,10 @@ tests["foreign_owner_latch_and_rearm"] = function()
 
     -- healthy panel again: wrapper fires, latch releases, dress resumes
     local p2 = makePanel(makeItem())
+    hookedRender(p2)   -- earns ownership (box still intact this frame)
+    ok = Assert.equal(boxRec.bgA, 0.5, "first owned frame keeps the box under the dress") and ok
     hookedRender(p2)
-    hookedRender(p2)
-    ok = Assert.equal(boxRec.bgA, 0, "suppression re-armed on an owned panel") and ok
+    ok = Assert.equal(boxRec.bgA, 0, "suppression armed from the second owned frame") and ok
     ok = Assert.greater(#d.calls, 0, "dress draws again") and ok
     reset()
     return ok
@@ -839,6 +849,54 @@ tests["set_clear_validation"] = function()
     ok = Assert.notNil(TooltipLib.getPanelDress(), "dress survives wrong-owner clear") and ok
     ok = Assert.isTrue(TooltipLib.clearPanelDress("TestDress"), "owner clears") and ok
     ok = Assert.isNil(TooltipLib.getPanelDress(), "slot empty after clear") and ok
+    return ok
+end
+
+tests["deferred_extension_wears_the_dress"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "DeferProbe",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:addLabel("appended", { 1, 1, 1, 1 }) end,
+        description = "deferred probe",
+    })
+    local d = makeDress()
+    d.deferred = {}
+    d.spec.drawDeferred = function(panel, foreignH, totalH, totalW, surface, accent)
+        d.deferred[#d.deferred + 1] = {
+            foreignH = foreignH, totalH = totalH, totalW = totalW, surface = surface,
+        }
+    end
+    TooltipLib.setPanelDress(d.spec)
+
+    -- legit deferred host (StarlitLibrary shape): renders THROUGH the
+    -- ObjectTooltip with fresh dimensions every frame, never calls the
+    -- item's DoTooltip (our wrapper never fires)
+    local n = 0
+    local deferImpl = function(self)
+        boxRec.bgA = self.backgroundColor.a
+        n = n + 1
+        self.tooltip:setWidth(120)
+        self.tooltip:setHeight(60 + n)
+    end
+    local p = makePanel(makeItem(), deferImpl)
+
+    hookedRender(p)   -- frame 1: no cached extension dims yet -> flat path
+    local ok = Assert.equal(boxRec.bgA, 0.5, "no suppression in deferred mode (frame 1)")
+    ok = Assert.equal(#d.calls, 0, "the CARD dress never runs on a foreign panel") and ok
+
+    hookedRender(p)   -- frame 2: cached dims -> the extension wears the dress
+    ok = Assert.greater(#d.deferred, 0, "drawDeferred skins the appended extension") and ok
+    local call = d.deferred[#d.deferred]
+    ok = Assert.isTrue(call and call.foreignH > 0, "extension starts below the foreign card") and ok
+    ok = Assert.isTrue(call and call.totalH > call.foreignH, "extension has provider height") and ok
+    ok = Assert.equal(call and call.surface, "item", "surface tag") and ok
+    ok = Assert.isTrue(findBarDraw(p.tooltip) == nil,
+        "classic accent line skipped while the extension is dressed") and ok
+
+    TooltipLib.removeProvider("DeferProbe")
+    reset()
     return ok
 end
 
