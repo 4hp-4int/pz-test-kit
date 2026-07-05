@@ -36,6 +36,17 @@ local function makeLayout()
     return L
 end
 
+local function makeTooltip(measure, w, h)
+    local t = { _m = measure, _w = w or 200, _h = h or 80, draws = {} }
+    function t.isMeasureOnly(self) return self._m end
+    function t.getWidth(self) return self._w end
+    function t.getHeight(self) return self._h end
+    function t.DrawTextureScaledColor(self, tex, x, y, ww, hh) 
+        self.draws[#self.draws + 1] = { x = x, y = y, w = ww, h = hh }
+    end
+    return t
+end
+
 local function makeItem(id)
     return setmetatable({ _id = id or 1 }, {
         __index = { getID = function(self) return self._id end,
@@ -111,6 +122,51 @@ tests["no_active_providers_adds_nothing"] = function()
     local layout = makeLayout()
     fill({}, layout, makeItem(4))
     return Assert.equal(#layout.rows, 0, "empty provider set = pure Starlit card")
+end
+
+tests["skin_draws_on_real_pass_when_wanted"] = function()
+    clearProviders()
+    -- a dress spec that records its draw calls
+    local drew = {}
+    TooltipLib._panelDress = {
+        id = "SkinTest",
+        draw = function(panel, tooltip, w, h, surface) drew[#drew + 1] = { w = w, h = h, surface = surface } end,
+    }
+    local savedGate = TooltipLib._mixedDressAllowed
+    TooltipLib._mixedDressAllowed = function() return true end   -- opt in
+
+    -- measure pass: MUST NOT draw the card (size not final, text not drawn yet)
+    fill(makeTooltip(true, 200, 80), makeLayout(), makeItem(10))
+    local ok = Assert.equal(#drew, 0, "no skin on the measure pass")
+
+    -- real pass: draws the card body at the measured size
+    fill(makeTooltip(false, 200, 80), makeLayout(), makeItem(10))
+    ok = Assert.equal(#drew, 1, "skin drawn once on the real pass") and ok
+    ok = Assert.equal(drew[1] and drew[1].w, 200, "card sized to the tooltip width") and ok
+    ok = Assert.equal(drew[1] and drew[1].h, 80, "card sized to the tooltip height") and ok
+    ok = Assert.isTrue(TooltipLib._starlitDressed == true, "dressed flag set (Hook skips the extra accent line)") and ok
+
+    TooltipLib._mixedDressAllowed = savedGate
+    TooltipLib._panelDress = nil
+    clearProviders()
+    return ok
+end
+
+tests["skin_off_by_default_clean_starlit_card"] = function()
+    clearProviders()
+    local drew = 0
+    TooltipLib._panelDress = { id = "SkinTest", draw = function() drew = drew + 1 end }
+    local savedGate = TooltipLib._mixedDressAllowed
+    TooltipLib._mixedDressAllowed = function() return false end   -- default
+
+    fill(makeTooltip(false, 200, 80), makeLayout(), makeItem(11))
+    local ok = Assert.equal(drew, 0, "no skin by default — clean Starlit card")
+    ok = Assert.isTrue(not TooltipLib._starlitDressed, "dressed flag stays false (accent line still drawn)") and ok
+
+    TooltipLib._mixedDressAllowed = savedGate
+    TooltipLib._panelDress = nil
+    clearProviders()
+    return ok
 end
 
 return tests
