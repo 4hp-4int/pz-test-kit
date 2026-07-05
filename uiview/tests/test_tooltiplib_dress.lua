@@ -1201,4 +1201,34 @@ tests["detail_toggle_never_draws_stale_extent"] = function()
     return ok
 end
 
+tests["deferred_thrash_retires_item_to_vanilla"] = function()
+    reset()
+    TooltipLib.registerProvider({
+        id = "ThrashProbe",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:addLabel("appended", { 1, 1, 1, 1 }) end,
+        description = "thrash probe",
+    })
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    -- chaotic stack: the reported foreign extent swings wildly every frame
+    local heights, i = { 60, 200, 60, 200, 60, 200 }, 0
+    local impl = function(self)
+        i = i + 1
+        self.tooltip:setWidth(120)
+        self.tooltip:setHeight(heights[math.min(i, #heights)])
+    end
+    local p = makePanel(makeItem(), impl)
+    for _ = 1, 6 do hookedRender(p) end
+    -- retired: our append no longer grows the tooltip past the host's write
+    local hBefore = p.tooltip:getHeight()
+    hookedRender(p)
+    local ok = Assert.equal(p.tooltip:getHeight(), heights[#heights],
+        "thrashing item retired — nothing appended (clean vanilla)")
+    TooltipLib.removeProvider("ThrashProbe")
+    reset()
+    return ok
+end
+
 return tests
