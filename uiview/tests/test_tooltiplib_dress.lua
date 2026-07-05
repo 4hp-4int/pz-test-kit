@@ -1006,6 +1006,19 @@ tests["deferred_once_per_hover_measurer_stays_appended"] = function()
     ok = Assert.isTrue(heightsStable, "no unbounded growth (append base is the remembered foreign extent)") and ok
     ok = Assert.isTrue(accentEveryFrame, "append + accent on EVERY frame — no flapping to plain vanilla") and ok
 
+    -- RE-HOVER: hosts with per-item layout caches never re-lay on a
+    -- re-hover — the memo must survive hovering something else in between
+    -- (the single-slot memory stood whole re-hovers down: accents present
+    -- one hover, gone the next)
+    local other = makePanel(makeItem(), onceImpl)   -- fresh item: host measures it
+    hookedRender(other)
+    for i = #p.tooltip.draws, 1, -1 do p.tooltip.draws[i] = nil end
+    hookedRender(p)   -- re-hover of the FIRST item: host does not re-measure
+    ok = Assert.equal(p.tooltip:getHeight(), h1,
+        "re-hover appends from the remembered per-item extent") and ok
+    ok = Assert.isTrue(findBarDraw(p.tooltip) ~= nil,
+        "re-hover keeps the accent (no per-hover stand-down)") and ok
+
     TooltipLib.removeProvider("OnceProbe")
     reset()
     return ok
