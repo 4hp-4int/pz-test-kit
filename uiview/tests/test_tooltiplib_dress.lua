@@ -1120,4 +1120,43 @@ tests["consistency_mode_stands_dress_down_session_wide"] = function()
     return ok
 end
 
+tests["deferred_append_clears_panel_extent_stats"] = function()
+    reset()
+    -- mixed mode, deferrer + SWSP-class mod: the stats region lives on the
+    -- PANEL, below the tooltip extent. The deferred append must start below
+    -- it, not inside it (field report: overlap with mixedDress ON).
+    TooltipLib.registerProvider({
+        id = "PanelExtentProbe",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:addLabel("appended", { 1, 1, 1, 1 }) end,
+        description = "panel-extent probe",
+    })
+    local d = makeDress()
+    d.deferred = {}
+    d.spec.drawDeferred = function(panel, foreignH, totalH, totalW)
+        d.deferred[#d.deferred + 1] = { foreignH = foreignH, totalH = totalH }
+    end
+    TooltipLib.setPanelDress(d.spec)
+    local n = 0
+    local impl = function(self)
+        n = n + 1
+        self.tooltip:setWidth(120)
+        self.tooltip:setHeight(60 + n)     -- tooltip extent (re-laid each frame)
+        self:setWidth(120)
+        self:setHeight(60 + n + 40)        -- panel extent: +40 stats region
+        -- never calls item DoTooltip (deferred)
+    end
+    local p = makePanel(makeItem(), impl)
+    hookedRender(p)
+    hookedRender(p)
+    local call = d.deferred[#d.deferred]
+    local ok = Assert.isTrue(call ~= nil, "extension dressed on frame 2")
+    ok = Assert.isTrue(call and call.foreignH >= 60 + 40,
+        "deferred append starts below the PANEL-declared stats region") and ok
+    TooltipLib.removeProvider("PanelExtentProbe")
+    reset()
+    return ok
+end
+
 return tests
