@@ -858,7 +858,10 @@ tests["deferred_extension_wears_the_dress"] = function()
         id = "DeferProbe",
         target = "item",
         enabled = function() return true end,
-        callback = function(ctx) ctx:addLabel("appended", { 1, 1, 1, 1 }) end,
+        callback = function(ctx)
+            ctx:setAccentColor({ 0.9, 0.3, 0.3, 1 })
+            ctx:addLabel("appended", { 1, 1, 1, 1 })
+        end,
         description = "deferred probe",
     })
     local d = makeDress()
@@ -892,8 +895,12 @@ tests["deferred_extension_wears_the_dress"] = function()
     ok = Assert.isTrue(call and call.foreignH > 0, "extension starts below the foreign card") and ok
     ok = Assert.isTrue(call and call.totalH > call.foreignH, "extension has provider height") and ok
     ok = Assert.equal(call and call.surface, "item", "surface tag") and ok
-    ok = Assert.isTrue(findBarDraw(p.tooltip) == nil,
-        "classic accent line skipped while the extension is dressed") and ok
+    -- the classic accent line spans the whole card in deferred mode — the
+    -- accent must be CONSISTENT across foreign + appended regions, dressed
+    -- extension or not (the one-frame appear/vanish flicker the field
+    -- report caught)
+    ok = Assert.isTrue(findBarDraw(p.tooltip) ~= nil,
+        "classic accent line drawn while the extension is dressed") and ok
 
     TooltipLib.removeProvider("DeferProbe")
     reset()
