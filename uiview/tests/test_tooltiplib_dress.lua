@@ -900,4 +900,58 @@ tests["deferred_extension_wears_the_dress"] = function()
     return ok
 end
 
+tests["deferred_drops_replacesVanilla_claimers"] = function()
+    reset()
+    -- a full-card claimer (VanillaCore shape): in deferred mode the foreign
+    -- chain already drew vanilla's rows — re-emitting them below would
+    -- duplicate the whole card
+    TooltipLib.registerProvider({
+        id = "DeferClaimer",
+        target = "item",
+        replacesVanilla = true,
+        enabled = function() return true end,
+        callback = function(ctx)
+            ctx:addLabel("mirrored vanilla row", { 1, 1, 1, 1 })
+        end,
+        description = "claimer probe",
+    })
+    local n = 0
+    local deferImpl = function(self)
+        boxRec.bgA = self.backgroundColor.a
+        n = n + 1
+        self.tooltip:setWidth(120)
+        self.tooltip:setHeight(60 + n)
+    end
+    local p = makePanel(makeItem(), deferImpl)
+
+    hookedRender(p)
+    hookedRender(p)
+    -- claimers-only: NOTHING appended — the tooltip keeps exactly the
+    -- foreign framework's height (our dispatch would have grown it)
+    local ok = Assert.equal(p.tooltip:getHeight(), 62, "claimer-only deferred appends nothing")
+
+    -- mixed: a normal provider still appends; the claimer stays dropped
+    TooltipLib.registerProvider({
+        id = "DeferPlain",
+        target = "item",
+        enabled = function() return true end,
+        callback = function(ctx) ctx:addLabel("appended", { 1, 1, 1, 1 }) end,
+        description = "plain probe",
+    })
+    local p2 = makePanel(makeItem(), deferImpl)
+    hookedRender(p2)
+    hookedRender(p2)
+    local h = p2.tooltip:getHeight()
+    ok = Assert.greater(h, 60 + n, "plain provider content still appends") and ok
+    -- exactly ONE appended row: the claimer's mirror row must not be there
+    local lastLayout = p2.tooltip._layouts[#p2.tooltip._layouts]
+    ok = Assert.equal(lastLayout and #lastLayout._items, 1,
+        "only the plain provider's single row is appended") and ok
+
+    TooltipLib.removeProvider("DeferClaimer")
+    TooltipLib.removeProvider("DeferPlain")
+    reset()
+    return ok
+end
+
 return tests
