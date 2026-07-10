@@ -63,7 +63,7 @@ tests["explicit_window_render_pieces_packed"] = function()
         "sir_vthumb_t", "sir_vthumb_m", "sir_vthumb_b",
         "sir_vthumb_mid_t", "sir_vthumb_mid_m", "sir_vthumb_mid_b",
         -- sir_window resolves these directly (not through sir_icons' ptex)
-        "sir_ui-close", "sir_ui-info", "sir_ui-pin",
+        "sir_ui-close", "sir_ui-info", "sir_ui-pin", "sir_ui-pin-off",
         "sir_ui-expand", "sir_ui-collapse", "sir_ui-funnel",
         "sir_ui-xfer-ink", "sir_ui-xfer-multi-ink",
     })
