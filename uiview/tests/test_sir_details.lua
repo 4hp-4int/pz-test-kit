@@ -37,7 +37,7 @@ local function makePane()
     end
     function p:drawTextureScaledAspect(tex, ...) self.texes[#self.texes + 1] = tostring(tex) end
     function p:drawTextureScaled(tex, ...) self.texes[#self.texes + 1] = tostring(tex) end   -- the ledger gauge (drawStatBar) draws nine-patch textures
-    function p:drawRect(...) self.rects[#self.rects + 1] = true end
+    function p:drawRect(x, y, w, h, ...) self.rects[#self.rects + 1] = { x = x, y = y, w = w, h = h } end
     function p:drawRectBorder(...) end
     return p
 end
@@ -75,6 +75,10 @@ tests["weapon_stats_line"] = function()
 end
 
 tests["weapon_multistat_bars_and_range"] = function()
+    -- the detail gauges use the lane's ACTION collapse: Cond = worst of
+    -- condition + head, Sharp = sharpness — inline on ONE baseline (the old
+    -- stacked layout drew full-height labels at a 6px pitch = soup, and a
+    -- fixed 36px label column ran the bar over its own text at large fonts).
     local item = makeItem({
         getMinDamage = function() return 0.5 end,
         getMaxDamage = function() return 1.2 end,
@@ -83,15 +87,27 @@ tests["weapon_multistat_bars_and_range"] = function()
         getActualWeight = function() return 3 end,
     })
     local state = {
-        condCount = 2,
-        allConditions = { 0.5, 0.9, _kinds = { "condition", "head" } },
+        condCount = 3,
+        allConditions = { 0.5, 0.9, 0.7, _kinds = { "condition", "head", "sharpness" } },
         isRanged = true,
     }
-    local handled, p = resolve(item, { class = "weapon" }, state)
+    -- wide row: the inline gauges spend ~220px before the stats text, and
+    -- the probe's default 380px would ellipsize Range off the end
+    local p = makePane()
+    local handled = SIR.resolveDetail(p, item, { class = "weapon" }, state, 40, 10, 700, 24)
     local ok = Assert.isTrue(handled, "handled")
     ok = Assert.isTrue(textsJoined(p):find("Range: 8.5", 1, true) ~= nil, "ranged range stat") and ok
-    ok = Assert.isTrue(textsJoined(p):find("Cond", 1, true) ~= nil, "stat bar labels drawn") and ok
+    ok = Assert.isTrue(textsJoined(p):find("Cond", 1, true) ~= nil, "Cond (worst of condition+head) labeled") and ok
+    ok = Assert.isTrue(textsJoined(p):find("Sharp", 1, true) ~= nil, "Sharp (sharpness) labeled") and ok
     ok = Assert.greater(#p.rects, 0, "stat bars painted rects") and ok
+    -- single ledger line: every gauge rect shares one baseline band
+    local yMin, yMax
+    for _, r in ipairs(p.rects) do
+        yMin = math.min(yMin or r.y, r.y)
+        yMax = math.max(yMax or r.y, r.y + (r.h or 0))
+    end
+    ok = Assert.isTrue(yMin ~= nil and (yMax - yMin) <= 8,
+        "gauges ride one baseline (span " .. tostring(yMin and (yMax - yMin)) .. ")") and ok
     return ok
 end
 
