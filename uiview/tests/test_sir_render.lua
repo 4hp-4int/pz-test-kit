@@ -213,10 +213,12 @@ tests["pinned_corner_clears_the_weight_pill"] = function()
             "weight anchor pulled clear of the pin-off chip")
 end
 
-tests["weight_pill_carries_the_encumbrance_fill"] = function()
-    -- the pill doubles as a capacity gauge: a chip fill that warms through the
-    -- diner ramp as the load nears the limit. 7.5 / 10 = 0.75 -> ok tier
-    -- (encumbrance thresholds .70/.85/1.0, not the row bars' quartiles).
+tests["weight_pill_carries_the_room_left_fill"] = function()
+    -- the pill doubles as a capacity gauge in the DRAINABLE vocabulary: the
+    -- fill is ROOM LEFT (long neutral bar = space; short warm bar = nearly
+    -- full — same read as the fluid/battery row bars). 7.5 / 10 load ->
+    -- room 0.25 -> ok tier, and the fill must span ~25% of the pill (a
+    -- load-fraction fill would span ~75% — the "backwards" field report).
     local T = require "sir_theme"
     local page = SIRInv.build({})
     local oldLW, oldGSP = ISInventoryPage.loadWeight, getSpecificPlayer
@@ -234,16 +236,29 @@ tests["weight_pill_carries_the_encumbrance_fill"] = function()
     _G.getSpecificPlayer = oldGSP
     if not ok then error(err) end
     local cc = T.color.condition.ok
-    local sawFill = false
+    local fMin, fMax, pMin, pMax
     for _, o in ipairs(Recorder.ops) do
-        if tostring(o.name or ""):find("chip", 1, true) and (o.y or -1) == 0
-            and math.abs((o.r or 0) - cc[1]) < 0.01
-            and math.abs((o.g or 0) - cc[2]) < 0.01
-            and math.abs((o.b or 0) - cc[3]) < 0.01 then
-            sawFill = true
+        local n = tostring(o.name or "")
+        if (o.y or -1) == 0 then
+            if n:find("chip", 1, true)
+                and math.abs((o.r or 0) - cc[1]) < 0.01
+                and math.abs((o.g or 0) - cc[2]) < 0.01
+                and math.abs((o.b or 0) - cc[3]) < 0.01 then
+                fMin = math.min(fMin or o.x, o.x)
+                fMax = math.max(fMax or 0, o.x + (o.w or 0))
+            elseif n:find("wash", 1, true) then
+                pMin = math.min(pMin or o.x, o.x)
+                pMax = math.max(pMax or 0, o.x + (o.w or 0))
+            end
         end
     end
-    return Assert.isTrue(sawFill, "encumbrance fill chip painted with the ok-tier tint")
+    if not (fMin and pMin) then
+        return Assert.isTrue(fMin ~= nil, "room-left fill chip painted (ok-tier tint)")
+            and Assert.isTrue(pMin ~= nil, "pill wash painted")
+    end
+    local ratio = (fMax - fMin) / math.max(1, pMax - pMin)
+    return Assert.isTrue(ratio > 0.15 and ratio < 0.40,
+        "fill spans ~room-left fraction of the pill (got " .. tostring(ratio) .. ")")
 end
 
 return tests
