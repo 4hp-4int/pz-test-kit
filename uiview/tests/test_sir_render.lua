@@ -314,4 +314,43 @@ tests["weight_pill_stays_on_the_rail_and_fill_stays_in_the_track"] = function()
         and Assert.isTrue(fMax <= pMax - 2, "fill keeps the right track margin (was flush into the pin)")
 end
 
+tests["column_rules_follow_the_scroll_below_the_equipped_divider"] = function()
+    -- rows + rules draw in CONTENT coordinates (the element transform applies
+    -- the scroll), but the rules' bottom clamped to bare pane HEIGHT — a
+    -- viewport measure. Scrolled down, the visible window is [-yScroll,
+    -- -yScroll + H], so the rules died mid-list. Field report: "no gauge
+    -- column line below the equipped divider" (equipped sorts last = the
+    -- deepest content). Shrink the viewport, scroll deep enough that the
+    -- equipped divider is on screen, and demand the status-lane rule extends
+    -- past it.
+    local T = require "sir_theme"
+    local page = SIRInv.build({ equipped = true })
+    local pane = page.inventoryPane
+    pane.height = 200
+    pane:setYScroll(-200)
+    Render.frame(page, page.width + 16, page.height + 16)
+    local ih = pane.itemHgt or 18
+    local laneX = _G.SauceInvRender.rowGeom(ih).laneX
+    local hr = T.ink.headRule
+    local divY, ruleBot
+    for _, o in ipairs(Recorder.ops) do
+        if o.op == "rect" then
+            if (o.h or 0) == 1 and (o.w or 0) > 100
+                and math.abs((o.r or 0) - hr[1]) < 0.01
+                and math.abs((o.g or 0) - hr[2]) < 0.01
+                and math.abs((o.b or 0) - hr[3]) < 0.01
+                and math.abs((o.a or 0) - hr[4]) < 0.01 then
+                divY = o.y
+            elseif (o.w or 0) == 1 and (o.h or 0) > 30 and o.x == laneX then
+                ruleBot = math.max(ruleBot or 0, o.y + o.h)
+            end
+        end
+    end
+    return Assert.isTrue(divY ~= nil, "equipped divider rendered in the scrolled viewport")
+        and Assert.isTrue(ruleBot ~= nil, "status-lane column rule rendered")
+        and Assert.isTrue(ruleBot ~= nil and divY ~= nil and ruleBot >= divY + ih,
+            "lane rule extends below the equipped divider (rule bottom "
+            .. tostring(ruleBot) .. " vs divider " .. tostring(divY) .. ")")
+end
+
 return tests
