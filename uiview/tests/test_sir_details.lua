@@ -36,12 +36,17 @@ local function makePane()
         self.bars[#self.bars + 1] = { label = tostring(label), fraction = fraction }
     end
     function p:drawTextureScaledAspect(tex, ...) self.texes[#self.texes + 1] = tostring(tex) end
+    function p:drawTextureScaled(tex, ...) self.texes[#self.texes + 1] = tostring(tex) end   -- the ledger gauge (drawStatBar) draws nine-patch textures
     function p:drawRect(...) self.rects[#self.rects + 1] = true end
     function p:drawRectBorder(...) end
     return p
 end
 
 local function textsJoined(p) return table.concat(p.texts, " | ") end
+-- Detail progress gauges now draw via SIR.Colors.drawStatBar (chromed nine or
+-- flat rects) + a drawText label, not vanilla's drawTextAndProgressBar. A bar is
+-- "drawn" if the gauge painted textures or rects; the fraction lives in the label.
+local function barDrawn(p) return #p.texes > 0 or #p.rects > 0 end
 
 local function resolve(item, tc, state, pane)
     pane = pane or makePane()
@@ -121,8 +126,8 @@ tests["food_cooking_progress_bar"] = function()
         isBurnt = function() return false end,
     })
     local _, p = resolve(item, { class = "food" }, { cookProgress = 0.5 })
-    local ok = Assert.equal(#p.bars, 1, "one progress bar")
-    ok = Assert.equal(p.bars[1].fraction, 0.5, "cooking fraction") and ok
+    local ok = Assert.isTrue(barDrawn(p), "one progress bar")
+    ok = Assert.isTrue(textsJoined(p):find("50%", 1, true) ~= nil, "cooking % in label") and ok
     return ok
 end
 
@@ -133,8 +138,8 @@ tests["food_burning_progress_bar"] = function()
         isBurnt = function() return false end,
     })
     local _, p = resolve(item, { class = "food" }, { cookProgress = 1, burnProgress = 0.3 })
-    local ok = Assert.equal(#p.bars, 1, "one progress bar")
-    ok = Assert.equal(p.bars[1].fraction, 0.3, "burn fraction wins the bar") and ok
+    local ok = Assert.isTrue(barDrawn(p), "one progress bar")
+    ok = Assert.isTrue(textsJoined(p):find("30%", 1, true) ~= nil, "burn % wins the label") and ok
     return ok
 end
 
@@ -184,7 +189,7 @@ tests["dispatch_priority_cooking_beats_nutrition"] = function()
         getHungerChange = function() return -0.2 end,
     })
     local _, p = resolve(item, { class = "food" }, { cookProgress = 0.4 })
-    local ok = Assert.equal(#p.bars, 1, "cooking bar drawn")
+    local ok = Assert.isTrue(barDrawn(p), "cooking bar drawn")
     ok = Assert.isTrue(textsJoined(p):find("Hunger", 1, true) == nil,
         "nutrition never ran (first enabled provider wins)") and ok
     return ok
@@ -223,10 +228,10 @@ tests["literature_pages_skill_and_progress"] = function()
     })
     local handled, p = resolve(item, { class = "literature" }, { pageProgress = 0.5 })
     local ok = Assert.isTrue(handled, "literature provider claimed the row")
-    ok = Assert.equal(#p.bars, 1, "partial book renders a progress bar") and ok
-    ok = Assert.isTrue(p.bars[1].label:find("Pages: 110 / 220", 1, true) ~= nil, "page count in label") and ok
-    ok = Assert.isTrue(p.bars[1].label:find("Carpentry", 1, true) ~= nil, "perk name in label") and ok
-    ok = Assert.isTrue(p.bars[1].label:find("x5 XP", 1, true) ~= nil, "tier XP multiplier in label") and ok
+    ok = Assert.isTrue(barDrawn(p), "partial book renders a progress bar") and ok
+    ok = Assert.isTrue(textsJoined(p):find("Pages: 110 / 220", 1, true) ~= nil, "page count in label") and ok
+    ok = Assert.isTrue(textsJoined(p):find("Carpentry", 1, true) ~= nil, "perk name in label") and ok
+    ok = Assert.isTrue(textsJoined(p):find("x5 XP", 1, true) ~= nil, "tier XP multiplier in label") and ok
     return ok
 end
 
@@ -285,9 +290,9 @@ tests["drainable_uses_bar"] = function()
     })
     local handled, p = resolve(item, { class = "drainable" }, {})
     local ok = Assert.isTrue(handled, "drainable provider claimed the row")
-    ok = Assert.equal(#p.bars, 1, "uses bar drawn")
-    ok = Assert.isTrue(p.bars[1].label:find("3 / 4", 1, true) ~= nil, "uses count label") and ok
-    ok = Assert.equal(p.bars[1].fraction, 0.75, "bar fraction") and ok
+    ok = Assert.isTrue(barDrawn(p), "uses bar drawn") and ok
+    ok = Assert.isTrue(textsJoined(p):find("3 / 4", 1, true) ~= nil, "uses count label") and ok
+    ok = Assert.isTrue(textsJoined(p):find("75%", 1, true) ~= nil, "fill %% in label") and ok
     return ok
 end
 
@@ -301,8 +306,8 @@ tests["fluid_level_bar_and_fallback"] = function()
     -- drainable/combo) from claiming the row before the fluid one (65)
     local handled, p = resolve(item, { hasFluid = true, class = "item" }, {})
     local ok = Assert.isTrue(handled, "fluid provider claimed the row")
-    ok = Assert.equal(#p.bars, 1, "level bar drawn") and ok
-    ok = Assert.isTrue(p.bars[1].label:find("1.5/2.0L", 1, true) ~= nil, "litres label") and ok
+    ok = Assert.isTrue(barDrawn(p), "level bar drawn") and ok
+    ok = Assert.isTrue(textsJoined(p):find("1.5/2.0L", 1, true) ~= nil, "litres label") and ok
 
     -- fc missing -> classic drainable fallback inside the fluid provider
     local fallback = makeItem({
@@ -313,8 +318,8 @@ tests["fluid_level_bar_and_fallback"] = function()
     })
     local h2, p2 = resolve(fallback, { hasFluid = true, class = "item" }, {})
     ok = Assert.isTrue(h2, "fallback still claims the row") and ok
-    ok = Assert.equal(#p2.bars, 1, "fallback bar drawn") and ok
-    ok = Assert.isTrue(p2.bars[1].label:find("2/2", 1, true) ~= nil, "fallback uses label") and ok
+    ok = Assert.isTrue(barDrawn(p2), "fallback bar drawn") and ok
+    ok = Assert.isTrue(textsJoined(p2):find("2/2", 1, true) ~= nil, "fallback uses label") and ok
     return ok
 end
 

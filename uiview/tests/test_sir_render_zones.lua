@@ -18,6 +18,7 @@ local Recorder = require "UIView/Recorder"
 local SIRInv  = require "UIView/scenes/SIRInv"
 
 local SIR = _G.SauceInvRender
+local T = require "sir_theme"   -- row-state alpha ladder (T.rowA), tracked instead of magic numbers
 SIRInv._ensureGlobals()
 
 local mockItem, mockPane, mockPlayer = SIRInv._mockItem, SIRInv._mockPane, SIRInv._mockPlayer
@@ -51,6 +52,18 @@ local function findRect(ops, pred)
 end
 
 local function near(a, b) return math.abs((a or 0) - (b or 1e9)) < 0.02 end
+
+-- The category accent rail is a CHROMED chip-nine at the left edge (tinted the
+-- category colour), or a thin rect in the flat fallback. Match either, keyed on
+-- the (unique) category tint at x<=4.
+local function findAccent(ops, r, g, b)
+    for _, o in ipairs(ops) do
+        local isChip = o.op == "texture" and tostring(o.name):find("sir_chip", 1, true) and (o.x or 99) <= 4
+        local isRect = o.op == "rect" and (o.w or 0) <= 3
+        if (isChip or isRect) and near(o.r, r) and near(o.g, g) and near(o.b, b) then return o end
+    end
+    return nil
+end
 
 local tests = {}
 
@@ -135,8 +148,8 @@ tests["selection_hover_and_blink_highlight"] = function()
     pane.selected = { [1] = true }
     pane.mouseOverOption = 2
     local ops = frame(pane)
-    local ok = Assert.notNil(findRect(ops, function(o) return near(o.a, 0.20) end), "selection wash")
-    ok = Assert.notNil(findRect(ops, function(o) return near(o.a, 0.05) end), "hover wash") and ok
+    local ok = Assert.notNil(findRect(ops, function(o) return near(o.a, T.rowA.select) end), "selection wash")
+    ok = Assert.notNil(findRect(ops, function(o) return near(o.a, T.rowA.hover) end), "hover wash") and ok
 
     local pane2 = paneFor({ stk(apple) }, {})
     pane2.highlightItem = "Base.RZ_Apple"           -- matches item:getType()
@@ -274,7 +287,7 @@ tests["drag_ghost_pass_draws_offset_row"] = function()
     local ok = Assert.isTrue(pane._suspended == true and pane._resumed == true,
         "stencil suspended/resumed around the ghost row")
     -- the wash rect lands at the drag offset (x = 1 + 19)
-    ok = Assert.notNil(findRect(ops, function(o) return o.x == 20 and near(o.a, 0.20) end),
+    ok = Assert.notNil(findRect(ops, function(o) return o.x == 20 and near(o.a, T.rowA.select) end),
         "ghost row wash drawn at the drag offset") and ok
     local marquee = false
     for _, o in ipairs(ops) do if o.op == "rectborder" and o.x == 5 then marquee = true end end
@@ -285,7 +298,7 @@ end
 tests["drag_cannot_drop_paints_red"] = function()
     local ops = frame(dragPane(true))
     return Assert.notNil(findRect(ops, function(o)
-        return near(o.a, 0.20) and near(o.r, 1) and near(o.g, 0) and near(o.b, 0)
+        return near(o.a, T.rowA.select) and near(o.r, 1) and near(o.g, 0) and near(o.b, 0)
     end), "can't-drop ghost row is red")
 end
 
@@ -307,8 +320,8 @@ tests["loot_pane_injects_dupe_badge"] = function()
     local ops = frame(pane)
     local found = false
     for _, o in ipairs(ops) do
-        -- I.cmpWorse resolves the "arrow-down" glyph
-        if o.op == "texture" and tostring(o.name):find("arrow-down", 1, true) then found = true end
+        -- dupe now shows as a chromed corner dot (colour = better/worse)
+        if o.op == "texture" and tostring(o.name):find("sir_cdot", 1, true) then found = true end
     end
     return Assert.isTrue(found, "worse-copy comparison badge rendered on the loot row")
 end
@@ -320,15 +333,9 @@ tests["accent_stripes_for_clothing_key_medical"] = function()
         stk(mockItem({ name = "Pills", icon = "Item_Pills", fullType = "Base.RZ_Pills", displayCat = "FirstAid" })),
     }, {})
     local ops = frame(pane)
-    local ok = Assert.notNil(findRect(ops, function(o)
-        return o.w == 2 and near(o.r, 0.3) and near(o.g, 0.55) and near(o.b, 0.95)
-    end), "clothing stripe (blue)")
-    ok = Assert.notNil(findRect(ops, function(o)
-        return o.w == 2 and near(o.r, 0.85) and near(o.g, 0.85) and near(o.b, 0.4)
-    end), "key stripe (pale yellow)") and ok
-    ok = Assert.notNil(findRect(ops, function(o)
-        return o.w == 2 and near(o.r, 0.95) and near(o.g, 0.35) and near(o.b, 0.5)
-    end), "medical stripe (pink)") and ok
+    local ok = Assert.notNil(findAccent(ops, 0.30, 0.55, 0.95), "clothing stripe (blue)")
+    ok = Assert.notNil(findAccent(ops, 0.85, 0.85, 0.40), "key stripe (pale yellow)") and ok
+    ok = Assert.notNil(findAccent(ops, 0.95, 0.35, 0.50), "medical stripe (pink)") and ok
     return ok
 end
 
@@ -369,14 +376,14 @@ tests["recipe_favorite_stars"] = function()
     local ops = frame(pane)
     local no, yes = false, false
     for _, o in ipairs(ops) do
-        if o.op == "texture" then
-            local n = tostring(o.name)
-            if n:find("star_no", 1, true) then no = true end
-            if n:find("star_yes", 1, true) then yes = true end
+        if o.op == "texture" and tostring(o.name):find("sir_cdot", 1, true) then
+            -- no-recipes = neutral dot; favorite-input = gold dot
+            if near(o.r, 0.62) and near(o.g, 0.62) and near(o.b, 0.60) then no = true end
+            if near(o.r, 1.0) and near(o.g, 0.80) and near(o.b, 0.24) then yes = true end
         end
     end
-    local ok = Assert.isTrue(no, "no-recipes star drawn")
-    ok = Assert.isTrue(yes, "favorite-recipe star drawn") and ok
+    local ok = Assert.isTrue(no, "no-recipes dot drawn")
+    ok = Assert.isTrue(yes, "favorite-recipe dot drawn") and ok
     return ok
 end
 
@@ -402,9 +409,38 @@ tests["tainted_fluid_poison_icon"] = function()
     _G.getSandboxOptions = origSandbox
     local n = 0
     for _, o in ipairs(ops) do
-        if o.op == "texture" and tostring(o.name):find("poison", 1, true) then n = n + 1 end
+        -- poison now = a toxic-green status dot; both fluid paths must surface one
+        if o.op == "texture" and tostring(o.name):find("sir_cdot", 1, true)
+           and near(o.r, 0.58) and near(o.g, 0.85) and near(o.b, 0.20) then n = n + 1 end
     end
-    return Assert.equal(n, 2, "poison icon on both the direct and world-item fluid paths")
+    return Assert.equal(n, 2, "poison dot on both the direct and world-item fluid paths")
+end
+
+-- VANILLA-SUPERSET: every binary state vanilla paints on a row's icon must still
+-- surface as a chromed corner dot. Locks the audit so a refactor can't silently
+-- drop a vanilla indicator.
+tests["vanilla_superset_corner_dots"] = function()
+    -- each state = the chromed `cdot` LED tinted its state colour
+    local function hasDot(ops, r, g, b)
+        for _, o in ipairs(ops) do
+            if o.op == "texture" and tostring(o.name):find("sir_cdot", 1, true)
+               and near(o.r, r) and near(o.g, g) and near(o.b, b) then return true end
+        end
+        return false
+    end
+    local function opsFor(fields)
+        return frame(paneFor({ stk(mockItem(fields)) }, {}))
+    end
+    local broken = opsFor({ name = "Axe", icon = "Item_Axe", fullType = "Base.RZ_BrkAxe",
+                            class = "HandWeapon", broken = true, cond = 1, condMax = 10 })
+    local frozen = opsFor({ name = "Steak", icon = "Item_Steak", fullType = "Base.RZ_FrzSteak",
+                            class = "Food", foodState = "frozen" })
+    local fav    = opsFor({ name = "Knife", icon = "Item_Knife", fullType = "Base.RZ_FavKnife",
+                            class = "HandWeapon", fav = true, cond = 8, condMax = 10 })
+    local ok = Assert.isTrue(hasDot(broken, 0.92, 0.30, 0.24), "broken -> red status dot")
+    ok = Assert.isTrue(hasDot(frozen, 0.55, 0.86, 1.00), "frozen food -> cyan status dot") and ok
+    ok = Assert.isTrue(hasDot(fav, 1.00, 0.80, 0.24), "favorite -> gold status dot") and ok
+    return ok
 end
 
 tests["profiler_counters_tick"] = function()
@@ -414,8 +450,9 @@ tests["profiler_counters_tick"] = function()
                                           class = "HandWeapon", cond = 5, condMax = 10 })) }, {})
     frame(pane)
     local c = SIR.Profile.counters
+    -- binary badges are now direct corner dots (no collect step), so the row
+    -- counter that stays meaningful is `items`.
     local ok = Assert.greater(c.items, 0, "items counted")
-    ok = Assert.greater(c.badgesCollect, 0, "badges counted") and ok
     SIR.Profile = orig
     return ok
 end

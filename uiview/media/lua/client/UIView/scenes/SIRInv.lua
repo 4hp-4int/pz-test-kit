@@ -376,7 +376,12 @@ end
 -- ---- a representative stack of item archetypes -----------------------------
 local function stack(item, o)
     o = o or {}
-    return { items = { item }, name = item:getName(), count = o.count or 1, equipped = o.equipped or false }
+    -- model vanilla's itemslist: `items` holds ALL items in the stack (not just
+    -- one), so #items == count -- the expand caret + child rows key off #items.
+    local n = o.count or 1
+    local items = {}
+    for i = 1, n do items[i] = item end
+    return { items = items, name = item:getName(), count = n, equipped = o.equipped or false }
 end
 
 local function archetypes()
@@ -389,6 +394,10 @@ local function archetypes()
                          dmg = 0.6 })),
         stack(mockItem({ name = "Baseball Bat",    icon = "Item_BaseballBat", fullType = "Base.BaseballBat", class = "HandWeapon",
                          cat = "Weapon", cond = 4, condMax = 10, dmg = 1.5 })),
+        -- 3-stat melee (main + head + sharpness) -> three concentric condition rings
+        stack(mockItem({ name = "Fire Axe",       icon = "Item_FireAxe", fullType = "Base.FireAxe", class = "HandWeapon",
+                         cat = "Weapon", cond = 8, condMax = 10, headCond = 5, headCondMax = 10,
+                         sharpness = 0.35, sharpnessMax = 1, dmg = 2.0 })),
         stack(mockItem({ name = "Apple",          icon = "Item_Apple", fullType = "Base.Apple", class = "Food", cat = "Food",
                          rottenTime = 10, age = 2, hunger = -15, cal = 50, weight = 0.3 }), { count = 3 }),
         stack(mockItem({ name = "Rotten Steak",   icon = "Item_Steak", fullType = "Base.Steak", class = "Food", cat = "Food", foodState = "rotten",

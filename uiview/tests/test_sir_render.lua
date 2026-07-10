@@ -167,21 +167,26 @@ tests["font_scale_clamps_hold"] = function()
     local page = SIRInv.build({ fontScale = 1.8 })
     Render.frame(page, page.width + 16, page.height + 16)
     local ops = Recorder.ops
-    local col2 = page.inventoryPane.column2
-    local sawFunnel, fits, capped = false, true, true
+    -- column model: every header control glyph (expand/collapse over the expand
+    -- column, filter funnel over the icon column) must stay left of the NAME
+    -- column (shared SIR.rowGeom) and cap at icon size -- one uniform control
+    -- size seated in its own column, no collision.
+    local nameX = _G.SauceInvRender.rowGeom(page.inventoryPane.itemHgt).nameX
+    local sawGlyph, fits, capped = false, true, true
     for _, o in ipairs(ops) do
         local n = tostring(o.name or "")
-        if n:find("sir_ui-funnel", 1, true) then
-            sawFunnel = true
-            if (o.x or 0) + (o.w or 0) > col2 then fits = false end
+        if n:find("sir_ui-expand", 1, true) or n:find("sir_ui-collapse", 1, true)
+           or n:find("sir_ui-funnel", 1, true) then
+            sawGlyph = true
+            if (o.x or 0) + (o.w or 0) > nameX then fits = false end
+            if (o.w or 0) > 16 then capped = false end
         end
-        if n:find("sir_ui-", 1, true) and (o.w or 0) > 16 then capped = false end
     end
     if UIMock_setFontScale then UIMock_setFontScale(1) end
     local T = require "sir_theme"
     if T.metricsRefresh then T.metricsRefresh() end
-    return Assert.isTrue(sawFunnel, "funnel glyph rendered at 1.8x font")
-        and Assert.isTrue(fits, "header glyphs clamped left of column2")
+    return Assert.isTrue(sawGlyph, "a header control glyph rendered at 1.8x font")
+        and Assert.isTrue(fits, "header glyphs stay left of the name column")
         and Assert.isTrue(capped, "glyph marks capped at icon size")
 end
 
