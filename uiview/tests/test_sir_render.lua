@@ -239,7 +239,8 @@ tests["weight_pill_carries_the_room_left_fill"] = function()
     local fMin, fMax, pMin, pMax
     for _, o in ipairs(Recorder.ops) do
         local n = tostring(o.name or "")
-        if (o.y or -1) == 0 then
+        -- pill wash tops at y=0; the fill rides INSIDE the track at y=2
+        if (o.y or -1) <= 4 and (o.y or -1) >= 0 then
             if n:find("chip", 1, true)
                 and math.abs((o.r or 0) - cc[1]) < 0.01
                 and math.abs((o.g or 0) - cc[2]) < 0.01
@@ -259,6 +260,58 @@ tests["weight_pill_carries_the_room_left_fill"] = function()
     local ratio = (fMax - fMin) / math.max(1, pMax - pMin)
     return Assert.isTrue(ratio > 0.15 and ratio < 0.40,
         "fill spans ~room-left fraction of the pill (got " .. tostring(ratio) .. ")")
+end
+
+tests["weight_pill_stays_on_the_rail_and_fill_stays_in_the_track"] = function()
+    -- two field reports in one frame: (1) collapsed (rail-only, waiting to be
+    -- hovered) the pill wash must not lip past the title bar; (2) at FULL
+    -- room (a debug 0-weight session) the fill must sit inside the wash
+    -- track with margins — a track-wide fill ran flush into the pin button.
+    local T = require "sir_theme"
+    local page = SIRInv.build({})
+    page.isCollapsed = true
+    local oldLW, oldGSP = ISInventoryPage.loadWeight, getSpecificPlayer
+    ISInventoryPage.loadWeight = function() return 0 end
+    _G.getSpecificPlayer = function()
+        return {
+            getInventory = function() return page.inventoryPane.inventory end,
+            getMaxWeight = function() return 12 end,
+        }
+    end
+    local ok, err = pcall(function()
+        Render.frame(page, page.width + 16, page.height + 16)
+    end)
+    ISInventoryPage.loadWeight = oldLW
+    _G.getSpecificPlayer = oldGSP
+    if not ok then error(err) end
+    local th = page:titleBarHeight()
+    local cc = T.color.condition.good
+    local onRail = true
+    local fMin, fMax, pMin, pMax
+    for _, o in ipairs(Recorder.ops) do
+        local n = tostring(o.name or "")
+        if (o.y or th) < th then
+            if n:find("wash", 1, true) then
+                pMin = math.min(pMin or o.x, o.x)
+                pMax = math.max(pMax or 0, o.x + (o.w or 0))
+                if (o.y or 0) + (o.h or 0) > th then onRail = false end
+            elseif n:find("chip", 1, true)
+                and math.abs((o.r or 0) - cc[1]) < 0.01
+                and math.abs((o.g or 0) - cc[2]) < 0.01
+                and math.abs((o.b or 0) - cc[3]) < 0.01 then
+                fMin = math.min(fMin or o.x, o.x)
+                fMax = math.max(fMax or 0, o.x + (o.w or 0))
+                if (o.y or 0) + (o.h or 0) > th then onRail = false end
+            end
+        end
+    end
+    if not (fMin and pMin) then
+        return Assert.isTrue(fMin ~= nil, "full-room fill painted (good-tier tint)")
+            and Assert.isTrue(pMin ~= nil, "pill wash painted")
+    end
+    return Assert.isTrue(onRail, "pill + fill stay within the title bar when collapsed")
+        and Assert.isTrue(fMin >= pMin + 2, "fill keeps the left track margin")
+        and Assert.isTrue(fMax <= pMax - 2, "fill keeps the right track margin (was flush into the pin)")
 end
 
 return tests
