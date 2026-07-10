@@ -190,27 +190,39 @@ tests["font_scale_clamps_hold"] = function()
         and Assert.isTrue(capped, "glyph marks capped at icon size")
 end
 
-tests["pinned_corner_clears_the_weight_pill"] = function()
-    -- vanilla's pin control is TWO buttons in one corner: pinButton (unpinned,
-    -- click pins) and collapseButton (pinned, click unpins). While pinned the
-    -- hidden pinButton is only vanilla's right-align anchor for the weight
-    -- readout — the dress pulls it left so readout + pill clear the visible
-    -- pin-off chip by railGap (the pill pads chipX past the anchor).
-    local T = require "sir_theme"
-    local m = T.metrics
+tests["corner_button_rides_the_weight_capsule"] = function()
+    -- vanilla welds the readout to the pin button (drawTextRight at
+    -- pinButton:getX()) — air between them is structurally impossible, so
+    -- the pill extends UNDER the corner button: [readout | pin] is ONE
+    -- capsule, the pin (or pin-off while pinned) a control seated on the
+    -- meter. Field reports: the glyph "overlapping" the number.
     local page = SIRInv.build({})
+    local function frameAndMeasure(glyph)
+        Render.frame(page, page.width + 16, page.height + 16)
+        local washMax, gRight
+        for _, o in ipairs(Recorder.ops) do
+            local n = tostring(o.name or "")
+            if (o.y or 99) < 20 then
+                if n:find("wash", 1, true) then
+                    washMax = math.max(washMax or 0, (o.x or 0) + (o.w or 0))
+                elseif n == glyph then
+                    gRight = (o.x or 0) + (o.w or 0)
+                end
+            end
+        end
+        return washMax, gRight
+    end
+    local washU, pinU = frameAndMeasure("sir_ui-pin")
     page.pin = true
     page.pinButton:setVisible(false)
     page.collapseButton:setVisible(true)
-    Render.frame(page, page.width + 16, page.height + 16)
-    local sawPinOff = false
-    for _, o in ipairs(Recorder.ops) do
-        if tostring(o.name or ""):find("sir_ui-pin-off", 1, true) then sawPinOff = true end
-    end
-    local pb, ub = page.pinButton, page.collapseButton
-    return Assert.isTrue(sawPinOff, "pin-off glyph rendered while pinned")
-        and Assert.equal(pb.x, ub.x - m.railGap - m.chipX,
-            "weight anchor pulled clear of the pin-off chip")
+    local washP, pinP = frameAndMeasure("sir_ui-pin-off")
+    return Assert.isTrue(pinU ~= nil, "pin glyph rendered unpinned")
+        and Assert.isTrue(washU ~= nil and pinU ~= nil and washU >= pinU,
+            "capsule extends under the pin button")
+        and Assert.isTrue(pinP ~= nil, "pin-off glyph rendered while pinned")
+        and Assert.isTrue(washP ~= nil and pinP ~= nil and washP >= pinP,
+            "capsule extends under the pin-off button")
 end
 
 tests["weight_pill_carries_the_room_left_fill"] = function()
