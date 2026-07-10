@@ -328,6 +328,31 @@ tests["weight_pill_stays_on_the_rail_and_fill_stays_in_the_track"] = function()
         and Assert.isTrue(fMax <= pMax - 2, "fill keeps the right track margin (was flush into the pin)")
 end
 
+tests["pristine_gauges_whisper_not_vanish"] = function()
+    -- the lane swung from overused (rings on everything) to an empty column
+    -- (salience hid healthy bars entirely — field feedback "underused").
+    -- The middle: pristine durability returns a QUIET bar (drawn at reduced
+    -- alpha), and only the worn stat comes to full voice.
+    local S = _G.SauceInvRender
+    local bars = S.conditionBars({ class = "weapon" }, {
+        condCount = 2,
+        allConditions = { 1.0, 1.0, _kinds = { "condition", "sharpness" } },
+    })
+    local ok = Assert.isTrue(bars ~= nil and #bars == 2, "pristine weapon keeps both bars")
+    ok = Assert.isTrue(bars ~= nil and bars[1].quiet == true and bars[2].quiet == true,
+        "pristine bars are quiet") and ok
+    local worn = S.conditionBars({ class = "weapon" }, {
+        condCount = 2,
+        allConditions = { 0.5, 1.0, _kinds = { "condition", "sharpness" } },
+    })
+    ok = Assert.isTrue(worn ~= nil and worn[1].quiet == false and worn[2].quiet == true,
+        "only the worn stat comes to full voice") and ok
+    local g = S.conditionBars({ class = "tool" }, { condSeg = true, condRatio = 1.0 })
+    ok = Assert.isTrue(g ~= nil and g[1] ~= nil and g[1].quiet == true,
+        "generic pristine durability is a quiet bar, not nil") and ok
+    return ok
+end
+
 tests["column_rules_follow_the_scroll_below_the_equipped_divider"] = function()
     -- rows + rules draw in CONTENT coordinates (the element transform applies
     -- the scroll), but the rules' bottom clamped to bare pane HEIGHT — a
