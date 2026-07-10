@@ -523,6 +523,10 @@ local function realWindow(stacks, opts)
     page.closeButton = railBtn(1)
     page.infoButton  = railBtn(1 + railBH + 1)
     page.pinButton   = railBtn(W - 1 - railBH)
+    -- vanilla creates BOTH corner buttons: collapseButton (the unpin control)
+    -- shows only while pinned — hidden here so unpinned goldens are unchanged
+    page.collapseButton = railBtn(W - 1 - railBH)
+    page.collapseButton:setVisible(false)
 
     local th = page:titleBarHeight()
     page.sirFilter = { text = "", cat = nil }

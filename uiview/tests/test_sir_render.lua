@@ -190,4 +190,60 @@ tests["font_scale_clamps_hold"] = function()
         and Assert.isTrue(capped, "glyph marks capped at icon size")
 end
 
+tests["pinned_corner_clears_the_weight_pill"] = function()
+    -- vanilla's pin control is TWO buttons in one corner: pinButton (unpinned,
+    -- click pins) and collapseButton (pinned, click unpins). While pinned the
+    -- hidden pinButton is only vanilla's right-align anchor for the weight
+    -- readout — the dress pulls it left so readout + pill clear the visible
+    -- pin-off chip by railGap (the pill pads chipX past the anchor).
+    local T = require "sir_theme"
+    local m = T.metrics
+    local page = SIRInv.build({})
+    page.pin = true
+    page.pinButton:setVisible(false)
+    page.collapseButton:setVisible(true)
+    Render.frame(page, page.width + 16, page.height + 16)
+    local sawPinOff = false
+    for _, o in ipairs(Recorder.ops) do
+        if tostring(o.name or ""):find("sir_ui-pin-off", 1, true) then sawPinOff = true end
+    end
+    local pb, ub = page.pinButton, page.collapseButton
+    return Assert.isTrue(sawPinOff, "pin-off glyph rendered while pinned")
+        and Assert.equal(pb.x, ub.x - m.railGap - m.chipX,
+            "weight anchor pulled clear of the pin-off chip")
+end
+
+tests["weight_pill_carries_the_encumbrance_fill"] = function()
+    -- the pill doubles as a capacity gauge: a chip fill that warms through the
+    -- diner ramp as the load nears the limit. 7.5 / 10 = 0.75 -> ok tier
+    -- (encumbrance thresholds .70/.85/1.0, not the row bars' quartiles).
+    local T = require "sir_theme"
+    local page = SIRInv.build({})
+    local oldLW, oldGSP = ISInventoryPage.loadWeight, getSpecificPlayer
+    ISInventoryPage.loadWeight = function() return 7.5 end
+    _G.getSpecificPlayer = function()
+        return {
+            getInventory = function() return page.inventoryPane.inventory end,
+            getMaxWeight = function() return 10 end,
+        }
+    end
+    local ok, err = pcall(function()
+        Render.frame(page, page.width + 16, page.height + 16)
+    end)
+    ISInventoryPage.loadWeight = oldLW
+    _G.getSpecificPlayer = oldGSP
+    if not ok then error(err) end
+    local cc = T.color.condition.ok
+    local sawFill = false
+    for _, o in ipairs(Recorder.ops) do
+        if tostring(o.name or ""):find("chip", 1, true) and (o.y or -1) == 0
+            and math.abs((o.r or 0) - cc[1]) < 0.01
+            and math.abs((o.g or 0) - cc[2]) < 0.01
+            and math.abs((o.b or 0) - cc[3]) < 0.01 then
+            sawFill = true
+        end
+    end
+    return Assert.isTrue(sawFill, "encumbrance fill chip painted with the ok-tier tint")
+end
+
 return tests
