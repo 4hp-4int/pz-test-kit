@@ -269,9 +269,11 @@ tests["weight_pill_carries_the_room_left_fill"] = function()
         return Assert.isTrue(fMin ~= nil, "room-left fill chip painted (ok-tier tint)")
             and Assert.isTrue(pMin ~= nil, "pill wash painted")
     end
+    -- the capsule now includes the pin seat chip, so 0.25 room reads as
+    -- ~0.15 of the full span; a load-fraction regression would read ~0.45
     local ratio = (fMax - fMin) / math.max(1, pMax - pMin)
-    return Assert.isTrue(ratio > 0.15 and ratio < 0.40,
-        "fill spans ~room-left fraction of the pill (got " .. tostring(ratio) .. ")")
+    return Assert.isTrue(ratio > 0.08 and ratio < 0.30,
+        "fill spans ~room-left fraction of the capsule (got " .. tostring(ratio) .. ")")
 end
 
 tests["weight_pill_stays_on_the_rail_and_fill_stays_in_the_track"] = function()
