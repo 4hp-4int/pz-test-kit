@@ -264,7 +264,9 @@ function CraftInv.build()
     win.borderColor = win.borderColor or { a = 1 }
 
     local hdr = mkHeader(W)
+    hdr.Type = "ISHandcraftWindowHeader"
     win:addChild(hdr)
+    win.windowHeader = hdr   -- the shell extends the cherry cap over it
     local top = 16 + 46 + 5
     local colH = H - top - 10
     local cats = mkCategories(5, top, colH)
