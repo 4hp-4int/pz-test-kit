@@ -271,14 +271,14 @@ function CraftInv.build()
     cats.Type = "ISWidgetRecipeCategories"
     win:addChild(cats)
     -- recipes column (fill): filter strip + list, spec: filter atop list
-    local rx, rw = 5 + 125 + 5, W - 5 - 125 - 5 - 5 - 470 - 5
+    local rx, rw = 5 + 125 + 5, W - 5 - 125 - 5 - 5 - 515 - 5
     local filt = mkFilter(rx, top, rw)
     filt.Type = "ISWidgetRecipeFilterPanel"
     win:addChild(filt)
     local recipes = mkRecipeList(rx, top + filt.height + 5, rw, colH - filt.height - 5)
     recipes.Type = "ISWidgetRecipesPanel"
     win:addChild(recipes)
-    local detail = mkDetail(W - 470 - 5, top, 470, colH)
+    local detail = mkDetail(W - 515 - 5, top, 515, colH)
     detail.Type = "ISCraftRecipePanel"
     win:addChild(detail)
 
