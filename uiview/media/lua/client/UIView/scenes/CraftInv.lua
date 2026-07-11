@@ -161,6 +161,7 @@ local function mkDetail(x, y, w, h)
         self:drawRect(8, 8, self.width - 16, 12, 1, 0.1, 0.1, 0.1)
         self:drawRect(8, 8, math.floor((self.width - 16) * 0.6), 12, 1, 0.2, 0.7, 0.2)
     end
+    ctrl.Type = "ISWidgetHandCraftControl"
     local btn = ISButton:new(w - 108, 30, 100, 26, "Craft", ctrl, function() end)
     btn:initialise()
     ctrl:addChild(btn)
@@ -179,12 +180,17 @@ function CraftInv.build()
     win.backgroundColor = win.backgroundColor or { a = 0.8 }
     win.borderColor = win.borderColor or { a = 1 }
 
-    win:addChild(mkFilter(8, 22, 704))
-    local cats = mkCategories(8, 56, 130, 360)
+    local filt = mkFilter(8, 24, 704)
+    filt.Type = "ISWidgetRecipeFilterPanel"
+    win:addChild(filt)
+    local cats = mkCategories(8, 62, 130, 354)
+    cats.Type = "ISWidgetRecipeCategories"
     win:addChild(cats)
-    local recipes = mkRecipeList(146, 56, 300, 360)
+    local recipes = mkRecipeList(148, 62, 296, 354)
+    recipes.Type = "ISWidgetRecipesPanel"
     win:addChild(recipes)
-    local detail = mkDetail(454, 56, 258, 360)
+    local detail = mkDetail(454, 62, 258, 354)
+    detail.Type = "ISCraftRecipePanel"
     win:addChild(detail)
 
     local origPrerender = win.prerender
