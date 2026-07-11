@@ -125,7 +125,10 @@ local function mkRecipeList(x, y, w, h)
         local safeW = self.width - 13
         for i, row in ipairs(self.rows) do
             local xoff = row.ingroup and 32 or 0
-            local rh = self.itemheight
+            -- vanilla grows the row: usedHeight = max(itemheight, content)
+            local lines = row.group and 1 or (2 + (row.skill and 1 or 0))
+            local rh = math.max(self.itemheight, 4 + lines * FH + 10)
+            if row.group then rh = self.itemheight end
             if i == self.selected then
                 local sc = self.selectedColor
                 self:drawRect(0, yy, self.width, rh - 1, sc.a, sc.r, sc.g, sc.b)
@@ -227,7 +230,7 @@ local function mkDetail(x, y, w, h)
     more:initialise(); ctrl:addChild(more)
     local maxb = ISButton:new(qx + BTN * 2 + 5 * 2 + 55 + 5, 6, 44, BTN, "MAX", ctrl, function() end)
     maxb:initialise(); ctrl:addChild(maxb)
-    local barX = math.floor(w / 2) + 160
+    local barX = math.floor(w / 2) + 165
     local bar = ISPanel:new(barX, 6, w - barX - 11, BTN)
     bar.Type = "ISProgressBar"
     bar.background = false
@@ -252,7 +255,7 @@ function CraftInv.build()
     local SIR = _G.SauceInvRender
     SIR.Guard = SIR.Guard or { tripped = {}, trip = function() end }
 
-    local W, H = 900, 560
+    local W, H = 1024, 560
     local win = ISCollapsableWindow:new(10, 10, W, H)
     win:setTitle("")
     win:initialise()
@@ -268,14 +271,14 @@ function CraftInv.build()
     cats.Type = "ISWidgetRecipeCategories"
     win:addChild(cats)
     -- recipes column (fill): filter strip + list, spec: filter atop list
-    local rx, rw = 5 + 125 + 5, W - 5 - 125 - 5 - 5 - 350 - 5
+    local rx, rw = 5 + 125 + 5, W - 5 - 125 - 5 - 5 - 470 - 5
     local filt = mkFilter(rx, top, rw)
     filt.Type = "ISWidgetRecipeFilterPanel"
     win:addChild(filt)
     local recipes = mkRecipeList(rx, top + filt.height + 5, rw, colH - filt.height - 5)
     recipes.Type = "ISWidgetRecipesPanel"
     win:addChild(recipes)
-    local detail = mkDetail(W - 350 - 5, top, 350, colH)
+    local detail = mkDetail(W - 470 - 5, top, 470, colH)
     detail.Type = "ISCraftRecipePanel"
     win:addChild(detail)
 
