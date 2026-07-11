@@ -69,7 +69,8 @@ tests["explicit_window_render_pieces_packed"] = function()
         -- craftdress glyph swaps (sir_craftdress TEX_SWAPS resolves directly)
         "sir_prop-walk", "sir_prop-light", "sir_prop-book",
         "sir_prop-surface", "sir_prop-clock", "sir_fav-star-off",
-        "sir_ui-plus-ink", "sir_ui-minus-ink",
+        "sir_ui-plus-ink", "sir_ui-minus-ink", "sir_ui-grid-ink",
+        "sir_ui-list-ink", "sir_ui-prev-ink", "sir_ui-next-ink",
     })
     return Assert.equal(#miss, 0,
         "window/render singles packed (missing: " .. table.concat(miss, ", ") .. ")")
