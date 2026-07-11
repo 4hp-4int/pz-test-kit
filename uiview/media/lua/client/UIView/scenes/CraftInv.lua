@@ -117,6 +117,16 @@ local function mkFilter(x, y, w)
     combo:initialise()
     combo:addOption("Sort: Name")
     p:addChild(combo)
+    -- tickbox: its label sits on OUR stock (vanilla draws it white)
+    local tick = ISPanel:new(math.floor(w * 0.5) + 160, 3, 150, 22)
+    tick.Type = "ISTickBox"
+    tick.background = false
+    tick:initialise()
+    tick.render = function(self)
+        self:drawRect(0, 4, 14, 14, 1, 0.2, 0.2, 0.2)
+        self:drawText("Show All Recipes", 20, 3, 1, 1, 1, 1, UIFont.NewSmall)
+    end
+    p:addChild(tick)
     return p
 end
 
@@ -192,6 +202,15 @@ function CraftInv.build()
     win.backgroundColor = win.backgroundColor or { a = 0.8 }
     win.borderColor = win.borderColor or { a = 1 }
 
+    -- window-header title label (in-game: ISLabel in ISHandcraftWindowHeader,
+    -- draws via drawTextCentre — was slipping past the ink shim)
+    local hdr = ISPanel:new(8, 2, 200, 20)
+    hdr.background = false
+    hdr:initialise()
+    hdr.render = function(self)
+        self:drawTextCentre("Crafting", 100, 2, 1, 1, 0.95, 1, UIFont.Medium)
+    end
+    win:addChild(hdr)
     local filt = mkFilter(8, 24, 704)
     filt.Type = "ISWidgetRecipeFilterPanel"
     win:addChild(filt)
