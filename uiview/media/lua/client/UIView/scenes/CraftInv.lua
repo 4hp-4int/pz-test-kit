@@ -33,6 +33,7 @@ local function mkRecipeList(x, y, w, h)
     p.mouseOverColor = { r = 0.9, g = 0.9, b = 0.9, a = 0.1 }
     p.borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 }
     p.doDrawItem = function() end   -- marks this as a list for the dress
+    p.starSetTexture = tex("media/ui/FavoriteStar.png") or tex("Item_Star")
     p.rows = {
         { group = "Furniture" },
         { name = "Wooden Crate",   icon = "Item_Plank",  craftable = true,
@@ -47,7 +48,7 @@ local function mkRecipeList(x, y, w, h)
     }
     p.render = function(self)
         local yy = 0
-        local star = tex("media/ui/FavoriteStar.png") or tex("Item_Star")
+        local star = self.starSetTexture
         for i, row in ipairs(self.rows) do
             local rh = row.group and 24 or self.itemheight
             if i == self.selected then
