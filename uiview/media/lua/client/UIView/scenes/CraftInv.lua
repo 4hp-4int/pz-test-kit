@@ -51,13 +51,16 @@ local function mkCategories(x, y, h)
     p.mouseOverColor = { r = 0.9, g = 0.9, b = 0.9, a = 0.1 }
     p.borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 }
     p.doDrawItem = function() end
+    p.drawSelection = function(self, x, y, w, h)
+        local sc = self.selectedColor
+        self:drawRect(x, y, w, h, sc.a, sc.r, sc.g, sc.b)
+    end
     p.cats = { "-- ALL --", "Favourites", "Carpentry", "Cooking", "Electrical", "Survival" }
     p.render = function(self)
         for i, c in ipairs(self.cats) do
             local yy = (i - 1) * self.itemheight
             if i == self.selected then
-                local sc = self.selectedColor
-                self:drawRect(0, yy, self.width, self.itemheight - 1, sc.a, sc.r, sc.g, sc.b)
+                self:drawSelection(0, yy, self.width, self.itemheight - 1)
             end
             self:drawText(c, 8, yy + 5, 0.9, 0.9, 0.9, 1, UIFont.Small)
         end
@@ -108,6 +111,10 @@ local function mkRecipeList(x, y, w, h)
     p.mouseOverColor = { r = 0.9, g = 0.9, b = 0.9, a = 0.1 }
     p.borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 }
     p.doDrawItem = function() end
+    p.drawSelection = function(self, x, y, w, h)
+        local sc = self.selectedColor
+        self:drawRect(x, y, w, h, sc.a, sc.r, sc.g, sc.b)
+    end
     p.starSetTexture = tex("media/ui/inventoryPanes/FavouriteYes.png")
     p.rows = {
         { name = "Add Cigarette to Pack", icon = "Item_Cigarettes", craftable = true, fav = true,
@@ -130,8 +137,7 @@ local function mkRecipeList(x, y, w, h)
             local rh = math.max(self.itemheight, 4 + lines * FH + 10)
             if row.group then rh = self.itemheight end
             if i == self.selected then
-                local sc = self.selectedColor
-                self:drawRect(0, yy, self.width, rh - 1, sc.a, sc.r, sc.g, sc.b)
+                self:drawSelection(0, yy, self.width, rh - 1)
             end
             self:drawRectBorder(0, yy, self.width, rh, 0.5,
                 self.borderColor.r, self.borderColor.g, self.borderColor.b)
