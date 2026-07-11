@@ -158,11 +158,22 @@ local function mkDetail(x, y, w, h)
     ctrl:setBackgroundColor(0.2, 0.2, 0.2, 0.5)
     ctrl.background = true
     ctrl:initialise()
-    ctrl.render = function(self)
-        self:drawRect(8, 8, self.width - 16, 12, 1, 0.1, 0.1, 0.1)
-        self:drawRect(8, 8, math.floor((self.width - 16) * 0.6), 12, 1, 0.2, 0.7, 0.2)
-    end
     ctrl.Type = "ISWidgetHandCraftControl"
+    -- REAL-shaped progress bar: field-driven fill (vanilla ISProgressBar
+    -- paints from progressColor = XUI C_ValidGreen) so the dress's amber
+    -- re-seat shows here exactly as in-game
+    local bar = ISPanel:new(8, 8, w - 16, 12)
+    bar.Type = "ISProgressBar"
+    bar.background = false
+    bar.progress = 0.6
+    bar.progressColor = { r = 0.2, g = 0.7, b = 0.2, a = 1 }
+    bar:initialise()
+    bar.render = function(self)
+        self:drawRect(0, 0, self.width, self.height, 1, 0.1, 0.1, 0.1)
+        local pc = self.progressColor
+        self:drawRect(0, 0, math.floor(self.width * self.progress), self.height, pc.a or 1, pc.r, pc.g, pc.b)
+    end
+    ctrl:addChild(bar)
     local btn = ISButton:new(w - 108, 30, 100, 26, "Craft", ctrl, function() end)
     btn:initialise()
     ctrl:addChild(btn)
