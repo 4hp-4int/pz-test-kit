@@ -22,6 +22,11 @@ require "UIView/UIMock"
 
 if isClient == nil then function isClient() return false end end
 if isServer == nil then function isServer() return false end end
+-- Hook's subject-type guard calls instanceof on every render (vanilla global;
+-- the fluid-bar regression below drives it with a non-item subject)
+if instanceof == nil then
+    function instanceof(o, c) return type(o) == "table" and o._type == c end
+end
 
 -- ── vanilla-shaped ISToolTipInv mock (must exist BEFORE Hook.lua loads) ─────
 -- Real flow (ISToolTipInv.lua): measure DoTooltip -> clamp/reposition ->
@@ -58,7 +63,7 @@ local hookedRender = ISToolTipInv.render     -- stable capture (later OnGameStar
                                              -- triggers may re-wrap the global)
 
 -- ── fixtures ────────────────────────────────────────────────────────────────
-local ItemProto = {}
+local ItemProto = { _type = "InventoryItem" }
 function ItemProto.DoTooltip(item, tooltip)
     item._doCalls = (item._doCalls or 0) + 1
     tooltip:setWidth(200)
@@ -1228,6 +1233,52 @@ tests["deferred_thrash_retires_item_to_vanilla"] = function()
         "thrashing item retired — nothing appended (clean vanilla)")
     TooltipLib.removeProvider("ThrashProbe")
     reset()
+    return ok
+end
+
+-- ── non-InventoryItem subjects (the ISFluidBar tooltip) ─────────────────────
+-- Vanilla reuses ISToolTipInv for other subjects: ISFluidBar:activateToolTip
+-- passes a FluidContainer (or ResourceFluid) as the tooltip's item. It has
+-- DoTooltip (the ObjectTooltip overload) but none of the item API — getID on
+-- it is a nil-call that escapes Kahlua's pcall and logs every rendered frame
+-- (the 2026-07-11 "Object tried to call nil in render (Hook.lua:915)" field
+-- report, hovering the liquid tiles in the fluid-details panel).
+
+local FluidProto = { _type = "FluidContainer" }
+function FluidProto.DoTooltip(subject, tooltip)
+    subject._doCalls = (subject._doCalls or 0) + 1
+    tooltip:setWidth(160)
+    tooltip:setHeight(40)
+end
+local function makeFluidContainer()
+    return setmetatable({}, { __index = FluidProto })
+end
+
+tests["non_item_subject_falls_back_to_vanilla"] = function()
+    reset()
+    local d = makeDress()
+    TooltipLib.setPanelDress(d.spec)
+    local p = makePanel(makeFluidContainer())
+    hookedRender(p)
+    local ok = Assert.equal(p.item._doCalls, 2, "vanilla render ran untouched (both passes)")
+    ok = Assert.equal(#d.calls, 0, "no dress on a non-item subject") and ok
+    ok = Assert.equal(boxRec.bgA, 0.5, "vanilla box untouched") and ok
+    reset()
+    return ok
+end
+
+tests["non_item_subject_safe_under_starlit_gate"] = function()
+    -- the exact crash line: with StarlitLibrary present, the wrapper's gate
+    -- read item:getID() before any subject-type check
+    reset()
+    local savedAdapter = TooltipLib._starlitAdapter
+    TooltipLib._starlitAdapter = true
+    local p = makePanel(makeFluidContainer())
+    local okCall, err = pcall(hookedRender, p)
+    TooltipLib._starlitAdapter = savedAdapter
+    local ok = Assert.isTrue(okCall,
+        "render survives a non-item subject with Starlit present: " .. tostring(err))
+    ok = Assert.equal(p.item._doCalls, 2, "vanilla render still ran both passes") and ok
     return ok
 end
 
