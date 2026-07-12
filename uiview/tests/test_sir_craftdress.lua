@@ -112,9 +112,16 @@ tests["scene_wears_the_shell_and_bares_the_control_strip"] = function()
         if o.op == "rect" and math.abs((o.a or 0) - 0.5) < 0.01
             and math.abs((o.r or 0) - 0.2) < 0.01 then sawCtrlFill = true end
     end
+    local sawTicket = false
+    for _, o in ipairs(Recorder.ops) do
+        local n = tostring(o.name or '')
+        if n:find('chip', 1, true) and math.abs((o.r or 0) - 0.72) < 0.02
+            and math.abs((o.g or 0) - 0.21) < 0.02 then sawTicket = true end
+    end
     return Assert.isTrue(sawCap, "cherry wincap on the title band")
         and Assert.isTrue(sawLedger, "kraft ledger under the body")
         and Assert.isTrue(not sawCtrlFill, "control strip's hardcoded fill bared by the walk")
+        and Assert.isTrue(sawTicket, "cherry ticket chips on the primary buttons (regression lock)")
 end
 
 return tests
