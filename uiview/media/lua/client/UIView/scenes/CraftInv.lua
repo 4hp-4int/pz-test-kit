@@ -176,6 +176,28 @@ local function mkRecipeList(x, y, w, h)
     return p
 end
 
+-- ── ingredient tile (ISWidgetInput shape): field-driven satisfaction
+-- border (vanilla mutates borderColor per frame), vanilla state-marker
+-- textures (the dress translates them to the taxonomy marks) ─────────────
+local function mkTile(x, y, ok, icon, count, marker)
+    local t = ISPanel:new(x, y, 124, 148)
+    t.Type = "ISWidgetInput"
+    t.background = false
+    t:initialise()
+    t.borderColor = ok and { r = 0.4, g = 0.4, b = 0.4, a = 1 }
+        or { r = 0.8, g = 0.15, b = 0.1, a = 1 }
+    t.render = function(self)
+        self:drawRectBorderStatic(0, 0, self.width, self.height,
+            self.borderColor.a, self.borderColor.r, self.borderColor.g, self.borderColor.b)
+        local ic = tex(icon)
+        if ic then self:drawTextureScaledAspect(ic, 24, 5, 76, 76, 1, 1, 1, 1) end
+        local mk = tex(marker)
+        if mk then self:drawTextureScaledAspect(mk, 4, self.height - 32, 24, 24, 1, 1, 1, 1) end
+        self:drawText(count, 92, 55, 0.9, 0.9, 0.9, 1, UIFont.NewSmall)
+    end
+    return t
+end
+
 -- ── detail column: title header / Required tiles / control strip ────────
 local function mkDetail(x, y, w, h)
     local p = ISPanel:new(x, y, w, h)
@@ -198,23 +220,17 @@ local function mkDetail(x, y, w, h)
             if pt then self:drawTextureScaledAspect(pt, ir, 5, 16, 16, 1, 1, 1, 1) end
             ir = ir - 21
         end
-        -- ISWidgetIngredientsInputs: label + 4-col tile grid
+        -- ISWidgetIngredientsInputs: label above the typed tile children
         self:drawText("Required Items", 6, 80, 1, 1, 1, 1, UIFont.Small)
-        local tiles = {
-            { icon = "Item_Cigarettes", n = "0/1", ok = false },
-            { icon = "Item_CigarettePack", n = "0/1", ok = false },
-        }
-        local ba = (self.backgroundColor and self.backgroundColor.a or 1)
-        for i, t in ipairs(tiles) do
-            local tx = 5 + (i - 1) * 69
-            self:drawRect(tx, 80 + FH + 5, 64, 64, 0.6 * ba, 0.05, 0.05, 0.05)
-            if t.ok then self:drawRectBorder(tx, 80 + FH + 5, 64, 64, 1, 0.2, 0.7, 0.2)
-            else self:drawRectBorder(tx, 80 + FH + 5, 64, 64, 1, 0.8, 0.15, 0.1) end
-            local it = tex(t.icon)
-            if it then self:drawTextureScaledAspect(it, tx + 16, 80 + FH + 9, 32, 32, 1, 1, 1, 1) end
-            self:drawText(t.n, tx + 22, 80 + FH + 45, 0.9, 0.9, 0.9, 1, UIFont.NewSmall)
-        end
     end
+    -- typed tiles (TILE_TYPES): kept tool (satisfied), consumed input
+    -- (missing, red data border), returned tool (satisfied)
+    p:addChild(mkTile(5, 105, true, "Item_KitchenKnife", "1/1",
+        "media/ui/Entity/Crafting_Keep_24.png"))
+    p:addChild(mkTile(134, 105, false, "Item_Cigarettes", "0/1",
+        "media/ui/Entity/BuildProperty_Consume.png"))
+    p:addChild(mkTile(263, 105, true, "Item_Hammer", "1/1",
+        "media/ui/Entity/Icon_Returned_48x48.png"))
     -- ISWidgetHandCraftControl (spec §7): quantity cluster | duration +
     -- progress bar, then FULL-WIDTH Craft (+ Force Action, debug)
     local ch = BTN * 3 + 5 * 2 + 5 * 3 + 2
