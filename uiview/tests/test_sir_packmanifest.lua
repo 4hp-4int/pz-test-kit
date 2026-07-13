@@ -72,6 +72,7 @@ tests["explicit_window_render_pieces_packed"] = function()
         "sir_ui-plus-ink", "sir_ui-minus-ink", "sir_ui-grid-ink",
         "sir_ui-list-ink", "sir_ui-prev-ink", "sir_ui-next-ink", "sir_ui-drop-ink",
         "sir_ui-lock", "sir_ui-lock-open",
+        "sir_state-keep", "sir_state-return", "sir_state-consume",
     })
     return Assert.equal(#miss, 0,
         "window/render singles packed (missing: " .. table.concat(miss, ", ") .. ")")
