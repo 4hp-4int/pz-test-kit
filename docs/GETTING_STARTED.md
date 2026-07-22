@@ -179,9 +179,15 @@ Options:
 |---|---|
 | `pztest` (no args) | Auto-discover and run all tests in current directory |
 | `pztest /path/to/mod` | Run against a specific mod root |
-| `pztest --filter substring` | Only run tests whose name contains `substring` |
-| `pztest path/to/single_file.lua` | Single test file |
+| `pztest --filter substring` | Only run tests whose name contains `substring`. Plain substrings also pre-skip files that never mention it (fast loop) |
+| `pztest --no-prescan` | Disable the filter file pre-skip (only needed for dynamically concatenated test names) |
+| `pztest path/to/single_file.lua` | Single test file (must match `test_*.lua` / `*Tests.lua` naming) |
+| `pztest --verbose` | Stream all output live. Default buffers per file and replays captured output only for failing files |
 | `pztest --junit-xml results.xml` | Emit JUnit XML for CI |
+
+Failures are summarized twice: inline under the failing file (with its captured
+output), and in a `FAILED TESTS` digest after the `KAHLUA TOTAL` line carrying
+each failing test's assertion message and stack trace.
 
 ## Step 6: Write tests for the thing that keeps breaking
 

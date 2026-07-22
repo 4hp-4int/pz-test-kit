@@ -120,7 +120,16 @@ pztest --junit-xml results.xml  # for CI
 pztest tests/test_core.lua      # single file
 pztest --coverage               # line coverage of every module
 pztest --coverage=YourMod/      # line coverage scoped to matching modules
+pztest --verbose                # stream all output live
 ```
+
+Output is failure-first: passing files print a one-line summary; failing files
+replay their captured output, and a `FAILED TESTS` digest after the
+`KAHLUA TOTAL` line lists every failing test with its assertion message and
+stack trace — `tail -20` always shows what broke. Plain-substring `--filter`
+values also pre-skip files whose source never mentions the substring (fast
+iteration loops); pass `--no-prescan` if your test names are built dynamically
+via string concatenation.
 
 ### Line coverage
 
