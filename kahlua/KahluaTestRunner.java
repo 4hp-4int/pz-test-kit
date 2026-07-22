@@ -58,6 +58,8 @@ public class KahluaTestRunner {
         String junitXmlPath   = null;
         boolean eventCoverage = false;
         String serveScene     = null;   // --serve <scene>: resident UI render loop
+        boolean verbose       = false;  // --verbose: stream all output live (legacy behavior)
+        boolean noPrescan     = false;  // --no-prescan: disable filter file pre-skip
 
         boolean afterSep = false;
         for (int i = 1; i < args.length; i++) {
@@ -95,6 +97,8 @@ public class KahluaTestRunner {
                 if (a.startsWith("--serve=")) {
                     serveScene = a.substring("--serve=".length()); continue;
                 }
+                if (a.equals("--verbose") || a.equals("-v")) { verbose = true; continue; }
+                if (a.equals("--no-prescan")) { noPrescan = true; continue; }
                 if (a.equals("--help") || a.equals("-h")) {
                     printUsage(); System.exit(0);
                 }
@@ -122,6 +126,25 @@ public class KahluaTestRunner {
         // --coverage. A fresh env re-instruments each file, so unioning across
         // files gives whole-suite coverage.
         Map<String, CovFile> covAccum = coverageOn ? new LinkedHashMap<>() : null;
+
+        // Positional args that LOOK like test files (test_*.lua / *Tests.lua)
+        // are test files, not env modules. Historically `pztest path/Tests/Foo.lua`
+        // fed the file to loadStripped() as a module — the require-stripper
+        // mangled it, the env build blew up with an opaque nested
+        // RuntimeException, AND the full suite still ran (tests stayed empty →
+        // discovery). Single-file runs are what an agent reaches for first;
+        // make the obvious invocation do the obvious thing.
+        for (Iterator<String> it = modules.iterator(); it.hasNext(); ) {
+            String m = it.next();
+            String norm = m.replace('\\', '/');
+            String base = norm.substring(norm.lastIndexOf('/') + 1);
+            boolean looksLikeTest = base.endsWith(".lua")
+                && (base.startsWith("test_") || base.endsWith("Tests.lua"));
+            if (looksLikeTest && Files.exists(modRoot.resolve(norm))) {
+                it.remove();
+                tests.add(norm);
+            }
+        }
 
         if (tests.isEmpty()) tests = discoverTests(modRoot);
 
@@ -152,7 +175,39 @@ public class KahluaTestRunner {
             tests = filtered;
         }
 
+        // Filter pre-scan: when the filter is a plain substring (no Lua
+        // pattern magic), a test file whose SOURCE never contains that
+        // substring cannot register a matching test name — skip it before
+        // paying the per-file env boot (~60ms each; the whole point of
+        // --filter is a fast loop). Dynamically concatenated test names are
+        // the one blind spot; --no-prescan runs every file the old way.
+        int preSkipped = 0;
+        if (filterPattern != null && !noPrescan
+                && filterPattern.matches("[A-Za-z0-9_ /:]+")) {
+            List<String> kept = new ArrayList<>();
+            for (String t : tests) {
+                Path p = modRoot.resolve(t);
+                boolean keep = true;
+                if (t.contains(filterPattern)) {
+                    keep = true;   // file-name match always runs
+                } else {
+                    try {
+                        keep = Files.exists(p) && Files.readString(p).contains(filterPattern);
+                    } catch (IOException e) {
+                        keep = true;   // unreadable → run it, let the loop report
+                    }
+                }
+                if (keep) kept.add(t); else preSkipped++;
+            }
+            tests = kept;
+        }
+
         if (tests.isEmpty()) {
+            if (preSkipped > 0) {
+                System.out.println("No test file contains '" + filterPattern +
+                    "' (" + preSkipped + " pre-skipped; --no-prescan to force-run all).");
+                System.exit(1);
+            }
             System.err.println("No test files found.");
             System.exit(1);
         }
@@ -180,6 +235,16 @@ public class KahluaTestRunner {
         // ── Run each test file in an isolated runtime ───────────────
         int grandTotal = 0, grandPass = 0, grandFail = 0, grandErr = 0;
 
+        // Failure digest: (file, test, message) per failing/erroring test,
+        // printed after the KAHLUA TOTAL block so `tail` shows totals AND
+        // what broke without grepping the transcript.
+        List<String[]> failDigest = new ArrayList<>();
+        int hiddenNoMatch = 0;   // files whose filter matched 0 tests (suppressed)
+        if (preSkipped > 0) {
+            System.out.println("[filter] pre-skipped " + preSkipped +
+                " file(s) without '" + filterPattern + "' in source (--no-prescan to run all)");
+        }
+
         long grandStartNs = System.nanoTime();
         for (String testFile : tests) {
             Path testPath = modRoot.resolve(testFile);
@@ -189,52 +254,85 @@ public class KahluaTestRunner {
             }
             long fileStartNs = System.nanoTime();
 
-            // Fresh Kahlua runtime
-            TestPlatform platform = new TestPlatform();
-            KahluaTable  env      = platform.newEnvironment();
-            KahluaThread thread   = new KahluaThread(platform, env);
-            thread.debugOwnerThread = Thread.currentThread();
-
-            // Capture the build recipe once so DualVMSim can construct
-            // identical sub-environments on demand.
-            final Path modRootFinal = modRoot;
-            final ModuleIndex indexFinal = index;
-            final List<String> modulesFinal = modules;
-            DualVMSim.EnvBuilder envBuilder = (subThread, subEnv, isServer, clientIdx) -> {
-                buildEnv(subThread, subEnv, modRootFinal, indexFinal, modulesFinal, isServer, clientIdx);
-            };
-
-            // Build the primary test env. Default context: client (mirrors
-            // single-VM convention). DualVMSim overrides per-endpoint.
-            buildEnv(thread, env, modRoot, index, modules, /*isServer*/ false, /*clientIdx*/ 0);
-
-            // Expose PZTestKit.Sim.new() to test code
-            DualVMSim.installLuaAPI(env, envBuilder);
-
-            // Pass the filter pattern into the env so the test executor can
-            // skip non-matching test names.
-            if (filterPattern != null) {
-                env.rawset("_pz_filter", filterPattern);
+            // Buffer everything this file prints (env boot logs, mod debug
+            // spew, DIAG lines) and replay it ONLY if the file fails. Lua's
+            // print binds to the CURRENT System.out inside the TestPlatform
+            // constructor (BaseLib.setPrintCallback), so the swap must happen
+            // before construction. --verbose streams live (legacy behavior).
+            PrintStream realOut = System.out;
+            ByteArrayOutputStream fileBuf = null;
+            if (!verbose) {
+                fileBuf = new ByteArrayOutputStream();
+                System.setOut(new PrintStream(fileBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             }
 
-            // 5. Test file → pass the source through to context/load_test_file.lua,
-            //    which wraps it and captures the returned table into _pz_last_return.
+            String fileError = null;
+            Object[] res = null;
+            KahluaTable env = null;
+
             try {
-                env.rawset("_pz_test_source", stripContextGuards(Files.readString(testPath)));
-                env.rawset("_pz_test_name", testFile);
-                loadFile(thread, env, kahluaDir.resolve("context/load_test_file.lua"));
+                // Fresh Kahlua runtime
+                TestPlatform platform = new TestPlatform();
+                env = platform.newEnvironment();
+                KahluaThread thread = new KahluaThread(platform, env);
+                thread.debugOwnerThread = Thread.currentThread();
+
+                // Capture the build recipe once so DualVMSim can construct
+                // identical sub-environments on demand.
+                final Path modRootFinal = modRoot;
+                final ModuleIndex indexFinal = index;
+                final List<String> modulesFinal = modules;
+                DualVMSim.EnvBuilder envBuilder = (subThread, subEnv, isServer, clientIdx) -> {
+                    buildEnv(subThread, subEnv, modRootFinal, indexFinal, modulesFinal, isServer, clientIdx);
+                };
+
+                // Build the primary test env. Default context: client (mirrors
+                // single-VM convention). DualVMSim overrides per-endpoint.
+                buildEnv(thread, env, modRoot, index, modules, /*isServer*/ false, /*clientIdx*/ 0);
+
+                // Expose PZTestKit.Sim.new() to test code
+                DualVMSim.installLuaAPI(env, envBuilder);
+
+                // Pass the filter pattern into the env so the test executor can
+                // skip non-matching test names.
+                if (filterPattern != null) {
+                    env.rawset("_pz_filter", filterPattern);
+                }
+
+                // 5. Test file → pass the source through to context/load_test_file.lua,
+                //    which wraps it and captures the returned table into _pz_last_return.
+                try {
+                    env.rawset("_pz_test_source", stripContextGuards(Files.readString(testPath)));
+                    env.rawset("_pz_test_name", testFile);
+                    loadFile(thread, env, kahluaDir.resolve("context/load_test_file.lua"));
+                } catch (Exception e) {
+                    fileError = "load error: " + e.getMessage();
+                }
+
+                // 6. Execute tests via test_executor.lua
+                if (fileError == null) {
+                    res = execFile(thread, env, kahluaDir.resolve("test_executor.lua"));
+                    // Surface test_executor errors so they don't look like "0 tests"
+                    if (res != null && res.length > 0 && Boolean.FALSE.equals(res[0])) {
+                        fileError = "executor error: " + (res.length > 1 ? res[1] : "unknown");
+                    }
+                }
             } catch (Exception e) {
-                System.out.println("\n  ERROR loading " + testFile + ": " + e.getMessage());
-                continue;
+                fileError = "env build error: " + e.getMessage();
+            } finally {
+                if (fileBuf != null) System.setOut(realOut);
             }
 
-            // 6. Execute tests via test_executor.lua
-            Object[] res = execFile(thread, env, kahluaDir.resolve("test_executor.lua"));
+            long fileMs = (System.nanoTime() - fileStartNs) / 1_000_000L;
 
-            // Surface test_executor errors so they don't look like "0 tests"
-            if (res != null && res.length > 0 && Boolean.FALSE.equals(res[0])) {
-                System.out.println("\n  EXECUTOR ERROR in " + testFile + ": " +
-                    (res.length > 1 ? res[1] : "unknown"));
+            // File-level failure (load / env / executor): counts as an error —
+            // a broken file must never exit 0 just because other files passed.
+            if (fileError != null) {
+                grandErr += 1;
+                failDigest.add(new String[]{ testFile, "<file>", fileError });
+                System.out.printf("%n--- %s (ERROR, %dms) --- *** %s ***%n",
+                    testFile, fileMs, fileError);
+                replayBuffer(fileBuf);
                 continue;
             }
 
@@ -249,21 +347,34 @@ public class KahluaTestRunner {
             grandFail  += fail;
             grandErr   += errs;
 
-            long fileMs = (System.nanoTime() - fileStartNs) / 1_000_000L;
-            String flag = (fail + errs == 0) ? "" : " *** FAILURES ***";
-            System.out.printf("\n--- %s (%d tests, %dms) ---%s%n", testFile, total, fileMs, flag);
-            if (!detail.isEmpty()) {
-                for (String line : detail.split("\n"))
-                    System.out.println("    " + line);
-            }
-
             // Pull the skipped count from the env (set by test_executor).
             int skipped = 0;
             Object skipRaw = env.rawget("_pz_last_skipped_count");
             if (skipRaw instanceof Number) skipped = ((Number) skipRaw).intValue();
             grandSkip += skipped;
-            if (skipped > 0) {
-                System.out.printf("    (%d skipped)%n", skipped);
+
+            // Parse per-test records once — feeds the failure digest and JUnit.
+            List<JUnitCase> cases = parseTestRecords(env);
+            for (JUnitCase c : cases) {
+                if ("fail".equals(c.status) || "error".equals(c.status)) {
+                    failDigest.add(new String[]{ testFile, c.name, c.message });
+                }
+            }
+
+            boolean failedFile = (fail + errs) > 0;
+            if (total == 0 && filterPattern != null && !failedFile) {
+                hiddenNoMatch++;   // filter matched nothing in this file — stay quiet
+            } else {
+                String flag = failedFile ? " *** FAILURES ***" : "";
+                System.out.printf("%n--- %s (%d tests, %dms) ---%s%n", testFile, total, fileMs, flag);
+                if (!detail.isEmpty()) {
+                    for (String line : detail.split("\n"))
+                        System.out.println("    " + line);
+                }
+                if (skipped > 0) {
+                    System.out.printf("    (%d skipped)%n", skipped);
+                }
+                if (failedFile) replayBuffer(fileBuf);
             }
 
             // Collect per-test records for JUnit XML (if requested).
@@ -274,27 +385,7 @@ public class KahluaTestRunner {
                 suite.failures = fail;
                 suite.errors = errs;
                 suite.skipped = skipped;
-                Object raw = env.rawget("_pz_last_test_records");
-                if (raw instanceof KahluaTable) {
-                    KahluaTable tbl = (KahluaTable) raw;
-                    int idx = 1;
-                    while (true) {
-                        Object rec = tbl.rawget(idx);
-                        if (rec == null) break;
-                        if (rec instanceof KahluaTable) {
-                            KahluaTable r = (KahluaTable) rec;
-                            JUnitCase c = new JUnitCase();
-                            Object nm = r.rawget("name");
-                            Object st = r.rawget("status");
-                            Object msg = r.rawget("message");
-                            c.name = nm instanceof String ? (String) nm : "unknown";
-                            c.status = st instanceof String ? (String) st : "pass";
-                            c.message = msg instanceof String ? (String) msg : "";
-                            suite.cases.add(c);
-                        }
-                        idx++;
-                    }
-                }
+                suite.cases.addAll(cases);
                 junitSuites.add(suite);
             }
 
@@ -363,6 +454,9 @@ public class KahluaTestRunner {
 
         // ── Summary ─────────────────────────────────────────────────
         long grandMs = (System.nanoTime() - grandStartNs) / 1_000_000L;
+        if (hiddenNoMatch > 0) {
+            System.out.printf("%n(%d file(s) with no tests matching the filter — hidden)%n", hiddenNoMatch);
+        }
         System.out.println("\n====================================================");
         if (grandSkip > 0) {
             System.out.printf("KAHLUA TOTAL: %d tests, %d passed, %d failed, %d errors, %d skipped (%dms)%n",
@@ -372,6 +466,20 @@ public class KahluaTestRunner {
                     grandTotal, grandPass, grandFail, grandErr, grandMs);
         }
         System.out.println("====================================================");
+
+        // Failure digest LAST so `tail -20` always shows the totals AND every
+        // failing test with its assertion message — no transcript grepping.
+        if (!failDigest.isEmpty()) {
+            System.out.println("FAILED TESTS (" + failDigest.size() + "):");
+            for (String[] f : failDigest) {
+                System.out.println("  FAIL " + f[0] + " :: " + f[1]);
+                if (f[2] != null && !f[2].isEmpty()) {
+                    for (String line : f[2].split("\n"))
+                        System.out.println("       " + line);
+                }
+            }
+            System.out.println("====================================================");
+        }
         System.exit(grandFail + grandErr > 0 ? 1 : 0);
     }
 
@@ -827,12 +935,21 @@ public class KahluaTestRunner {
         return t.pcall(c, new Object[0]);
     }
 
-    /** Compile + pcall a Lua source string. Throws on error. */
+    /** Compile + pcall a Lua source string. Throws on error, carrying the
+     *  chunk name + Lua error message — a bare nested RuntimeException here
+     *  once made env-build failures undebuggable from the CLI. */
     private static void exec(KahluaThread t, KahluaTable env, String src, String name) throws Exception {
-        LuaClosure c = LuaCompiler.loadstring(src, name, env);
+        LuaClosure c;
+        try {
+            c = LuaCompiler.loadstring(src, name, env);
+        } catch (Exception e) {
+            throw new RuntimeException(name + ": compile error: " + e.getMessage(), e);
+        }
         Object[] r = t.pcall(c, new Object[0]);
-        if (r != null && r.length > 0 && Boolean.FALSE.equals(r[0]))
-            throw new RuntimeException(r.length > 1 ? String.valueOf(r[1]) : "unknown error");
+        if (r != null && r.length > 0 && Boolean.FALSE.equals(r[0])) {
+            String msg = r.length > 1 ? String.valueOf(r[1]) : "unknown error";
+            throw new RuntimeException(name + ": " + msg);
+        }
     }
 
     /** Legacy: strip require() calls AND context guards. */
@@ -1045,6 +1162,44 @@ public class KahluaTestRunner {
         throw new RuntimeException("Cannot find mock_environment.lua — run from the kahlua/ directory");
     }
 
+    /** Replay a per-file output buffer, indented, between grep-stable markers.
+     *  No-op for null (--verbose mode: output already streamed) or empty buffers. */
+    private static void replayBuffer(ByteArrayOutputStream buf) {
+        if (buf == null || buf.size() == 0) return;
+        String out = buf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        System.out.println("    --- captured output ---");
+        for (String line : out.split("\r?\n"))
+            System.out.println("    | " + line);
+        System.out.println("    --- end captured output ---");
+    }
+
+    /** Parse _pz_last_test_records from the env into JUnitCase entries.
+     *  Feeds both the failure digest and JUnit XML. */
+    private static List<JUnitCase> parseTestRecords(KahluaTable env) {
+        List<JUnitCase> out = new ArrayList<>();
+        Object raw = env.rawget("_pz_last_test_records");
+        if (!(raw instanceof KahluaTable)) return out;
+        KahluaTable tbl = (KahluaTable) raw;
+        int idx = 1;
+        while (true) {
+            Object rec = tbl.rawget(idx);
+            if (rec == null) break;
+            if (rec instanceof KahluaTable) {
+                KahluaTable r = (KahluaTable) rec;
+                JUnitCase c = new JUnitCase();
+                Object nm = r.rawget("name");
+                Object st = r.rawget("status");
+                Object msg = r.rawget("message");
+                c.name = nm instanceof String ? (String) nm : "unknown";
+                c.status = st instanceof String ? (String) st : "pass";
+                c.message = msg instanceof String ? (String) msg : "";
+                out.add(c);
+            }
+            idx++;
+        }
+        return out;
+    }
+
     /** Safe int extraction from pcall result array. */
     private static int intVal(Object[] r, int i) {
         return (r != null && r.length > i && r[i] instanceof Number) ? ((Number)r[i]).intValue() : 0;
@@ -1058,29 +1213,37 @@ public class KahluaTestRunner {
     private static void printUsage() {
         System.out.println("PZ Test Kit — runs mod tests on PZ's actual Kahlua VM.");
         System.out.println();
-        System.out.println("Usage: pztest [mod_root] [flags] [modules...] [-- tests...]");
+        System.out.println("Usage: pztest [mod_root] [flags] [testfiles|modules...] [-- tests...]");
         System.out.println();
         System.out.println("  mod_root         Path to your mod (defaults to cwd via the wrapper).");
         System.out.println();
         System.out.println("Flags:");
         System.out.println("  --list             List discovered test files and exit (no execution)");
-        System.out.println("  --filter <pat>     Run only tests whose name matches the Lua pattern");
+        System.out.println("  --filter <pat>     Run only tests whose name matches the Lua pattern.");
+        System.out.println("                     Plain substrings also pre-skip files that don't");
+        System.out.println("                     contain the substring (fast loop).");
+        System.out.println("  --no-prescan       Disable the filter file pre-skip (needed only for");
+        System.out.println("                     dynamically concatenated test names)");
         System.out.println("  --fail-fast        Stop at the first file containing a failure");
+        System.out.println("  -v, --verbose      Stream all output live (default buffers per file and");
+        System.out.println("                     replays captured output only for failing files)");
         System.out.println("  --junit-xml <path> Write JUnit XML report (CI integration)");
         System.out.println("  --event-coverage   Report which Events.* listeners fired vs. registered");
         System.out.println("  --coverage[=sub]   Report line coverage of modules (optionally scoped to");
         System.out.println("                     names/paths containing <sub>, e.g. --coverage=palette/)");
         System.out.println("  -h, --help         Show this message");
         System.out.println();
-        System.out.println("  modules          (optional) Lua files to load before tests. Usually");
-        System.out.println("                   unnecessary — the require resolver auto-discovers");
-        System.out.println("                   modules from media/lua/.");
+        System.out.println("  testfiles        Positional args matching test_*.lua / *Tests.lua run");
+        System.out.println("                   as single test files (skips discovery).");
+        System.out.println("  modules          Other .lua positionals load as env modules (legacy;");
+        System.out.println("                   usually unnecessary — the require resolver auto-");
+        System.out.println("                   discovers modules from media/lua/).");
         System.out.println("  --               Separator (tests auto-discovered if omitted)");
-        System.out.println("  tests            Test files to run (relative to mod_root)");
         System.out.println();
         System.out.println("Examples:");
         System.out.println("  pztest                                # run everything from cwd");
         System.out.println("  pztest --filter upgrade               # only tests with 'upgrade' in name");
+        System.out.println("  pztest media/lua/client/My/Tests/FooTests.lua   # single file");
         System.out.println("  pztest --list                         # list test files");
         System.out.println("  pztest /path/to/MyMod --fail-fast     # stop at first failure");
     }

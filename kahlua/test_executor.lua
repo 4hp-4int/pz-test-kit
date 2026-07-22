@@ -145,7 +145,40 @@ for _, name in ipairs(names) do
     _pz_player_moddata = {}
 
     local record = { name = name, status = "pass", message = "" }
-    local ok, err = pcall(function()
+
+    -- Capture everything the test prints (mod Assert libraries report the
+    -- actual failing assertion via print, e.g. "[MyMod:TEST] [FAIL] ...").
+    -- On failure, the captured FAIL lines become the record message — so the
+    -- runner's failure digest and JUnit XML say WHICH assertion failed, not
+    -- just "assertion returned false".
+    local captured = {}
+    local basePrint = print
+    print = function(...)
+        local args = { ... }
+        local parts = {}
+        for i = 1, #args do parts[i] = tostring(args[i]) end
+        captured[#captured + 1] = table.concat(parts, "\t")
+        return basePrint(...)
+    end
+
+    local function failLines()
+        local hits = {}
+        for _, line in ipairs(captured) do
+            if line:find("FAIL", 1, true) then hits[#hits + 1] = line end
+        end
+        if #hits == 0 then
+            -- No FAIL-marked lines: fall back to the tail of the output.
+            for i = math.max(1, #captured - 2), #captured do
+                hits[#hits + 1] = captured[i]
+            end
+        end
+        return table.concat(hits, "\n")
+    end
+
+    -- Kahlua's pcall returns (ok, err, stacktrace) — the third value carries
+    -- the Lua-side stack for runtime errors whose tostring is just a bare
+    -- Java class name ("java.lang.RuntimeException" tells an agent nothing).
+    local ok, err, trace = pcall(function()
         local result = testTable[name]()
         if isSkipMarker(result) then
             skipped = skipped + 1
@@ -156,17 +189,27 @@ for _, name in ipairs(names) do
         else
             failed = failed + 1
             record.status = "fail"
-            record.message = "assertion returned false"
+            local lines = failLines()
+            record.message = lines ~= "" and lines or "assertion returned false"
             if #details < 10 then
                 table.insert(details, name .. ": FAILED")
             end
         end
     end)
+    print = basePrint
 
     if not ok then
         errors = errors + 1
         record.status = "error"
-        record.message = tostring(err)
+        local msg = tostring(err):gsub("^%s+", "")
+        if trace ~= nil and tostring(trace) ~= "" then
+            msg = msg .. "\n" .. tostring(trace)
+        end
+        local lines = failLines()
+        if lines ~= "" then
+            msg = msg .. "\n" .. lines
+        end
+        record.message = msg
         if #details < 10 then
             table.insert(details, name .. ": " .. tostring(err))
         end

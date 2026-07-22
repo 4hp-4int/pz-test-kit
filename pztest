@@ -3,8 +3,11 @@
 #
 # Usage (from mod root):
 #     pztest                        # run all auto-discovered tests
-#     pztest --filter validation    # run only matching tests (TODO)
-#     pztest some/Tests/foo.lua     # run a specific test file
+#     pztest --filter validation    # run only matching tests (plain substrings
+#                                   # also pre-skip non-matching files)
+#     pztest some/Tests/FooTests.lua  # run a single test file
+#     pztest --verbose              # stream all output (default buffers and
+#                                   # replays captured output on failure only)
 #
 # Usage (from elsewhere):
 #     pztest /path/to/MyMod         # explicit mod root
