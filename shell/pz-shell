@@ -1,0 +1,762 @@
+#!/usr/bin/env bash
+# ============================================================================
+# pz-shell — eval Lua against a running PZ dedi Lua VM
+# ============================================================================
+# Talks to the PZShell server mod (deploy from ./mod/) via a file queue
+# inside the container. The mod polls Zomboid/Lua/pz-shell/queue.txt; this
+# CLI writes to that file via `docker exec`, then tails Zomboid/Lua/pz-shell/
+# result.lua for the response.
+#
+# Usage:
+#   pz-shell eval '<code>'            one-liner Lua
+#   pz-shell eval -                    read code from stdin
+#   pz-shell eval -f <path>            read code from file
+#   pz-shell reload <ModuleName>       re-require (PZ has no require cache)
+#   pz-shell tail [regex]              follow the dedi debug log, grep-filtered
+#   pz-shell tail-mod <ModName>        follow a mod's per-mod stream (PZShell.tap)
+#   pz-shell taps                      list all mod streams on disk
+#   pz-shell profile start|snap|stop   count sync/command calls live
+#   pz-shell enable                    touch the gate file (arm the shell)
+#   pz-shell disable                   remove the gate file (disarm)
+#   pz-shell status                    gate state + reachability check
+#
+# Env:
+#   PZ_CONTAINER   container name (default: pzserver)
+#   PZ_SHELL_TIMEOUT  max seconds to wait for result (default: 15)
+#
+# Notes:
+#   - Arbitrary code execution: only deploy the mod to dev dedis.
+#   - Hot reload re-requires a module; any Events.X.Add listeners in the
+#     module body will DUPLICATE on reload. Use reload for read-only probes
+#     and pure logic; server-wide restart for anything with listeners.
+# ============================================================================
+
+set -euo pipefail
+
+CONTAINER="${PZ_CONTAINER:-pzserver}"
+TIMEOUT="${PZ_SHELL_TIMEOUT:-15}"
+
+QUEUE_PATH="/home/steam/Zomboid/Lua/pz-shell/queue.txt"
+RESULT_PATH="/home/steam/Zomboid/Lua/pz-shell/result.txt"
+ENABLED_PATH="/home/steam/Zomboid/Lua/pz-shell/enabled"
+
+die() { echo "pz-shell: $*" >&2; exit 1; }
+
+# ── Docker helpers ──────────────────────────────────────────────────────────
+
+dexec() {
+    # MSYS_NO_PATHCONV=1 prevents Git Bash from rewriting /home/... args to
+    # C:/Program Files/Git/home/... (which then fail inside the container).
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" "$@"
+}
+
+dexec_sh() {
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" sh -c "$1"
+}
+
+ensure_container() {
+    if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
+        die "container '$CONTAINER' not found (set PZ_CONTAINER to override)"
+    fi
+    local state
+    state=$(docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo unknown)
+    if [[ "$state" != "running" ]]; then
+        die "container '$CONTAINER' is not running (state: $state)"
+    fi
+}
+
+# ── Protocol ────────────────────────────────────────────────────────────────
+
+# Wait until the queue file is empty (server has consumed the previous
+# request) before writing a new one. Prevents two requests colliding in the
+# same file.
+wait_for_queue_empty() {
+    local deadline=$(( $(date +%s) + 5 ))
+    while (( $(date +%s) < deadline )); do
+        if ! dexec test -s "$QUEUE_PATH" 2>/dev/null; then return 0; fi
+        sleep 0.05
+    done
+    die "queue didn't clear within 5s; is the server mod loaded and enabled?"
+}
+
+# Stream code into the queue file. Using `sh -c 'cat > path'` with the payload
+# on stdin keeps it binary-safe (no shell-escape hell).
+submit_queue() {
+    local code="$1"
+    # Ensure dir exists (getFileWriter creates it, but we're going around that).
+    dexec_sh "mkdir -p /home/steam/Zomboid/Lua/pz-shell"
+    printf '%s' "$code" | docker exec -i "$CONTAINER" sh -c "cat > '$QUEUE_PATH'"
+}
+
+# Poll for a non-empty result file, return its contents, then truncate it.
+wait_for_result() {
+    local deadline=$(( $(date +%s) + TIMEOUT ))
+    while (( $(date +%s) < deadline )); do
+        if dexec test -s "$RESULT_PATH" 2>/dev/null; then
+            dexec cat "$RESULT_PATH"
+            dexec_sh ": > '$RESULT_PATH'"
+            return 0
+        fi
+        sleep 0.05
+    done
+    die "no response within ${TIMEOUT}s; check that the 'enabled' gate file exists (pz-shell enable)"
+}
+
+# ── Subcommands ─────────────────────────────────────────────────────────────
+
+cmd_enable() {
+    ensure_container
+    dexec_sh "mkdir -p /home/steam/Zomboid/Lua/pz-shell && touch '$ENABLED_PATH'"
+    echo "pz-shell enabled"
+}
+
+cmd_disable() {
+    ensure_container
+    dexec_sh "rm -f '$ENABLED_PATH'"
+    echo "pz-shell disabled"
+}
+
+cmd_status() {
+    ensure_container
+    if dexec test -f "$ENABLED_PATH" 2>/dev/null; then
+        echo "gate: enabled"
+    else
+        echo "gate: disabled (run: pz-shell enable)"
+        return
+    fi
+    # Probe the VM with a trivial expression.
+    local out
+    out=$(echo 'return "pong"' | cmd_eval_stdin)
+    if [[ "$out" == "=> pong" ]]; then
+        echo "vm: responsive"
+    else
+        echo "vm: unexpected response: $out"
+    fi
+}
+
+cmd_eval_stdin() {
+    ensure_container
+    local code
+    code=$(cat)
+    if [[ -z "$code" ]]; then die "empty code"; fi
+    wait_for_queue_empty
+    submit_queue "$code"
+    wait_for_result
+}
+
+cmd_eval() {
+    if [[ $# -eq 0 ]]; then die "usage: pz-shell eval '<code>' | - | -f <path>"; fi
+    case "$1" in
+        -)
+            cmd_eval_stdin
+            ;;
+        -f)
+            [[ -f "${2:-}" ]] || die "file not found: ${2:-}"
+            cat "$2" | cmd_eval_stdin
+            ;;
+        *)
+            echo "$*" | cmd_eval_stdin
+            ;;
+    esac
+}
+
+cmd_puppet() {
+    local sub="${1:-help}"; shift || true
+    local as=""
+    if [[ "${1:-}" == "--as" ]]; then as="$2"; shift 2; fi
+    case "$sub" in
+        equip)         _puppet_equip "$as" "$@" ;;
+        unequip)       _puppet_unequip "$as" ;;
+        inventory|inv) _puppet_inventory "$as" ;;
+        drop)          _puppet_drop "$as" ;;
+        reload)        _puppet_reload "$as" ;;
+        damage)        _puppet_damage "$as" "$@" ;;
+        credit-kills)  _puppet_credit_kills "$as" "$@" ;;
+        whoami)        _puppet_whoami "$as" ;;
+        help|-h|--help)
+            cat <<'EOF'
+usage: pz-shell puppet <action> [--as <username>] [args]
+
+Script server-side player actions for reproducible test scenarios.
+Operates on the first connected player unless --as <username> is given.
+Requires at least one player connected to the dedi (no player → error).
+
+  whoami                       print the puppet target's username + position
+  inventory                    list all items in the puppet's inventory
+  equip <FullType>             spawn item + give + setPrimaryHandItem
+  unequip                      setPrimaryHandItem(nil)
+  drop                         drop primary hand to current square
+  reload                       start ISReloadWeaponAction for primary
+  damage <amount>              subtract <amount> from primary weapon's condition
+  credit-kills <n>             call WeaponData.incrementKills n times on
+                               the primary weapon + trigger upgrade checks
+                               (VPS-specific; fastest way to test affix unlocks)
+
+Examples:
+  ./pz-shell puppet whoami
+  ./pz-shell puppet equip Base.Shotgun
+  ./pz-shell puppet credit-kills 250       # instant Tempered + affixes
+  ./pz-shell puppet --as bob equip Base.Pistol
+EOF
+            ;;
+        *) die "unknown puppet action: $sub (try: equip, unequip, drop, reload, damage, credit-kills, inventory, whoami)" ;;
+    esac
+}
+
+# Emit the boilerplate "find player" Lua at the top of every puppet snippet.
+# Sets `p` to the target IsoPlayer or returns an error string.
+#
+# Also defines `_puppet_findWeapon(p)`: returns the primary-hand item, or
+# falls back to the first inventory item that IsWeapon(). This is critical
+# on dedi because setPrimaryHandItem sticks ONLY until the next client
+# update, after which the client's "nothing equipped" state overwrites
+# the server's view. So between puppet calls, primary is likely nil even
+# after a successful equip. The inventory fallback keeps multi-step
+# scripted scenarios working.
+_puppet_prologue() {
+    local as="$1"
+    if [[ -n "$as" ]]; then
+        cat <<EOF
+local online = getOnlinePlayers()
+if not online or online:size() == 0 then return "puppet ERROR: no players connected" end
+local p
+for i = 0, online:size() - 1 do
+    local cand = online:get(i)
+    if cand and cand:getUsername() == "$as" then p = cand; break end
+end
+if not p then return "puppet ERROR: no connected player named '$as'" end
+EOF
+    else
+        cat <<'EOF'
+local online = getOnlinePlayers()
+if not online or online:size() == 0 then return "puppet ERROR: no players connected" end
+local p = online:get(0)
+if not p then return "puppet ERROR: getOnlinePlayers() returned 0-size" end
+EOF
+    fi
+    cat <<'EOF'
+local function _puppet_findWeapon(pl)
+    local w = pl:getPrimaryHandItem()
+    if w then return w end
+    local items = pl:getInventory():getItems()
+    for i = 0, items:size() - 1 do
+        local it = items:get(i)
+        if it and it.IsWeapon and it:IsWeapon() then return it end
+    end
+    return nil
+end
+EOF
+}
+
+_puppet_whoami() {
+    local as="$1"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<'EOF'
+local sq = p.getCurrentSquare and p:getCurrentSquare()
+local x, y, z
+if sq then x, y, z = sq:getX(), sq:getY(), sq:getZ() end
+return string.format("puppet = %s at (%s, %s, %s)",
+    p:getUsername(), tostring(x), tostring(y), tostring(z))
+EOF
+    } | cmd_eval_stdin
+}
+
+_puppet_inventory() {
+    local as="$1"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<'EOF'
+local inv = p:getInventory()
+local items = inv:getItems()
+local lines = { "inventory of " .. p:getUsername() .. " (" .. items:size() .. " items):" }
+for i = 0, items:size() - 1 do
+    local it = items:get(i)
+    lines[#lines + 1] = "  " .. tostring(it:getFullType()) .. "  id=" .. tostring(it:getID())
+end
+local pri = p:getPrimaryHandItem()
+lines[#lines + 1] = "primary: " .. (pri and tostring(pri:getFullType()) or "(none)")
+return table.concat(lines, "\n")
+EOF
+    } | cmd_eval_stdin
+}
+
+_puppet_equip() {
+    local as="$1"; local fullType="${2:?usage: pz-shell puppet equip <FullType>}"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<EOF
+local item = instanceItem("$fullType")
+if not item then return "puppet ERROR: instanceItem('$fullType') returned nil" end
+p:getInventory():AddItem(item)
+p:setPrimaryHandItem(item)
+return string.format("equipped %s (id=%s) on %s",
+    tostring(item:getFullType()), tostring(item:getID()), p:getUsername())
+EOF
+    } | cmd_eval_stdin
+}
+
+_puppet_unequip() {
+    local as="$1"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<'EOF'
+local was = p:getPrimaryHandItem()
+p:setPrimaryHandItem(nil)
+return "unequipped " .. (was and tostring(was:getFullType()) or "(nothing)")
+EOF
+    } | cmd_eval_stdin
+}
+
+_puppet_drop() {
+    local as="$1"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<'EOF'
+local item = _puppet_findWeapon(p)
+if not item then return "puppet ERROR: no weapon on player (give one first)" end
+local sq = p:getCurrentSquare()
+if not sq then return "puppet ERROR: player has no current square" end
+-- Drop via world container add + inventory remove. Skip the
+-- ISDropWorldItemAction timed-action path (needs a client; we're server-side).
+local wi = sq:AddWorldInventoryItem(item, 0, 0, 0)
+p:getInventory():Remove(item)
+p:setPrimaryHandItem(nil)
+return string.format("dropped %s at (%s,%s,%s)",
+    tostring(item:getFullType()), sq:getX(), sq:getY(), sq:getZ())
+EOF
+    } | cmd_eval_stdin
+}
+
+_puppet_reload() {
+    local as="$1"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<'EOF'
+local w = _puppet_findWeapon(p)
+if not w then return "puppet ERROR: no weapon on player (give one first)" end
+if not (w.isRanged and w:isRanged()) then return "puppet ERROR: weapon is not ranged" end
+-- ISReloadWeaponAction is a client-side timed action class. On server we
+-- can't "start" the timed action properly (no ISTimedActionQueue on dedi).
+-- Simulate by directly setting currentAmmoCount to capacity. Ugly but tests
+-- VPS's reload-observed behaviour.
+local cap = w:getMaxAmmo() or 0
+w:setCurrentAmmoCount(cap)
+if syncHandWeaponFields then syncHandWeaponFields(p, w) end
+return string.format("simulated reload: %s ammo=%d/%d",
+    tostring(w:getFullType()), w:getCurrentAmmoCount(), cap)
+EOF
+    } | cmd_eval_stdin
+}
+
+_puppet_damage() {
+    local as="$1"; local amt="${2:?usage: pz-shell puppet damage <amount>}"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<EOF
+local w = _puppet_findWeapon(p)
+if not w then return "puppet ERROR: no weapon on player (give one first)" end
+local before = w:getCondition() or 0
+local after = math.max(0, before - $amt)
+w:setCondition(after)
+if syncItemFields then syncItemFields(p, w) end
+return string.format("damaged %s condition %d -> %d (-$amt)",
+    tostring(w:getFullType()), before, after)
+EOF
+    } | cmd_eval_stdin
+}
+
+_puppet_credit_kills() {
+    local as="$1"; local n="${2:?usage: pz-shell puppet credit-kills <n>}"
+    ensure_container
+    { _puppet_prologue "$as"; cat <<EOF
+local w = _puppet_findWeapon(p)
+if not w then return "puppet ERROR: no weapon on player (give one first)" end
+local VPS = _G.VorpallySauced
+if not VPS or not VPS.WeaponData or not VPS.WeaponData.incrementKills then
+    return "puppet ERROR: VorpallySauced.WeaponData.incrementKills not loaded"
+end
+local WD = VPS.WeaponData
+-- Use getModData (not raw modData.VorpallySauced) to expand the packed v1.10
+-- format before reading prefixId/etc. Raw reads miss packed data.
+local d = WD.getOrCreateModData(w)
+local before = d.kills or 0
+for i = 1, $n do WD.incrementKills(w) end
+-- Re-read post-increment; incrementKills may have repacked.
+d = WD.getModData(w) or d
+local after = d.kills or 0
+-- Nudge upgrade pipeline in case affix thresholds were crossed.
+local UM = VPS.UpgradeManager
+if UM and UM.checkAndApplyUpgrades then
+    local isFirearm = WD.isValidFirearm and WD.isValidFirearm(w)
+    pcall(UM.checkAndApplyUpgrades, w, p, isFirearm, before, after, "puppet_credit_kills")
+end
+d = WD.getModData(w) or d
+return string.format("credited %d kills on %s: %d -> %d (prefix=%s suffix=%s bonding=%s)",
+    $n, tostring(w:getFullType()), before, after,
+    tostring(d.prefixId), tostring(d.suffixId), tostring(d.bondingId))
+EOF
+    } | cmd_eval_stdin
+}
+
+cmd_snapshot() {
+    local sub="${1:-help}"; shift || true
+    case "$sub" in
+        save)    _snapshot_save "$@" ;;
+        restore) _snapshot_restore "$@" ;;
+        list)    _snapshot_list ;;
+        show)    _snapshot_show "$@" ;;
+        delete)  _snapshot_delete "$@" ;;
+        help|-h|--help)
+            cat <<'EOF'
+usage: pz-shell snapshot <save|restore|list|show|delete> [args]
+
+  save <name>                  dump default VPS-focused state to <name>.lua
+  save <name> --expr '<lua>'   dump result of eval'ing the expression
+  save <name> -f <path>        dump result of eval'ing a Lua file
+  restore <name>               loadstring the snapshot, store on
+                               _G._pzshell_snapshot_<name> for probe access
+  list                         list saved snapshots
+  show <name>                  cat the raw snapshot file to stdout
+  delete <name>                rm the snapshot file
+
+Files live under Zomboid/Lua/pz-shell/snapshots/<name>.lua — plain Lua
+source (starts with `return { ... }`), editable by hand, round-trippable.
+
+Default capture content: VPS runtime accumulators, sandbox tuning vars,
+connected players + their primary hand weapon's VPS ModData. Use --expr
+to capture arbitrary other state.
+EOF
+            ;;
+        *) die "unknown snapshot subcommand: $sub (try: save, restore, list, show, delete)" ;;
+    esac
+}
+
+_snapshot_save() {
+    ensure_container
+    local name="${1:?usage: pz-shell snapshot save <name> [--expr '<lua>' | -f <path>]}"; shift
+    local mode="default" expr=""
+    case "${1:-}" in
+        --expr) mode="expr"; expr="${2:-}"; [[ -n "$expr" ]] || die "--expr needs a Lua expression" ;;
+        -f)     mode="file"; local path="${2:-}"; [[ -f "$path" ]] || die "file not found: $path"
+                expr="$(cat "$path")" ;;
+        "")     ;;
+        *)      die "unknown flag for save: $1" ;;
+    esac
+    # Wrap user expr in a closure so syntax like `return foo` works.
+    # Default captures PZShell.defaultSnapshot().
+    if [[ "$mode" == "default" ]]; then
+        cmd_eval_stdin <<EOF
+local snap = PZShell.defaultSnapshot()
+local bytes = PZShell.saveSnapshot("$name", snap)
+return string.format("saved snapshot '%s' (%d bytes)", "$name", bytes)
+EOF
+    else
+        # User-supplied expr. Build a snippet that runs it, then saves.
+        local code
+        code=$(cat <<LUA
+local fn, err = loadstring([[$expr]], "=snapshot-expr")
+if not fn then return "snapshot expr compile error: " .. tostring(err) end
+local ok, val = pcall(fn)
+if not ok then return "snapshot expr run error: " .. tostring(val) end
+local bytes = PZShell.saveSnapshot("$name", val)
+return string.format("saved snapshot '%s' (%d bytes)", "$name", bytes)
+LUA
+)
+        echo "$code" | cmd_eval_stdin
+    fi
+}
+
+_snapshot_restore() {
+    ensure_container
+    local name="${1:?usage: pz-shell snapshot restore <name>}"
+    # Name may contain hyphens etc. that aren't valid Lua identifiers, so
+    # compute the _G key with `-` etc. replaced. Both server-side and CLI
+    # must agree on the normalised name.
+    local safeName="${name//[^a-zA-Z0-9_]/_}"
+    # Heredoc rule: bash's set -u treats any \$foo as an unbound-var error
+    # (even inside an unquoted heredoc being written to stdout). So every
+    # \$... in this block must be a real bash var. Lua locals named `summary`
+    # or `n` would blow up because bash sees \$summary and \$n as unbound.
+    # Only bash vars we explicitly defined above ($name, $safeName) are safe.
+    local safeTag="_pzshell_snapshot_$safeName"
+    cmd_eval_stdin <<EOF
+local val, err = PZShell.loadSnapshot("$name")
+if err then return "restore FAILED: " .. err end
+_G["$safeTag"] = val
+if type(val) == "table" then
+    return "restored '$name' onto _G.$safeTag (table with " ..
+        tostring(val.connected and #val.connected or 0) .. " connected-player entries)"
+else
+    return "restored '$name' onto _G.$safeTag (value of type " .. type(val) .. ")"
+end
+EOF
+}
+
+_snapshot_list() {
+    ensure_container
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" sh -c '
+        dir=/home/steam/Zomboid/Lua/pz-shell/snapshots
+        if [ ! -d "$dir" ]; then echo "(no snapshots yet)"; exit 0; fi
+        ls -lh "$dir" 2>/dev/null | awk "NR>1 {printf \"%-40s %8s  %s %s %s\n\", \$9, \$5, \$6, \$7, \$8}"
+    '
+}
+
+_snapshot_show() {
+    ensure_container
+    local name="${1:?usage: pz-shell snapshot show <name>}"
+    # MSYS_NO_PATHCONV=1: prevent Git Bash from rewriting /home/... to a Windows path.
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" cat "/home/steam/Zomboid/Lua/pz-shell/snapshots/$name.lua"
+}
+
+_snapshot_delete() {
+    ensure_container
+    local name="${1:?usage: pz-shell snapshot delete <name>}"
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" rm -f "/home/steam/Zomboid/Lua/pz-shell/snapshots/$name.lua"
+    echo "deleted snapshot '$name'"
+}
+
+cmd_profile() {
+    local sub="${1:-help}"; shift || true
+    case "$sub" in
+        start)   _profile_start ;;
+        snap)    _profile_snap ;;
+        stop)    _profile_stop ;;
+        status)  _profile_status ;;
+        help|-h|--help)
+            cat <<'EOF'
+usage: pz-shell profile <start|snap|stop|status>
+
+  start    install call-counting wrappers on sendServerCommand,
+           syncItemModData, syncHandWeaponFields, syncItemFields,
+           sendClientCommand. Every call from here until `stop` is tallied.
+  snap     print current totals + per-(module,command) histogram.
+  stop     restore originals and clear state.
+  status   is a profile currently running?
+
+Caveats:
+  - wrappers are GLOBAL — they intercept every mod's sync/command calls
+    while the profile is active. Don't forget to stop.
+  - only Lua-originated syncs are counted. Java-internal calls that
+    bypass the Lua method bindings are invisible.
+  - restarting the dedi clears any running profile (wrappers vanish with
+    the Lua VM).
+EOF
+            ;;
+        *) die "unknown profile subcommand: $sub (try: start, snap, stop, status)" ;;
+    esac
+}
+
+_profile_start() {
+    ensure_container
+    cmd_eval_stdin <<'LUA'
+if _G._PZShellProfile then return "profile already running (stop first)" end
+local state = {
+    startedAt = (os.time and os.time()) or 0,
+    totals = {
+        sendServerCommand    = 0,
+        sendClientCommand    = 0,
+        syncItemModData      = 0,
+        syncHandWeaponFields = 0,
+        syncItemFields       = 0,
+    },
+    perCmd = {},
+    originals = {
+        sendServerCommand    = sendServerCommand,
+        sendClientCommand    = sendClientCommand,
+        syncItemModData      = syncItemModData,
+        syncHandWeaponFields = syncHandWeaponFields,
+        syncItemFields       = syncItemFields,
+    },
+}
+_G._PZShellProfile = state
+
+-- sendServerCommand has a 3-arg broadcast form (module, command, args) AND
+-- a 4-arg targeted form (player, module, command, args). Capture both.
+_G.sendServerCommand = function(a, b, c, d)
+    state.totals.sendServerCommand = state.totals.sendServerCommand + 1
+    local mod, cmd
+    if type(a) == "string" then mod, cmd = a, b
+    else mod, cmd = b, c end
+    local key = tostring(mod) .. ":" .. tostring(cmd)
+    state.perCmd[key] = (state.perCmd[key] or 0) + 1
+    return state.originals.sendServerCommand(a, b, c, d)
+end
+
+_G.sendClientCommand = function(a, b, c, d)
+    state.totals.sendClientCommand = state.totals.sendClientCommand + 1
+    local mod, cmd
+    if type(a) == "string" then mod, cmd = a, b
+    else mod, cmd = b, c end
+    local key = "C>S " .. tostring(mod) .. ":" .. tostring(cmd)
+    state.perCmd[key] = (state.perCmd[key] or 0) + 1
+    return state.originals.sendClientCommand(a, b, c, d)
+end
+
+_G.syncItemModData = function(...)
+    state.totals.syncItemModData = state.totals.syncItemModData + 1
+    return state.originals.syncItemModData(...)
+end
+_G.syncHandWeaponFields = function(...)
+    state.totals.syncHandWeaponFields = state.totals.syncHandWeaponFields + 1
+    return state.originals.syncHandWeaponFields(...)
+end
+_G.syncItemFields = function(...)
+    state.totals.syncItemFields = state.totals.syncItemFields + 1
+    return state.originals.syncItemFields(...)
+end
+
+return "profile started (wrappers active on 5 sync/command globals)"
+LUA
+}
+
+_profile_snap() {
+    ensure_container
+    cmd_eval_stdin <<'LUA'
+local s = _G._PZShellProfile
+if not s then return "no profile running (start one with: pz-shell profile start)" end
+
+local now = (os.time and os.time()) or 0
+local elapsed = now - s.startedAt
+local lines = {}
+table.insert(lines, string.format("elapsed: %ds", elapsed))
+table.insert(lines, "totals:")
+
+-- Ordered print (pairs() iteration is arbitrary in Lua).
+local order = { "sendServerCommand", "sendClientCommand",
+    "syncItemModData", "syncHandWeaponFields", "syncItemFields" }
+for _, k in ipairs(order) do
+    local v = s.totals[k] or 0
+    local rate = elapsed > 0 and (v / elapsed) or v
+    table.insert(lines, string.format("  %-22s %6d  (%6.2f/s)", k, v, rate))
+end
+
+-- Top-N per (module, command) histogram.
+local sorted = {}
+for k, v in pairs(s.perCmd) do sorted[#sorted + 1] = { k, v } end
+table.sort(sorted, function(a, b) return a[2] > b[2] end)
+
+if #sorted > 0 then
+    table.insert(lines, "")
+    table.insert(lines, "top commands:")
+    for i = 1, math.min(#sorted, 15) do
+        table.insert(lines, string.format("  %6d  %s", sorted[i][2], sorted[i][1]))
+    end
+end
+
+return table.concat(lines, "\n")
+LUA
+}
+
+_profile_stop() {
+    ensure_container
+    cmd_eval_stdin <<'LUA'
+local s = _G._PZShellProfile
+if not s then return "no profile running" end
+for name, fn in pairs(s.originals) do _G[name] = fn end
+_G._PZShellProfile = nil
+return "profile stopped (wrappers removed)"
+LUA
+}
+
+_profile_status() {
+    ensure_container
+    cmd_eval_stdin <<'LUA'
+if _G._PZShellProfile then
+    local elapsed = ((os.time and os.time()) or 0) - _G._PZShellProfile.startedAt
+    return "profile running (" .. elapsed .. "s elapsed)"
+else
+    return "no profile running"
+end
+LUA
+}
+
+cmd_tail_mod() {
+    ensure_container
+    local mod="${1:?usage: pz-shell tail-mod <ModName>}"
+    # Mirror the server's filename sanitisation.
+    local safe
+    safe=$(printf '%s' "$mod" | sed 's/[^a-zA-Z0-9_-]/_/g')
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" sh -c "
+        path=/home/steam/Zomboid/Lua/pz-shell/stream/${safe}.log
+        if [ ! -f \"\$path\" ]; then
+            echo \"pz-shell tail-mod: no log yet for '$mod'\" >&2
+            echo \"  expected: \$path\" >&2
+            echo \"  the mod must call PZShell.tap(\\\"$mod\\\") and emit at least one line\" >&2
+            exit 1
+        fi
+        echo \"tailing: \$path\" >&2
+        exec tail -F \"\$path\" 2>&1
+    "
+}
+
+cmd_taps() {
+    ensure_container
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" sh -c '
+        dir=/home/steam/Zomboid/Lua/pz-shell/stream
+        if [ ! -d "$dir" ]; then echo "(no taps yet — no mod has called PZShell.tap)"; exit 0; fi
+        ls -lh "$dir" 2>/dev/null | awk "NR>1 {printf \"%-30s %8s  %s %s %s\n\", \$9, \$5, \$6, \$7, \$8}"
+    '
+}
+
+cmd_tail() {
+    ensure_container
+    # tail the newest DebugLog-server.txt, optionally grep-filtered.
+    # Filter is an ERE regex (grep -E). Default: everything.
+    local filter="${1:-.*}"
+    # `tail -F` re-opens the file on rotation (PZ rotates at midnight).
+    # `grep --line-buffered` keeps the pipe flushing line-by-line.
+    # stderr is merged so grep sees server-stderr too.
+    docker exec -i "$CONTAINER" sh -c '
+        log=$(ls -t /home/steam/Zomboid/Logs/*DebugLog-server.txt 2>/dev/null | head -1)
+        if [ -z "$log" ]; then
+            echo "pz-shell tail: no DebugLog-server.txt found" >&2
+            exit 1
+        fi
+        echo "tailing: $log" >&2
+        exec tail -F "$log" 2>&1
+    ' | grep -aE --line-buffered "$filter"
+}
+
+cmd_reload() {
+    [[ $# -ge 1 ]] || die "usage: pz-shell reload <ModuleName>"
+    local mod="$1"
+    # PZ's require() has NO cache — each call re-runs the file's top-level
+    # code (decomp: LuaManager.require just delegates to RunLua). So a bare
+    # require() is already the reload. No package.loaded[...] dance; PZ's
+    # Kahlua doesn't even expose the standard `package` table.
+    # PZ's require returns nil + writes a DebugLog warning on missing file —
+    # it doesn't throw. We probe by checking for a known "not nil" marker:
+    # the file loaded if require returned ANYTHING, even `true`; it failed if
+    # it returned nil. (Note: a module that runs and returns nil explicitly
+    # will show as "not found" — rare in practice, most mods return the
+    # module table.)
+    local code
+    code=$(cat <<EOF
+local ok, result = pcall(require, "$mod")
+if not ok then return "reload ERROR: " .. tostring(result) end
+if result == nil then return "reload FAILED: no file at $mod.lua (check path; require returns nil for missing files)" end
+return "reloaded $mod -> " .. tostring(result)
+EOF
+)
+    echo "$code" | cmd_eval_stdin
+}
+
+# ── Entry ───────────────────────────────────────────────────────────────────
+
+if [[ $# -eq 0 ]]; then
+    awk 'NR>1 { if (/^[^#]/) exit; sub(/^# ?/, ""); print }' "$0"
+    exit 0
+fi
+
+sub="$1"; shift
+case "$sub" in
+    eval)     cmd_eval "$@" ;;
+    reload)   cmd_reload "$@" ;;
+    tail)     cmd_tail "$@" ;;
+    tail-mod) cmd_tail_mod "$@" ;;
+    taps)     cmd_taps ;;
+    profile)  cmd_profile "$@" ;;
+    snapshot) cmd_snapshot "$@" ;;
+    puppet)   cmd_puppet "$@" ;;
+    enable)   cmd_enable ;;
+    disable)  cmd_disable ;;
+    status)   cmd_status ;;
+    -h|--help|help)
+        awk 'NR>1 { if (/^[^#]/) exit; sub(/^# ?/, ""); print }' "$0"
+        ;;
+    *) die "unknown subcommand: $sub (try: eval, reload, tail, tail-mod, taps, profile, snapshot, puppet, enable, disable, status)" ;;
+esac

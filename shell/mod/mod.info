@@ -1,0 +1,6 @@
+name=PZ Shell (dev tool)
+id=PZShell
+author=pz-test-kit
+description=In-process Lua REPL for dedicated servers. DEV ONLY. Evaluate arbitrary Lua and hot-reload modules without restarting the server. Gate: an "enabled" flag file in Zomboid/Lua/pz-shell/ must exist.
+modversion=0.1.0
+versionMin=42.15.0
