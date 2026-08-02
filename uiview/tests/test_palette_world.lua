@@ -244,6 +244,19 @@ tests["isDecor_matches_only_decoration"] = function()
     return Assert.isTrue(not W._isDecor({ getSprite = function() return nil end }), "no sprite -> not decoration")
 end
 
+tests["isDecor_water_sprite_is_exempt"] = function()
+    -- a WATER tile wears a blends_natural sprite but carries the whole fishing family
+    -- (place net / go fishing / add chum key on IsoFlagType.water of a passed object) —
+    -- it must survive the decor prune even though its name matches "blends_"
+    _G.IsoFlagType = _G.IsoFlagType or { water = "water" }
+    local function sprP(s, isWater) return { getSprite = function() return {
+        getName = function() return s end,
+        getProperties = function() return { Is = function(_, f) return isWater and f == IsoFlagType.water end } end,
+    } end } end
+    if not Assert.isTrue(not W._isDecor(sprP("blends_natural_02_1", true)), "water blends tile survives the prune") then return false end
+    return Assert.isTrue(W._isDecor(sprP("blends_natural_01_5", false)), "dry blends tile still pruned")
+end
+
 tests["decoration_is_filtered_real_object_kept"] = function()
     local h = harness()
     h.addObj(0, 0, "Chrome Oven")                              -- real (no sprite -> kept)
