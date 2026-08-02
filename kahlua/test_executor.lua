@@ -144,6 +144,13 @@ for _, name in ipairs(names) do
     _pz_player_inventory._items = {}
     _pz_player_moddata = {}
 
+    -- Reset per-test assertion accounting + fixture miss ledger
+    if PZTestKit then
+        PZTestKit._assertFails = 0
+        PZTestKit._assertPasses = 0
+        PZTestKit._fixtureMisses = {}
+    end
+
     local record = { name = name, status = "pass", message = "" }
 
     -- Capture everything the test prints (mod Assert libraries report the
@@ -175,6 +182,19 @@ for _, name in ipairs(names) do
         return table.concat(hits, "\n")
     end
 
+    -- Fixture-miss ledger (PZTestKit.trackMisses): on failure/error, name
+    -- the members that were looked up but absent — Kahlua's "Object tried
+    -- to call nil" never says which method, so this is the diagnosis.
+    local function missLedger()
+        local misses = PZTestKit and PZTestKit._fixtureMisses
+        if not misses then return "" end
+        local keys = {}
+        for k in pairs(misses) do keys[#keys + 1] = k end
+        if #keys == 0 then return "" end
+        table.sort(keys)
+        return "fixture lookups that returned nil: " .. table.concat(keys, ", ")
+    end
+
     -- Kahlua's pcall returns (ok, err, stacktrace) — the third value carries
     -- the Lua-side stack for runtime errors whose tostring is just a bare
     -- Java class name ("java.lang.RuntimeException" tells an agent nothing).
@@ -184,13 +204,30 @@ for _, name in ipairs(names) do
             skipped = skipped + 1
             record.status = "skip"
             record.message = result.message or "skipped"
-        elseif result then
+            return
+        end
+        -- Assertion accounting: a test fails when ANY kit assert failed
+        -- during its run, or when it explicitly returned false. A nil
+        -- return with clean asserts PASSES — forgetting to `return` the
+        -- final Assert is no longer a (silent, unexplained) failure, and a
+        -- mid-body assert failure can't hide behind a passing returned one.
+        -- Mod-native test registries (adoptRegistry/TestRunner) that don't
+        -- use the kit Assert still fail via their returned boolean.
+        local kitFails = (PZTestKit and PZTestKit._assertFails) or 0
+        if kitFails == 0 and result ~= false then
             passed = passed + 1
         else
             failed = failed + 1
             record.status = "fail"
             local lines = failLines()
-            record.message = lines ~= "" and lines or "assertion returned false"
+            if lines == "" then
+                lines = (result == false)
+                    and "test returned false (no kit assert failed; hand-rolled check?)"
+                    or "assertion failed"
+            end
+            local ledger = missLedger()
+            if ledger ~= "" then lines = lines .. "\n" .. ledger end
+            record.message = lines
             if #details < 10 then
                 table.insert(details, name .. ": FAILED")
             end
@@ -208,6 +245,10 @@ for _, name in ipairs(names) do
         local lines = failLines()
         if lines ~= "" then
             msg = msg .. "\n" .. lines
+        end
+        local ledger = missLedger()
+        if ledger ~= "" then
+            msg = msg .. "\n" .. ledger
         end
         record.message = msg
         if #details < 10 then

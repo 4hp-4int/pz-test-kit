@@ -41,8 +41,23 @@ local function fmt(v)
     return tostring(v)
 end
 
-local function pass(label, ...) print(string.format("  [PASS] " .. label, ...)); return true end
-local function fail(label, ...) print(string.format("  [FAIL] " .. label, ...)); return false end
+-- Per-test assertion accounting. The executor resets these before each test
+-- and fails a test when ANY kit assert failed — regardless of what the test
+-- body returns. Kills two footguns at once: a test that forgets to `return`
+-- its final Assert (previously counted FAILED with all-green asserts and no
+-- explanation), and a test whose mid-body assert failed but whose final
+-- returned assert passed (previously a silent partial pass).
+PZTestKit._assertFails = 0
+PZTestKit._assertPasses = 0
+
+local function pass(label, ...)
+    PZTestKit._assertPasses = PZTestKit._assertPasses + 1
+    print(string.format("  [PASS] " .. label, ...)); return true
+end
+local function fail(label, ...)
+    PZTestKit._assertFails = PZTestKit._assertFails + 1
+    print(string.format("  [FAIL] " .. label, ...)); return false
+end
 
 function Assert.equal(actual, expected, label)
     label = label or ""
@@ -129,6 +144,86 @@ function Assert.tableNotHas(tbl, key, label)
     if type(tbl) ~= "table" then return fail("%s: expected table, got %s", label, type(tbl)) end
     if tbl[key] == nil then return pass("%s: no key '%s'", label, tostring(key))
     else return fail("%s: unexpected key '%s' = %s", label, tostring(key), fmt(tbl[key])) end
+end
+
+-- ============================================================================
+-- TEST-WRITING HELPERS (leak-proof patching, spies, context stubs)
+-- ============================================================================
+-- Born from a real incident: a spy restored *after* the action leaked when
+-- the action threw, and poisoned the next test in (sorted) run order. Every
+-- helper here restores in all outcomes and re-raises the original error.
+-- Same scoped-override shape as Fixtures.withSandbox.
+
+--- Replace tbl[key] for the duration of fn; ALWAYS restores; re-raises on
+--- error. Returns fn's first return value.
+---   PZTestKit.withPatch(SaucedCarts, "updateCartVisual", spyFn, function()
+---       return SaucedCarts.performCartTransfer(...)
+---   end)
+function PZTestKit.withPatch(tbl, key, replacement, fn)
+    local original = tbl[key]
+    tbl[key] = replacement
+    local ok, result = pcall(fn)
+    tbl[key] = original
+    if not ok then error(result, 0) end
+    return result
+end
+
+--- Recording stub. Returns (fn, calls): fn appends its args to calls on
+--- every invocation, then delegates to impl (or returns true).
+---   local spyFn, calls = PZTestKit.spy()
+---   PZTestKit.withPatch(SaucedCarts, "updateCartVisual", spyFn, body)
+---   Assert.equal(#calls, 1, "one refresh")
+function PZTestKit.spy(impl)
+    local calls = {}
+    local fn = function(...)
+        calls[#calls + 1] = { n = select("#", ...), ... }
+        if impl then return impl(...) end
+        return true
+    end
+    return fn, calls
+end
+
+--- Run fn with isServer()/isClient() stubbed to a named context; ALWAYS
+--- restores; re-raises on error. The harness defaults to isClient()==true,
+--- which silently skips `if not isClient()` server/SP branches — every test
+--- exercising one needs this (or hand-rolled stubs).
+--- Modes: "sp" (false,false) | "server"/"dedi" (true,false)
+---        | "client" (false,true) | "host" (true,true)
+function PZTestKit.withContext(mode, fn)
+    local matrix = {
+        sp = { false, false }, server = { true, false },
+        dedi = { true, false }, client = { false, true },
+        host = { true, true },
+    }
+    local ctx = matrix[mode]
+    if not ctx then error("PZTestKit.withContext: unknown mode '" .. tostring(mode) .. "'", 2) end
+    local oldServer, oldClient = _G.isServer, _G.isClient
+    _G.isServer = function() return ctx[1] end
+    _G.isClient = function() return ctx[2] end
+    local ok, result = pcall(fn)
+    _G.isServer, _G.isClient = oldServer, oldClient
+    if not ok then error(result, 0) end
+    return result
+end
+
+--- Wrap a hand-rolled (plain-table) fixture so lookups of MISSING members
+--- get recorded. Kahlua's "Object tried to call nil" doesn't name the
+--- method; the executor prints this ledger on test failure/error instead,
+--- turning fixture-gap whack-a-mole into a one-shot diagnosis. Existence
+--- guards (`if obj.method then`) behave identically — __index only fires
+--- for absent keys and still yields nil.
+---   local sq = PZTestKit.trackMisses(makeSquare(), "square")
+function PZTestKit.trackMisses(tbl, label)
+    PZTestKit._fixtureMisses = PZTestKit._fixtureMisses or {}
+    local misses = PZTestKit._fixtureMisses
+    label = label or "fixture"
+    setmetatable(tbl, {
+        __index = function(_, key)
+            misses[label .. "." .. tostring(key)] = true
+            return nil
+        end,
+    })
+    return tbl
 end
 
 print("[PZTestKit] Assert library loaded")

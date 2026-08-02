@@ -39,6 +39,14 @@ function ZombRand(a, b)
     else return 0 end
 end
 
+-- Deterministic midpoint, same policy as ZombRand. Vanilla uses this in
+-- e.g. ISTransferAction.GetDropItemOffset — its absence cost a debugging
+-- round (opaque "Object tried to call nil" from a delegated drop branch).
+function ZombRandFloat(min, max)
+    if min and max then return (min + max) / 2 end
+    return 0.0
+end
+
 function instanceof(obj, className)
     if obj == nil then return false end
     if type(obj) == "table" and obj._type then

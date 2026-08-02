@@ -135,9 +135,15 @@ return tests
 **Key rules:**
 
 - Each test is a function on the `tests` table
-- Return `true` for pass, `false` for fail
 - Use `Assert.*` for auto-generated pass/fail messages
 - `return tests` at the end — the runner reads this table
+
+**Pass/fail is assertion-accounted**: a test fails when any `Assert.*` in
+its body failed, or when it explicitly returns `false`. You do NOT need to
+`return` your final assert (forgetting it used to silently fail a green
+test), and a mid-body assert failure can't hide behind a passing returned
+one. Mod-native registries that don't use the kit Assert still pass/fail by
+their returned boolean.
 
 ## Step 5: Run your tests
 
@@ -196,6 +202,40 @@ Start with the function that's burned you in the past. Not the pretty well-teste
 If your mod ships MP features, look at the [duplication vector cheat sheet](FIXTURES.md#appendix--counter-cheat-sheet) and pick an assertion. If you can name a real regression and write the one-line counter assertion for it, you've got your second test.
 
 See [PATTERNS.md](PATTERNS.md) for case studies from shipped mods.
+
+## Test-writing helpers
+
+Leak-proof scoped overrides — every helper restores in all outcomes
+(including when the body throws) and re-raises the original error. A
+manually-restored spy that leaks on error poisons whichever test runs next
+in sorted order; these exist so that can't happen.
+
+```lua
+-- Patch tbl[key] for the duration of fn (spy a chokepoint, stub a global):
+local spyFn, calls = PZTestKit.spy()          -- records args, returns true
+PZTestKit.withPatch(SaucedCarts, "updateCartVisual", spyFn, function()
+    return SaucedCarts.performCartTransfer(player, item, src, dest)
+end)
+Assert.equal(#calls, 1, "one visual refresh")
+
+-- PZTestKit.spy(impl) delegates to impl after recording:
+local double, calls = PZTestKit.spy(function(x) return x * 2 end)
+
+-- Run under a specific isServer()/isClient() combination. The harness
+-- defaults to isClient()==true, which silently skips `if not isClient()`
+-- server/SP branches — use this for any test exercising one.
+-- Modes: "sp" | "server" (alias "dedi") | "client" | "host"
+PZTestKit.withContext("server", function()
+    return SaucedCarts.updateCartVisual(cart, player)
+end)
+
+-- Wrap a hand-rolled fixture so lookups of MISSING members get recorded.
+-- Kahlua's "Object tried to call nil" never names the method; on test
+-- failure/error the runner prints "fixture lookups that returned nil:
+-- square.getApparentZ, ..." — one-shot diagnosis instead of whack-a-mole.
+-- Existence guards (`if obj.method then`) behave identically.
+local sq = PZTestKit.trackMisses(makeSquare(), "square")
+```
 
 ## Assert library reference
 
