@@ -249,9 +249,12 @@ tests["isDecor_water_sprite_is_exempt"] = function()
     -- (place net / go fishing / add chum key on IsoFlagType.water of a passed object) —
     -- it must survive the decor prune even though its name matches "blends_"
     _G.IsoFlagType = _G.IsoFlagType or { water = "water" }
+    -- PropertyContainer's real exposed method is has(IsoFlagType) — the mock must
+    -- match it exactly (an Is() mock let a nil-method call ship: caught by pcall
+    -- but logged loudly by 42.20, and the exemption never engaged in-game)
     local function sprP(s, isWater) return { getSprite = function() return {
         getName = function() return s end,
-        getProperties = function() return { Is = function(_, f) return isWater and f == IsoFlagType.water end } end,
+        getProperties = function() return { has = function(_, f) return isWater and f == IsoFlagType.water end } end,
     } end } end
     if not Assert.isTrue(not W._isDecor(sprP("blends_natural_02_1", true)), "water blends tile survives the prune") then return false end
     return Assert.isTrue(W._isDecor(sprP("blends_natural_01_5", false)), "dry blends tile still pruned")
