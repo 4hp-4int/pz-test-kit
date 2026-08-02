@@ -55,6 +55,62 @@ tests["no_match_excluded"] = function()
     return Assert.equal(#s.filtered, 0, "a non-matching query filters everything out")
 end
 
+-- ── typo fallback (edit-distance-1 zero-result retry) ───────────────────────
+tests["ed1_variants_are_swaps_and_deletions"] = function()
+    local want = { bac = true, acb = true, bc = true, ac = true, ab = true }
+    local vars = SP.Score.ed1Variants("abc")
+    if not Assert.equal(#vars, 5, "abc -> 2 swaps + 3 deletions") then return false end
+    for _, v in ipairs(vars) do
+        if not Assert.isTrue(want[v] == true, v .. " is a legal ED1 variant") then return false end
+    end
+    return true
+end
+
+tests["transposed_query_still_finds_the_row"] = function()
+    local s = run({ { label = "Harvest Carrots", category = "farm", runnable = true },
+                    { label = "Drink Water",     category = "drink", runnable = true } }, "hravest")
+    if not Assert.equal(#s.filtered, 1, "swap variant rescues the transposition") then return false end
+    if not Assert.equal(s.filtered[1].label, "Harvest Carrots", "and finds the right row") then return false end
+    return Assert.isTrue(SP.Filter._lastTypo == true, "the typo pass reports it fired")
+end
+
+tests["one_wrong_char_still_finds_the_row"] = function()
+    -- "hervest": deleting the wrong 'e' leaves a subsequence of "harvest"
+    local s = run({ { label = "Harvest Carrots", category = "farm", runnable = true } }, "hervest")
+    return Assert.equal(#s.filtered, 1, "deletion variant rescues a substitution typo")
+end
+
+tests["typo_pass_only_fires_on_zero_results"] = function()
+    run({ { label = "Open Box", category = "craft", runnable = true } }, "open")
+    return Assert.isTrue(SP.Filter._lastTypo == false, "results present -> no typo retry")
+end
+
+tests["short_queries_never_typo_match"] = function()
+    local s = run({ { label = "Open Box", category = "craft", runnable = true } }, "xp")
+    return Assert.equal(#s.filtered, 0, "2-char garbage gets no hallucinated rescue")
+end
+
+tests["garbage_stays_empty_through_the_fallback"] = function()
+    local s = run({ { label = "Drink Water", category = "drink", runnable = true } }, "qqqqq")
+    return Assert.equal(#s.filtered, 0, "ED1 variants of garbage still match nothing")
+end
+
+-- ── query-conditional history (v1.3) ────────────────────────────────────────
+tests["query_pick_floats_your_previous_choice"] = function()
+    require "palette/pal_history"
+    local savedR, savedW = _G.getFileReader, _G.getFileWriter
+    _G.getFileReader = function() return nil end
+    _G.getFileWriter = function() return { write = function() end, close = function() end } end
+    local a = { label = "Open Box",    category = "craft", runnable = true, kind = "craft", source = "s1" }
+    local b = { label = "Open Barrel", category = "craft", runnable = true, kind = "craft", source = "s2" }
+    local before = run({ a, b }, "open")
+    _G.SaucePalette.History.record(a, "open")            -- you chose Open Box for "open"
+    local after = run({ a, b }, "open")
+    _G.getFileReader, _G.getFileWriter = savedR, savedW
+    if not Assert.equal(before.filtered[1].label, "Open Barrel", "alphabetical tie before any pick") then return false end
+    return Assert.equal(after.filtered[1].label, "Open Box", "the remembered pick floats on the same query")
+end
+
 -- ── zero-state tagging ──────────────────────────────────────────────────────
 tests["pinned_floats_and_tags_in_zero_state"] = function()
     _G.SaucePalette.Pins = { isPinned = function(c) return c._pinned == true end }

@@ -65,4 +65,41 @@ tests["getLast_returns_last_recorded_id"] = function()
     return Assert.equal(last, "use|Hist GetLast|s", "getLast returns the last-run id")
 end
 
+-- ── query-conditional picks (v1.3) ──────────────────────────────────────────
+tests["pick_is_remembered_per_query"] = function()
+    local cmd = { kind = "use", label = "Hist Pick", source = "s" }
+    local hit, miss, short
+    noFile(function()
+        Hy.record(cmd, "shovel snow")
+        hit   = Hy.pickFor("  Shovel   SNOW ")   -- case/trim/space-collapse normalize
+        miss  = Hy.pickFor("shovel")             -- a DIFFERENT query has no pick
+        short = Hy.pickFor("s")                  -- sub-2-char never stores or matches
+    end)
+    if not Assert.equal(hit, "use|Hist Pick|s", "same query (normalized) returns the pick") then return false end
+    if not Assert.isNil(miss, "a different query has no pick") then return false end
+    return Assert.isNil(short, "sub-2-char queries never match")
+end
+
+tests["later_pick_overwrites_the_query"] = function()
+    local a = { kind = "use", label = "Hist Pick A", source = "s" }
+    local b = { kind = "use", label = "Hist Pick B", source = "s" }
+    local id
+    noFile(function()
+        Hy.record(a, "dig")
+        Hy.record(b, "dig")
+        id = Hy.pickFor("dig")
+    end)
+    return Assert.equal(id, "use|Hist Pick B|s", "the newest pick wins the query")
+end
+
+tests["empty_query_records_frequency_only"] = function()
+    local cmd = { kind = "use", label = "Hist NoQ", source = "s" }
+    local id
+    noFile(function()
+        Hy.record(cmd, "")
+        id = Hy.pickFor("")
+    end)
+    return Assert.isNil(id, "zero-state runs never mint a query pick")
+end
+
 return tests
