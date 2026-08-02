@@ -28,6 +28,7 @@ local spy = { queued = 0 }
 local function collect(opts)
     opts = opts or {}
     spy.queued = 0
+    spy.seeded = nil
     _G.ISTimedActionQueue = { add = function() spy.queued = spy.queued + 1 end }
     _G.CFarmingSystem = { instance = { getLuaObjectOnSquare = function(_, sq) return opts.plant end } }
     _G.ISFarmingMenu = { canDigHereSquare = function() return opts.diggable == true end }
@@ -37,16 +38,33 @@ local function collect(opts)
     _G.ISShovelAction = { new = function() return {} end }
     _G.ISPlowAction = { new = function() return {} end }
     _G.ISCurePlantAction = { new = function() return {} end }
+    _G.ISSeedActionNew = { new = function(_, _, _, typeOfSeed) spy.seeded = typeOfSeed; return {} end }
     _G.ItemTag = _G.ItemTag or { FERTILIZER = "Fertilizer", COMPOST = "Compost", DIG_PLOW = "DigPlow" }
+    _G.ItemTag.IS_SEED = _G.ItemTag.IS_SEED or "IsSeed"
+    _G.ItemTag.IS_CUTTING = _G.ItemTag.IS_CUTTING or "IsCutting"
+    -- the crop table sowing enumerates (seedTypes list + seedName-only spellings)
+    _G.farming_vegetableconf = { props = {
+        Carrots  = { seedTypes = { "Base.CarrotSeed" } },
+        Cabbages = { seedName = "Base.CabbageSeed" },
+    } }
+    _G.instanceof = _G.instanceof or function(it, cls) return type(it) == "table" and it._type == cls end
     _G.luautils = _G.luautils or {}; _G.luautils.walkAdj = function() return true end
     _G.getText = _G.getText or function(k) return k end
     local tools = {}
     for _, t in ipairs(opts.items or {}) do tools[#tools + 1] = t end
     local inv = { getFirstEvalRecurse = function(_, pred)
         for _, it in ipairs(tools) do if pred(it) then return it end end
+    end, getFirstTypeEvalRecurse = function(_, fullType, pred)
+        for _, it in ipairs(tools) do
+            if it.getFullType and it:getFullType() == fullType and pred(it) then return it end
+        end
     end }
     local sq = { getX = function() return 0 end, getY = function() return 0 end, getZ = function() return 0 end }
-    _G.getCell = function() return { getGridSquare = function(_, x, y) if x == 0 and y == 0 then return sq end end } end
+    local sq2 = { getX = function() return 1 end, getY = function() return 0 end, getZ = function() return 0 end }
+    _G.getCell = function() return { getGridSquare = function(_, x, y)
+        if x == 0 and y == 0 then return sq end
+        if opts.twoFurrows and x == 1 and y == 0 then return sq2 end
+    end } end
     local p = { _type = "IsoPlayer", getInventory = function() return inv end, getCurrentSquare = function() return sq end }
     _G._pz_player = p
     for _, s in ipairs(SP.sources) do if s.id == "farming" then return s.collect(0) end end
@@ -61,6 +79,16 @@ local function plowItem()  return { isWaterSource = function() return false end,
 local function sprayItem(t) return { getType = function() return t end, getCurrentUses = function() return 2 end,
                                      isWaterSource = function() return false end, isBroken = function() return false end,
                                      hasTag = function() return false end } end
+-- a plantable seed packet; overlay `extra` to spoil it (Food-shaped: _isFood + isRotten…)
+local function seedItem(fullType, extra)
+    local it = { getFullType = function() return fullType end,
+                 hasTag = function(_, t) return t == "IsSeed" end,
+                 getTexture = function() return "seed-tex" end,
+                 isWaterSource = function() return false end, getCurrentUses = function() return 0 end,
+                 isBroken = function() return false end }
+    if extra then for k, v in pairs(extra) do it[k] = v end end
+    return it
+end
 
 local function find(cmds, sub) for _, c in ipairs(cmds) do if tostring(c.label):find(sub, 1, true) then return c end end end
 
@@ -137,6 +165,53 @@ end
 
 tests["empty_no_rows"] = function()
     return Assert.equal(#collect({}), 0, "nothing farmable -> no rows")
+end
+
+tests["furrow_with_seed_offers_plant"] = function()
+    local row = find(collect({ plant = plant("plow"), items = { seedItem("Base.CarrotSeed") } }), "Plant Carrots")
+    if not Assert.notNil(row, "a furrow + carrot seeds -> Plant Carrots") then return false end
+    if not Assert.isTrue(row.runnable == true, "seed in bag -> runnable") then return false end
+    if not Assert.notNil(row.hl, "planting highlights the furrow") then return false end
+    return Assert.equal(row.category, "farm", "farm category")
+end
+
+tests["furrow_without_seeds_shows_blocked_plant_row"] = function()
+    local row = find(collect({ plant = plant("plow"), items = { plowItem() } }), "Plant Seeds")
+    return Assert.isTrue(row ~= nil and row.runnable == false, "no seeds -> one greyed Plant Seeds row")
+end
+
+tests["only_carried_crops_are_offered"] = function()
+    local cmds = collect({ plant = plant("plow"), items = { seedItem("Base.CarrotSeed") } })
+    return Assert.isNil(find(cmds, "Plant Cabbages"), "no cabbage seed carried -> no Plant Cabbages row")
+end
+
+tests["seedname_only_crops_resolve"] = function()
+    local row = find(collect({ plant = plant("plow"), items = { seedItem("Base.CabbageSeed") } }), "Plant Cabbages")
+    return Assert.isTrue(row ~= nil and row.runnable == true, "seedName-only crop spelling still plantable")
+end
+
+tests["spoiled_food_seed_is_no_seed"] = function()
+    -- vanilla predicateGoodSeed: a rotten Food-shaped seed doesn't count as seed stock
+    local rotten = seedItem("Base.CarrotSeed", { _type = "Food",
+        isRotten = function() return true end, isCooked = function() return false end, isBurnt = function() return false end,
+        isFresh = function() return false end, getBaseHunger = function() return -10 end, getHungerChange = function() return -10 end })
+    local cmds = collect({ plant = plant("plow"), items = { rotten } })
+    if not Assert.isNil(find(cmds, "Plant Carrots"), "rotten seed stock -> not plantable") then return false end
+    return Assert.notNil(find(cmds, "Plant Seeds"), "falls back to the greyed row")
+end
+
+tests["plant_run_queues_the_sow_action"] = function()
+    local row = find(collect({ plant = plant("plow"), items = { seedItem("Base.CarrotSeed") } }), "Plant Carrots")
+    row.run()
+    if not Assert.equal(spy.queued, 1, "running Plant walks + queues") then return false end
+    return Assert.equal(spy.seeded, "Carrots", "ISSeedActionNew gets the crop type")
+end
+
+tests["two_furrows_one_plant_row_per_crop"] = function()
+    local cmds = collect({ plant = plant("plow"), twoFurrows = true, items = { seedItem("Base.CarrotSeed") } })
+    local n = 0
+    for _, c in ipairs(cmds) do if tostring(c.label):find("Plant Carrots", 1, true) then n = n + 1 end end
+    return Assert.equal(n, 1, "seed rows dedupe by crop across furrows")
 end
 
 return tests
