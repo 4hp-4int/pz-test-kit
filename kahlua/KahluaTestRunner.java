@@ -274,7 +274,7 @@ public class KahluaTestRunner {
                 // Fresh Kahlua runtime
                 TestPlatform platform = new TestPlatform();
                 env = platform.newEnvironment();
-                KahluaThread thread = new KahluaThread(platform, env);
+                KahluaThread thread = new KahluaThread(System.out, platform, env);
                 thread.debugOwnerThread = Thread.currentThread();
 
                 // Capture the build recipe once so DualVMSim can construct
@@ -680,7 +680,7 @@ public class KahluaTestRunner {
         ModuleIndex index = indexModuleTree(modRoot);
         TestPlatform platform = new TestPlatform();
         KahluaTable  env      = platform.newEnvironment();
-        KahluaThread thread   = new KahluaThread(platform, env);
+        KahluaThread thread   = new KahluaThread(System.out, platform, env);
         thread.debugOwnerThread = Thread.currentThread();
 
         buildEnv(thread, env, modRoot, index, new ArrayList<>(), /*isServer*/ false, /*clientIdx*/ 0);
@@ -1039,7 +1039,7 @@ public class KahluaTestRunner {
         try {
             TestPlatform platform = new TestPlatform();
             KahluaTable env = platform.newEnvironment();
-            KahluaThread thread = new KahluaThread(platform, env);
+            KahluaThread thread = new KahluaThread(System.out, platform, env);
             thread.debugOwnerThread = Thread.currentThread();
             env.rawset("_pz_config_source", Files.readString(configFile));
             LuaClosure c = LuaCompiler.loadstring(

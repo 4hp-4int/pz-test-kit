@@ -27,7 +27,7 @@ for a in "$@"; do
 done
 
 echo "[uiview] rendering scene '$SCENE' via Kahlua harness..." >&2
-RAW="$(cd "$HERE" && bash "$KIT/pztest" 2>/dev/null || true)"
+RAW="$(cd "$HERE" && bash "$KIT/pztest" --verbose 2>/dev/null || true)"
 
 # Extract the JSON between the named sentinels.
 JSON="$(printf '%s\n' "$RAW" | awk -v s="$SCENE" '

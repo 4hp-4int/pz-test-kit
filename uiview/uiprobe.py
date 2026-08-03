@@ -8,7 +8,7 @@ parses that JSON so geometry claims -- "the funnel is centered in the icon
 column", "top padding equals bottom padding" -- can be CONFIRMED numerically
 before they're asserted, instead of eyeballed off a thumbnail.
 
-    bash ../pztest 2>/dev/null | ./uiprobe.py emit   # capture + cache ALL scenes
+    bash ../pztest --verbose 2>/dev/null | ./uiprobe.py emit   # capture + cache ALL scenes
     ./uiprobe.py find  <scene> <selector>     # list matching ops/elements + rects
     ./uiprobe.py box   <scene> <selector>     # resolve ONE bbox, print its edges
     ./uiprobe.py gap   <scene> <A> <B>        # edge deltas + axis gaps, A vs B
@@ -43,7 +43,7 @@ CACHE = os.path.join(HERE, "out", "probe")
 # The harness runs in Git Bash (`bash ../pztest`); Python can't reliably spawn
 # that shell on Windows (subprocess picks up WSL bash), so `emit` reads the
 # harness stdout from a PIPE instead of shelling out itself:
-#     bash ../pztest 2>/dev/null | python uiprobe.py emit
+#     bash ../pztest --verbose 2>/dev/null | python uiprobe.py emit
 def emit():
     raw = sys.stdin.read()
     scenes = {}
@@ -54,7 +54,7 @@ def emit():
             pass
     if not scenes:
         print("ERROR: no @@UIVIEW@@ blocks on stdin. Pipe the harness in:\n"
-              "  bash ../pztest 2>/dev/null | python uiprobe.py emit", file=sys.stderr)
+              "  bash ../pztest --verbose 2>/dev/null | python uiprobe.py emit", file=sys.stderr)
         sys.exit(1)
     os.makedirs(CACHE, exist_ok=True)
     for name, data in scenes.items():
@@ -68,7 +68,7 @@ def load(scene):
     path = os.path.join(CACHE, scene + ".json")
     if not os.path.exists(path):
         print("ERROR: no cached scene %r. Capture first:\n"
-              "  bash ../pztest 2>/dev/null | python uiprobe.py emit" % scene, file=sys.stderr)
+              "  bash ../pztest --verbose 2>/dev/null | python uiprobe.py emit" % scene, file=sys.stderr)
         sys.exit(1)
     with open(path, encoding="utf-8") as f:
         return json.load(f)

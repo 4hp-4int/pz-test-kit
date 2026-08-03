@@ -126,7 +126,7 @@ public class DualVMSim {
     private Endpoint makeEndpoint(String role, int index, boolean isServer, int clientIdx) throws Exception {
         TestPlatform platform = new TestPlatform();
         KahluaTable env = platform.newEnvironment();
-        KahluaThread thread = new KahluaThread(platform, env);
+        KahluaThread thread = new KahluaThread(System.out, platform, env);
         thread.debugOwnerThread = Thread.currentThread();
 
         builder.build(thread, env, isServer, clientIdx);

@@ -40,9 +40,12 @@ public class TestPlatform implements Platform {
 
         MathLib.register(this, env);
         BaseLib.register(env);
-        // Wire Lua's print() to stdout so test diagnostics show. Without this,
-        // Kahlua's print callback is null and all prints are silently dropped.
-        BaseLib.setPrintCallback(System.out::println);
+        // 42.20 print routing: BaseLib.print writes to KahluaThread.getOut() (the
+        // per-thread stream) AND the static callback. The kit passes System.out to
+        // every KahluaThread constructor (null would route to PZ's DebugLogStream,
+        // a dead end headless — the silent-print regression of the 42.20 jar
+        // rebuild). The old setPrintCallback wiring is intentionally GONE: with
+        // both bound, every line printed twice.
         StringLib.register(this, env);
         CoroutineLib.register(this, env);
         OsLib.register(this, env);
@@ -64,7 +67,7 @@ public class TestPlatform implements Platform {
         }
         String source = Files.readString(path);
         LuaClosure closure = LuaCompiler.loadstring(source, filename, env);
-        KahluaThread thread = new KahluaThread(this, env);
+        KahluaThread thread = new KahluaThread(System.out, this, env);
         thread.debugOwnerThread = Thread.currentThread();
         thread.pcall(closure, new Object[0]);
     }

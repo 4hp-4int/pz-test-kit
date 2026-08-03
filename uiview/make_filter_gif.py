@@ -27,7 +27,7 @@ ROOTS = [os.path.join(KIT, "..", d) for d in ("sauce-shortorder", "SauceCanonica
 
 # 1. one harness run -> all palette_type_* JSON blocks, in order
 # Run pztest from git-bash into out/_harness.txt FIRST (Python's `bash` resolves to a
-# broken WSL stub):  bash ../pztest > out/_harness.txt 2>/dev/null
+# broken WSL stub):  bash ../pztest --verbose > out/_harness.txt 2>/dev/null
 with open(os.path.join(HERE, "out", "_harness.txt"), "r", encoding="utf-8", errors="replace") as fh:
     raw = fh.read().replace("\r", "")
 blocks = {}
