@@ -32,6 +32,11 @@ local function collect(opts)
     _G.ISTimedActionQueue = { add = function() spy.queued = spy.queued + 1 end }
     _G.CFarmingSystem = { instance = { getLuaObjectOnSquare = function(_, sq) return opts.plant end } }
     _G.ISFarmingMenu = { canDigHereSquare = function() return opts.diggable == true end }
+    -- vanilla's water-uses helper: present only when a test opts in, so the
+    -- getCurrentUses fallback stays covered too
+    if opts.waterUses then
+        _G.ISFarmingMenu.getWaterUsesInteger = function() return opts.waterUses end
+    end
     _G.ISHarvestPlantAction = { new = function() return {} end }
     _G.ISWaterPlantAction = { new = function() return {} end }
     _G.ISFertilizeAction = { new = function() return {} end }
@@ -102,11 +107,51 @@ tests["harvestable_plant_offers_harvest"] = function()
 end
 
 tests["seeded_plant_water_needs_a_source"] = function()
-    local dry = find(collect({ plant = plant("seeded"), items = {} }), "Water")
+    -- nothing to pour with: ONE honest blocked row named for the plant, no amounts
+    local cmds = collect({ plant = plant("seeded"), items = {} })
+    local dry = find(cmds, "Water")
     if not Assert.notNil(dry, "Water row shown") then return false end
     if not Assert.isTrue(dry.runnable == false, "no water -> blocked") then return false end
-    local wet = find(collect({ plant = plant("seeded"), items = { waterItem() } }), "Water")
-    return Assert.isTrue(wet.runnable == true, "with a water source -> runnable")
+    local n = 0
+    for _, c in ipairs(cmds) do if c.kind == "waterplant" then n = n + 1 end end
+    if not Assert.equal(n, 0, "blocked state offers no pour amounts") then return false end
+    local wet = find(collect({ plant = plant("seeded"), items = { waterItem() } }), "Pour all")
+    return Assert.isTrue(wet ~= nil and wet.runnable == true, "with a water source -> a runnable pour row")
+end
+
+-- ── pour amounts: one use = 10 waterLvl ─────────────────────────────────────
+local function pourLabels(cmds)
+    local t = {}
+    for _, c in ipairs(cmds) do if c.kind == "waterplant" then t[c.label] = c.order end end
+    return t
+end
+
+tests["water_offers_amounts_in_tens"] = function()
+    -- plant at 40 needs 6 uses; the bottle holds 5 -> capped at what you carry
+    local amts = pourLabels(collect({ plant = plant("seeded"), items = { waterItem() } }))
+    if not Assert.notNil(amts["Pour all 50 you have"], "capped fill names the real amount") then return false end
+    if not Assert.equal(amts["Pour all 50 you have"], 0, "the fill is the family default (order 0)") then return false end
+    for u = 1, 4 do
+        if not Assert.notNil(amts["+" .. (u * 10) .. " water"], "+" .. (u * 10) .. " offered") then return false end
+    end
+    return Assert.isNil(amts["+50 water"], "no increment duplicating the fill")
+end
+
+tests["water_fill_when_you_carry_enough"] = function()
+    -- 20 uses available, plant needs 6 -> the default fills it and stops there
+    local big = waterItem(); big.getCurrentUses = function() return 20 end
+    local amts = pourLabels(collect({ plant = plant("seeded"), items = { big } }))
+    if not Assert.notNil(amts["Fill it up"], "enough water -> 'Fill it up'") then return false end
+    return Assert.isNil(amts["+60 water"], "amounts stop at what the plant needs")
+end
+
+tests["water_amount_follows_the_vanilla_helper"] = function()
+    -- a B42 fluid container lies via getCurrentUses; the real read is
+    -- ISFarmingMenu.getWaterUsesInteger, so the amounts must follow IT
+    local bottle = waterItem(); bottle.getCurrentUses = function() return 99 end
+    local amts = pourLabels(collect({ plant = plant("seeded"), items = { bottle }, waterUses = 3 }))
+    if not Assert.notNil(amts["Pour all 30 you have"], "amounts follow the vanilla helper, not getCurrentUses") then return false end
+    return Assert.isNil(amts["+30 water"], "no increment duplicating the fill")
 end
 
 tests["seeded_plant_fertilize_gated"] = function()
