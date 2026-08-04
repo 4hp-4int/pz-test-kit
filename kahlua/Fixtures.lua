@@ -707,6 +707,202 @@ function Fixtures.networkSpy()
     return spy
 end
 
+--- Faithful mock of the container broadcast helpers.
+---
+--- WHY THIS EXISTS: `Fixtures.networkSpy` records `sendAddItemToContainer` /
+--- `sendRemoveItemFromContainer` calls but says nothing about whether the
+--- packet was actually SENT. In real PZ both methods
+--- (GameServer.java:2391 and :2451) are a three-branch if/elseif chain with
+--- NO else:
+---
+---   1. container:getCharacter() is an IsoPlayer  -> send to that player
+---   2. container:getParent() ~= nil              -> sendToRelative(parent x,y)
+---   3. container.inventoryContainer:getWorldItem() ~= nil
+---                                                -> sendToRelative(item x,y)
+---
+--- A container matching none of the three is UNADDRESSABLE and the packet is
+--- silently dropped — no error, no log. That is a live MP failure mode for
+--- any container nested inside a vehicle part or a world object: their inner
+--- containers are built with the no-arg `new ItemContainer()` so `parent` is
+--- nil, `getCharacter()` (ItemContainer.java:3314) walks up and terminates at
+--- the non-character owner, and a nested bag has no world item.
+---
+--- Branch 3 is narrower than it looks, and the narrowing is what matters:
+--- `inventoryContainer` is set for every InventoryContainer (assigned in the
+--- constructor at InventoryContainer.java:36 on a field-initialised
+--- ItemContainer, and `load()` reuses that same object rather than replacing
+--- it — so it survives save/load). What fails is `getWorldItem()`: it is
+--- non-nil only while the containing item is lying on the ground as an
+--- IsoWorldInventoryObject. A bag sitting INSIDE a trunk or a shelf has no
+--- world item, so branch 3 misses for exactly the nested case that branches
+--- 1 and 2 also miss.
+---
+--- A recording-only stub makes all of that invisible and lets a test go green
+--- against code that never syncs anything. Use this spy whenever the code
+--- under test performs server-authoritative container moves.
+---
+--- Fixture requirements: containers should implement `getCharacter()` and
+--- `getParent()` and expose an `inventoryContainer` field to be scored
+--- accurately. A missing method is treated as "not addressable via that
+--- branch", which matches the Java null checks.
+---
+--- Callers MUST pair :install() with :uninstall().
+function Fixtures.containerSyncSpy()
+    local spy = { _calls = {}, _saved = {}, _hadKey = {} }
+
+    --- Mirror of the Java dispatch chain. Returns the branch that would carry
+    --- the packet, or nil when the container is unaddressable.
+    local function routeFor(container)
+        if not container then return nil end
+        local chr = container.getCharacter and container:getCharacter()
+        if chr then
+            local isPlayer = chr._type == "IsoPlayer"
+            if not isPlayer and instanceof then
+                isPlayer = instanceof(chr, "IsoPlayer")
+            end
+            if isPlayer then return "character" end
+        end
+        if container.getParent and container:getParent() ~= nil then
+            return "parent"
+        end
+        local ic = container.inventoryContainer
+        if ic and ic.getWorldItem and ic:getWorldItem() ~= nil then
+            return "worldItem"
+        end
+        return nil
+    end
+    spy.routeFor = function(_, container) return routeFor(container) end
+
+    function spy:reset() self._calls = {} end
+    function spy:record(kind, container, item)
+        local route = routeFor(container)
+        table.insert(self._calls, {
+            kind = kind, container = container, item = item,
+            route = route, delivered = route ~= nil,
+        })
+    end
+
+    --- Every recorded call of `kind` (nil = all kinds).
+    function spy:callsFor(kind)
+        local r = {}
+        for _, c in ipairs(self._calls) do
+            if kind == nil or c.kind == kind then table.insert(r, c) end
+        end
+        return r
+    end
+    --- Count of calls that would actually reach a client.
+    function spy:deliveredCount(kind)
+        local n = 0
+        for _, c in ipairs(self:callsFor(kind)) do
+            if c.delivered then n = n + 1 end
+        end
+        return n
+    end
+    --- Count of calls silently swallowed by the unaddressable-container hole.
+    function spy:droppedCount(kind)
+        local n = 0
+        for _, c in ipairs(self:callsFor(kind)) do
+            if not c.delivered then n = n + 1 end
+        end
+        return n
+    end
+    --- True when at least one `kind` packet naming `item` reached a client.
+    function spy:deliveredFor(kind, item)
+        for _, c in ipairs(self:callsFor(kind)) do
+            if c.item == item and c.delivered then return true end
+        end
+        return false
+    end
+    function spy:total() return #self._calls end
+
+    function spy:install()
+        local handlers = {
+            sendAddItemToContainer = function(container, item)
+                spy:record("add", container, item)
+            end,
+            sendRemoveItemFromContainer = function(container, item)
+                spy:record("remove", container, item)
+            end,
+            -- GameServer.sendItemsInContainer(IsoObject, ItemContainer) — the
+            -- anchored full-container resync. It takes an explicit IsoObject
+            -- so its DISPATCH has no addressability hole. Its client handler
+            -- does though: AddInventoryItemToContainerPacket.processClient
+            -- (:87-90) skips any item whose id the destination already holds
+            -- and logs "Error: Dupe item ID". `applied` records whether the
+            -- client would actually change state, which is the thing that
+            -- matters and the thing a send-only stub hides.
+            sendItemsInContainer = function(anchor, container)
+                local applied, skipped = 0, 0
+                if container and container.getItems then
+                    local items = container:getItems()
+                    for i = 0, items:size() - 1 do
+                        local it = items:get(i)
+                        -- Modelled against the RECEIVING side: a client whose
+                        -- container already holds this id discards the entry.
+                        if it and container.containsID and container:containsID(it:getID()) then
+                            skipped = skipped + 1
+                        else
+                            applied = applied + 1
+                        end
+                    end
+                end
+                table.insert(spy._calls, {
+                    kind = "resync", container = container, anchor = anchor,
+                    route = "anchor", delivered = anchor ~= nil,
+                    applied = applied, skipped = skipped,
+                })
+            end,
+            -- GameServer.sendReplaceItemInContainer — same three-branch
+            -- dispatch as add/remove, but its client handler
+            -- (ReplaceInventoryItemInContainerPacket.processClient:67-69)
+            -- does removeItemWithID then addItem with NO dedup guard, so it
+            -- always applies. This is how a nested container's contents can
+            -- actually be refreshed on a client.
+            sendReplaceItemInContainer = function(container, oldItem, newItem)
+                local route = routeFor(container)
+                table.insert(spy._calls, {
+                    kind = "replace", container = container,
+                    item = newItem, oldItem = oldItem,
+                    route = route, delivered = route ~= nil, applied = 1,
+                })
+            end,
+            -- Vanilla's Commands.ui.DirtyUI (client ServerCommands.lua:138)
+            -- runs ISInventoryPage.dirtyUI() -> refreshBackpacks(), which
+            -- RE-RESOLVES each panel's container list. Recorded separately
+            -- because a `replace` rebinds the container object, so data
+            -- correctness and panel correctness are two different questions
+            -- and a test should be able to assert both.
+            sendServerCommand = function(a, b, c, d)
+                -- 4-arg targeted form is (player, module, command, args);
+                -- the 3-arg broadcast form is (module, command, args).
+                local player, module, command
+                if type(a) == "string" then
+                    player, module, command = nil, a, b
+                else
+                    player, module, command = a, b, c
+                end
+                table.insert(spy._calls, {
+                    kind = "servercommand", player = player,
+                    module = module, command = command,
+                    delivered = true, applied = 1,
+                })
+            end,
+        }
+        for name, fn in pairs(handlers) do
+            self._hadKey[name] = _G[name] ~= nil
+            self._saved[name] = _G[name]
+            _G[name] = fn
+        end
+    end
+    function spy:uninstall()
+        for name, had in pairs(self._hadKey) do
+            _G[name] = had and self._saved[name] or nil
+        end
+        self._saved, self._hadKey = {}, {}
+    end
+    return spy
+end
+
 --- Event spy. Captures triggerEvent / LuaEventManager:triggerEvent.
 function Fixtures.eventSpy()
     local spy = { _events = {}, _savedGlobal = nil, _savedLEM = nil }
