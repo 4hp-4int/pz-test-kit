@@ -771,6 +771,14 @@ public class KahluaTestRunner {
         //     mock from mock_environment.lua remains as fallback.
         loadVanillaRequires(thread, env);
 
+        // 3d. Translations — install a Translator-faithful getText. The format
+        //     semantics (formatFixer + String.formatted + the WARN it logs when
+        //     a specifier goes unfed) are ALWAYS on, because they apply to any
+        //     string and cost nothing for a key with no placeholders. Loading
+        //     the mod's actual strings is opt-in via `translate = "EN"` in
+        //     pz-test.lua — without it getText echoes the key, as before.
+        loadTranslations(thread, env, modRoot, kahluaDir);
+
         // 4. Scripts
         List<String> scriptPaths = new ArrayList<>();
         scriptPaths.add("weapon_scripts.lua");
@@ -1110,6 +1118,146 @@ public class KahluaTestRunner {
                 }
             } catch (Exception e) {
                 System.out.println("  [vanilla_requires] EXC  (" + entry + "): " + e.getMessage() + " — falling back to mock");
+            }
+        }
+    }
+
+    /** Install kahlua/translate.lua, optionally preloaded with the mod's real
+     *  strings. `translate` in pz-test.lua accepts a language code ("EN"), a
+     *  boolean (true == "EN"), or a path relative to the mod root pointing at
+     *  the directory of .json files. Dependency mods listed under
+     *  `dependencies` contribute their strings too, mirroring how PZ merges
+     *  every enabled mod's bundle into one table. */
+    private static void loadTranslations(KahluaThread thread, KahluaTable env,
+                                         Path modRoot, Path kahluaDir) throws Exception {
+        Map<String, String> strings = new LinkedHashMap<>();
+        String label = null;
+
+        Object cfgRaw = env.rawget("_pz_config");
+        Object opt = (cfgRaw instanceof KahluaTable) ? ((KahluaTable) cfgRaw).rawget("translate") : null;
+        if (opt != null && !Boolean.FALSE.equals(opt)) {
+            String lang = (opt instanceof String) ? (String) opt : "EN";
+            List<Path> roots = new ArrayList<>();
+            if (lang.indexOf('/') >= 0 || lang.indexOf('\\') >= 0) {
+                roots.add(modRoot.resolve(lang));                    // explicit directory
+            } else {
+                roots.add(modRoot.resolve("media/lua/shared/Translate").resolve(lang));
+                if (cfgRaw instanceof KahluaTable) {
+                    Object deps = ((KahluaTable) cfgRaw).rawget("dependencies");
+                    if (deps instanceof KahluaTable) {
+                        KahluaTable dt = (KahluaTable) deps;
+                        for (int i = 1; ; i++) {
+                            Object d = dt.rawget(i);
+                            if (d == null) break;
+                            if (d instanceof String) {
+                                roots.add(modRoot.resolve((String) d)
+                                    .resolve("media/lua/shared/Translate").resolve(lang));
+                            }
+                        }
+                    }
+                }
+            }
+            label = lang;
+            for (Path dir : roots) {
+                if (!Files.isDirectory(dir)) continue;
+                try (java.util.stream.Stream<Path> files = Files.list(dir)) {
+                    for (Path f : files.sorted().toArray(Path[]::new)) {
+                        if (!f.getFileName().toString().endsWith(".json")) continue;
+                        try {
+                            parseFlatJson(Files.readString(f, java.nio.charset.StandardCharsets.UTF_8),
+                                          strings);
+                        } catch (Exception e) {
+                            System.out.println("  [translate] SKIP (" + f.getFileName()
+                                + "): " + e.getMessage());
+                        }
+                    }
+                }
+            }
+            System.out.println("[PZTestKit] translate: loaded " + strings.size()
+                + " " + lang + " string(s)");
+        }
+
+        // Hand the table to Lua as source rather than building it through the
+        // VM's table API — same "read raw, let Lua own it" shape as the config
+        // and sandbox loaders above.
+        StringBuilder lua = new StringBuilder("_pz_translations = {\n");
+        for (Map.Entry<String, String> e : strings.entrySet()) {
+            lua.append("[").append(luaQuote(e.getKey())).append("]=")
+               .append(luaQuote(e.getValue())).append(",\n");
+        }
+        lua.append("}\n");
+        exec(thread, env, lua.toString(), "translations");
+        env.rawset("_pz_translate_lang", label);
+        loadFile(thread, env, kahluaDir.resolve("translate.lua"));
+    }
+
+    /** Quote a string as a Lua literal. Escapes every byte that could end the
+     *  literal or be read as an escape; UTF-8 passes through untouched. */
+    private static String luaQuote(String s) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"':  sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n");  break;
+                case '\r': sb.append("\\r");  break;
+                case '\t': sb.append("\\t");  break;
+                default:   sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
+    }
+
+    /** Minimal parser for PZ's translation JSON: a flat object of string keys
+     *  to string values. Deliberately not a general JSON parser — anything
+     *  nested or non-string is skipped rather than tolerated silently wrong. */
+    private static void parseFlatJson(String src, Map<String, String> out) {
+        int i = 0, n = src.length();
+        if (n > 0 && src.charAt(0) == '﻿') i = 1;              // BOM
+        while (i < n && src.charAt(i) != '{') i++;
+        i++;
+        String pendingKey = null;
+        while (i < n) {
+            char c = src.charAt(i);
+            if (c == '"') {
+                StringBuilder sb = new StringBuilder();
+                i++;
+                while (i < n) {
+                    char d = src.charAt(i);
+                    if (d == '\\' && i + 1 < n) {
+                        char e = src.charAt(++i);
+                        switch (e) {
+                            case 'n':  sb.append('\n'); break;
+                            case 't':  sb.append('\t'); break;
+                            case 'r':  sb.append('\r'); break;
+                            case 'b':  sb.append('\b'); break;
+                            case 'f':  sb.append('\f'); break;
+                            case 'u':
+                                sb.append((char) Integer.parseInt(src.substring(i + 1, i + 5), 16));
+                                i += 4;
+                                break;
+                            default:   sb.append(e);
+                        }
+                        i++;
+                    } else if (d == '"') {
+                        i++;
+                        break;
+                    } else {
+                        sb.append(d);
+                        i++;
+                    }
+                }
+                if (pendingKey == null) {
+                    pendingKey = sb.toString();
+                } else {
+                    out.put(pendingKey, sb.toString());
+                    pendingKey = null;
+                }
+            } else {
+                if (c == '}') break;
+                if (c == ',') pendingKey = null;                     // non-string value: drop
+                i++;
             }
         }
     }

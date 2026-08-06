@@ -35,6 +35,14 @@
                 "zombie/Lua/LuaEventManager",
             },
 
+            -- Read by the Java runner: loads the mod's real translation bundle
+            -- (and its `dependencies`') so getText behaves like Translator —
+            -- the loader's "%1" -> "%1$s" pass, String.formatted() on every
+            -- fetch, and the WARN an unfed specifier produces. See
+            -- kahlua/translate.lua for the test API. Accepts a language code
+            -- ("EN"), true (== "EN"), or a path to a directory of .json files.
+            translate = "EN",
+
             -- These are read by the Java runner BEFORE this file loads:
             weapon_scripts    = "tests/weapon_scripts.lua",
             test_paths        = { "media/lua/client/MyMod/Tests" },

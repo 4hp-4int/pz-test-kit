@@ -100,6 +100,10 @@ return {
         "shared/TimedActions/ISTransferAction",
     },
 
+    -- (Optional) Load your real translation bundle so getText behaves the way
+    -- Translator does in game, instead of echoing the key back.
+    -- translate = "EN",
+
     -- (Optional) Cross-mod deps for integration tests.
     -- dependencies = { "../TooltipLib" },
 
@@ -267,6 +271,43 @@ When `ISTransferAction:transferItem` gets called by your interceptor, it's the R
 **CI without a PZ install:** the kit falls back to mocks and logs a warning. To catch vanilla drift, run CI on a runner with PZ installed (or stash the vanilla files in your repo).
 
 Full details: [`docs/VANILLA_REQUIRES.md`](docs/VANILLA_REQUIRES.md).
+
+---
+
+## Translations — getText that behaves like Translator
+
+By default `getText(key)` echoes the key. That is fine until you remember what the real one does. Since 42.20.1 `Translator.getText` runs **every** string through Java's `String.formatted()`, and the JSON loader has already rewritten your file's `%1` into the format specifier `%1$s`. So this, which looks harmless and renders correctly:
+
+```lua
+local s = MyMod.substitute(getText("UI_MyMod_Hint"), keyName)   -- "Hold %1 for..."
+```
+
+...leaves the specifier unfed. Translator catches the `MissingFormatArgumentException`, hands the text back intact, and writes a WARN. On a tooltip string that is one log line per hover. An identity-function mock cannot show you that. This can:
+
+```lua
+translate = "EN",   -- parses media/lua/shared/Translate/EN/*.json (and your dependencies')
+```
+
+Now `getText` resolves real strings, applies the loader's `%1` → `%1$s` pass, formats with Java's argument rules, and records what it would have logged:
+
+```lua
+local warns = PZTestKit.Translate.capture(function()
+    label = MyMod.fmtText("UI_MyMod_Hint", keyName)
+end)
+Assert.equal(#warns, 0, "no WARN")          -- each: { key =, kind =, message = }
+```
+
+`kind` is `"missing"` (a specifier with no argument) or `"formatting"` (an argument the conversion cannot take). That second one catches a subtlety worth knowing: `fixupArgs` stringifies **every** number on its way into the formatter, so a `%d` in a translation can never be satisfied from Lua — it throws every time, and the string renders with a literal `%d` in it. The kit reproduces that.
+
+The whole-bundle sweep is the useful test — fetch every key with no arguments and assert the set that warns is the set you expect:
+
+```lua
+local warns = PZTestKit.Translate.capture(function()
+    for key in pairs(_pz_translations) do getText(key) end
+end)
+```
+
+Also: `Translate.set(key, value)` / `Translate.load(t)` to add strings, `Translate.get(key)` for the post-loader form, `Translate.reset()` to clear the log. Without `translate`, the format semantics still apply (a no-op for a key with no placeholders) and the key is still echoed, so existing suites are unaffected.
 
 ---
 
@@ -470,6 +511,7 @@ pz-test-kit/
 │   ├── mock_environment.lua
 │   ├── require_resolver.lua
 │   ├── config_loader.lua
+│   ├── translate.lua
 │   ├── post_scripts.lua
 │   ├── test_executor.lua
 │   ├── Assert.lua
