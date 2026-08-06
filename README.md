@@ -411,7 +411,7 @@ jobs:
 - uses: actions/setup-java@v4
   with: { distribution: 'temurin', java-version: '25' }
 - run: |
-    git clone --depth 1 --branch v1.1 \
+    git clone --depth 1 --branch v1.2 \
       https://github.com/4hp-4int/pz-test-kit.git "$RUNNER_TEMP/pz-test-kit"
     cd "$RUNNER_TEMP/pz-test-kit/kahlua"
     javac -cp kahlua-runtime.jar \
