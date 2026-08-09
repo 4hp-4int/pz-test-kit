@@ -55,6 +55,13 @@ function Fixtures.weapon(opts)
     -- Identity / type
     w.getID           = function(self) return priv.id end
     w.getName         = function(self) return priv.name end
+    -- Real InventoryItem has setName, and mods that build display names call it
+    -- constantly. Omitting it made every `weapon:setName(...)` a silent no-op
+    -- under test — and since callers tend to wrap it in pcall (a Java object
+    -- rejects unknown methods at runtime), nothing even errored. A whole
+    -- naming subsystem was untestable offline; VorpallySauced shipped a bug
+    -- where affixed names vanished on unequip with no test able to see it.
+    w.setName         = function(self, v) priv.name = v end
     w.getDisplayName  = function(self) return priv.name end
     w.getFullType     = function(self) return priv.name end
     w.getType         = function(self) return priv.name end
@@ -279,8 +286,11 @@ function Fixtures.item(opts)
     local it = { _type = "InventoryItem" }
     it.getID              = function(self) return priv.id end
     it.getFullType        = function(self) return priv.fullType end
-    it.getName            = function(self) return priv.fullType end
-    it.getDisplayName     = function(self) return priv.fullType end
+    -- name is separate from fullType once anything renames the item; default it
+    -- to fullType so existing expectations hold. See the note on w.setName.
+    it.getName            = function(self) return priv.name or priv.fullType end
+    it.setName            = function(self, v) priv.name = v end
+    it.getDisplayName     = function(self) return priv.name or priv.fullType end
     it.getType            = function(self)
         return (priv.fullType or ""):match("%.(.+)$") or priv.fullType
     end
