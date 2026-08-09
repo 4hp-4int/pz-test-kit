@@ -86,6 +86,24 @@ submit_queue() {
     # Ensure dir exists (getFileWriter creates it, but we're going around that).
     dexec_sh "mkdir -p /home/steam/Zomboid/Lua/pz-shell"
     printf '%s' "$code" | docker exec -i "$CONTAINER" sh -c "cat > '$QUEUE_PATH'"
+    kick_poll
+}
+
+# On a 42.20 dedicated server the event polls starve: OnTick does not fire
+# (confirmed with a player connected and the frame counter climbing), and
+# EveryOneMinute bursts once after boot then goes quiet. Waiting on them meant
+# every eval either timed out or took whatever the caller's sleep granularity
+# was, which made a "~1 second probe" feel like minutes.
+#
+# `reloadlua PZShell.lua` re-executes the file, and its bottom-of-file
+# `pcall(pollOnce)` consumes the queue synchronously. That turns the kick into
+# the transport rather than a fallback, and an eval back into ~1s. Cheap: the
+# file is ~400 lines and re-registers idempotently.
+#
+# Failure here is not fatal — if a future build fixes OnTick, the poll will pick
+# the queue up on its own and this is redundant.
+kick_poll() {
+    docker exec "$CONTAINER" pz-console "reloadlua PZShell.lua" >/dev/null 2>&1 || true
 }
 
 # Poll for a non-empty result file, return its contents, then truncate it.

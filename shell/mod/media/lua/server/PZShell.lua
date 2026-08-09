@@ -24,9 +24,24 @@
 -- writing the next request.
 -- ============================================================================
 
--- MP clients don't run this (they'd read their own local queue file which
--- would be confusing). Only the server endpoint should evaluate.
-if isClient() then return end
+-- MP clients are opt-in. The original blanket `if isClient() then return end`
+-- made client-side state completely un-introspectable, which matters more than
+-- the ambiguity it was avoiding: a whole class of bug (tooltips, display names,
+-- anything rendered) lives ONLY on the client, and debugging it without a probe
+-- means guessing. Three wrong guesses in one session is what prompted this.
+--
+-- The client reads its OWN Zomboid/Lua/pz-shell/, which is a different
+-- directory from the server's, so the two never collide — on a local dedi the
+-- server's lives inside the container. Gate is per-directory too, so enabling
+-- the shell for the server does not enable it for the client.
+--
+-- Opt in by creating the marker next to the gate:
+--   Zomboid/Lua/pz-shell/client-enabled
+if isClient() then
+    local r = getFileReader("pz-shell/client-enabled", false)
+    if not r then return end
+    r:close()
+end
 
 local QUEUE_PATH   = "pz-shell/queue.txt"
 local RESULT_PATH  = "pz-shell/result.txt"
