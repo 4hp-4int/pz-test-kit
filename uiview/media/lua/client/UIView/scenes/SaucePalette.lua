@@ -74,7 +74,7 @@ local function fixtureCommands()
         { label = "Barricade (Metal Bars)",  order = 1, default = true, icon = "Item_Moveable_window" },
         { label = "Barricade (Planks)",       order = 2, icon = "Item_Plank" },
         { label = "Barricade (Metal Sheet)",  order = 3 },
-        { label = "Remove Broken Glass",      order = 4, runnable = false, blockReason = "needs a saw" },
+        { label = "Remove Broken Glass",      order = 4, runnable = false, blockReason = "hands empty" },
     })
 
     -- DESTROY -- pinned single.
@@ -120,6 +120,10 @@ local function fixtureCommands()
 
     return cmds
 end
+
+-- Exported so composers (the browser embed) can merge the bar scene's rows
+-- with other fixtures.
+SaucePalette.fixtureCommands = fixtureCommands
 
 function SaucePalette.build(query)
     local root = SaucePaletteUI:new(0)

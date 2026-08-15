@@ -14,7 +14,7 @@ const SSO = "C:/Users/Khalen/Code/pz-mods/sauce-shortorder/media/lua/client/pale
 const PAL = [
   "pal_theme", "pal_i18n", "pal_text", "pal_score", "pal_resolve",
   "pal_filter", "pal_groups", "pal_food", "pal_chrome", "pal_highlight",
-  "pal_settings", "pal_api", "pal_ui",
+  "pal_settings", "pal_api", "pal_needs", "pal_synonyms", "pal_ui",
 ];
 
 const MODULES = {
@@ -23,6 +23,7 @@ const MODULES = {
   "UIView/Render": path.join(UIVIEW, "Render.lua"),
   "UIView/Input": path.join(UIVIEW, "Input.lua"),
   "UIView/scenes/SaucePalette": path.join(UIVIEW, "scenes", "SaucePalette.lua"),
+  "UIView/scenes/PaletteStates": path.join(UIVIEW, "scenes", "PaletteStates.lua"),
 };
 for (const m of PAL) MODULES["palette/" + m] = path.join(SSO, m + ".lua");
 

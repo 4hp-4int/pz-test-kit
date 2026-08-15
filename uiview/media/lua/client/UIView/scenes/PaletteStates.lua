@@ -64,7 +64,7 @@ local function richCommands()
     add({ label = "Open Box of Bullets", source = "Box of 9mm Rounds", category = "craft",
         icon = "Item_HandgunAmmoBox", maxN = 50, runN = function(n) return n end,
         buildDetail = batchDetail("Open Box", "9mm Round") })
-    add({ label = "Craft Crude Bandage", source = "Ripped Sheets", category = "craft", icon = "Item_RippedSheets" })
+    add({ label = "Craft Crude Bandage", source = "Ripped Sheets", category = "craft", icon = "Item_Sheet" })
 
     -- build (barricade group via the 'barri' filter)
     add({ label = "Barricade Window", source = "Planks", category = "build", icon = "Item_Plank" })
@@ -75,24 +75,24 @@ local function richCommands()
         runnable = false, blockReason = "needs forge" })
     add({ label = "Read in the Dark", source = "Carpentry Vol.2", category = "read", icon = "Item_Book",
         runnable = false, blockReason = "needs light" })
-    add({ label = "Saw Logs", source = "Log", category = "craft", icon = "Item_Log",
+    add({ label = "Saw Logs", source = "Log", category = "craft", icon = "Item_Logs",
         runnable = false, blockReason = "needs surface" })
 
     -- needs targets
     add({ label = "Bandage Wound", source = "Bandage", category = "med", icon = "Item_Bandage" })
     add({ label = "Drink Water", source = "Water Bottle", category = "drink", icon = "Item_WaterBottle_Full" })
     add({ label = "Eat Stew", source = "Pot of Stew", category = "eat", icon = "Item_Saucepan" })
-    add({ label = "Smoke Cigarette", source = "Cigarettes", category = "use", icon = "Item_Cigarettes" })
+    add({ label = "Smoke Cigarette", source = "Cigarettes", category = "use", icon = "Item_Cigarette" })
 
     -- duplicate verb -> collapses into "Equip Primary (3)" group
     add({ label = "Equip Primary", source = "Machete", category = "equip", icon = "Item_Machete" })
     add({ label = "Equip Primary", source = "Hammer", category = "equip", icon = "Item_Hammer" })
-    add({ label = "Equip Primary", source = "Kitchen Knife", category = "equip", icon = "Item_KitchenKnife" })
+    add({ label = "Equip Primary", source = "Kitchen Knife", category = "equip", icon = "Item_KnifeChopping" })
 
     -- inspect / edit / open (de-shadowed verb categories)
-    add({ label = "Inspect Leather Jacket", source = "Leather Jacket", category = "inspect", icon = "Item_JacketLeather" })
-    add({ label = "Rename Duffel Bag", source = "Duffel Bag", category = "edit", icon = "Item_Bag_DuffelBag" })
-    add({ label = "Open Canned Beans", source = "Canned Beans", category = "open", icon = "Item_TinnedBeans" })
+    add({ label = "Inspect Leather Jacket", source = "Leather Jacket", category = "inspect", icon = "Item_JacketLeatherBlack" })
+    add({ label = "Rename Duffel Bag", source = "Duffel Bag", category = "edit", icon = "Item_Duffelbag" })
+    add({ label = "Open Canned Beans", source = "Canned Beans", category = "open", icon = "Item_Beans" })
 
     -- world verbs (harvested from nearby squares) — these float in zero-state
     add({ label = "Board Up Window", source = "Window", category = "world", kind = "world" })
@@ -100,7 +100,7 @@ local function richCommands()
     add({ label = "Sleep", source = "Bed", category = "world", kind = "world" })
 
     -- vehicle verbs (DRIVE chip) — the palette unifies these too
-    add({ label = "Start Engine", source = "Pickup Truck", category = "vehicle", icon = "Item_CarBattery1" })
+    add({ label = "Start Engine", source = "Pickup Truck", category = "vehicle", icon = "Item_CarBattery" })
     add({ label = "Open Hood", source = "Pickup Truck", category = "vehicle" })
 
     -- long label (truncation)
@@ -109,7 +109,7 @@ local function richCommands()
 
     -- filler so result count exceeds MAX_ROWS (scroll)
     for i = 1, 10 do
-        add({ label = "Place Furniture " .. i, source = "Crate", category = "place", icon = "Item_CrateWood" })
+        add({ label = "Place Furniture " .. i, source = "Crate", category = "place", icon = "Item_Crate" })
     end
 
     return cmds
@@ -147,7 +147,7 @@ local function medicalCommands()
         { label = "Remove Glass - Right Hand", source = "Right Hand", category = "med", icon = "Item_Tweezers", runnable = true },
         { label = "Stitch - Left Forearm", source = "Left Forearm", category = "med", icon = "Item_SutureNeedle", runnable = true },
         { label = "Splint - Left Arm", source = "Left Arm", category = "med", icon = "Item_Splint", runnable = true },
-        { label = "Disinfect - Right Foot", source = "Right Foot", category = "med", icon = "Item_Disinfectant", runnable = true },
+        { label = "Disinfect - Right Foot", source = "Right Foot", category = "med", icon = "Item_Alcohol", runnable = true },
         { label = "Remove Bullet - Left Thigh", source = "Left Thigh", category = "med", icon = "Item_Tweezers",
           runnable = false, blockReason = "need tweezers" },
     }
@@ -155,6 +155,9 @@ end
 
 local States = {}
 States.D = D
+-- Exported so composers (the browser embed) can merge this feature-dense set
+-- with the bar scene's families.
+States.richCommands = richCommands
 
 -- Build a configured root. opts = { query, bleeding, browse, expandGroup, help,
 -- commands (override the fixture list), theme (skin id: nil/"midnight"/"paper") }.

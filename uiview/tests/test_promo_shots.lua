@@ -124,7 +124,7 @@ local function SKINS()
         { label = "Barricade (Metal Bars)", order = 1, default = true, icon = "Item_Moveable_window" },
         { label = "Barricade (Planks)", order = 2, icon = "Item_Plank" },
         { label = "Barricade (Metal Sheet)", order = 3 },
-        { label = "Remove Broken Glass", order = 4, runnable = false, blockReason = "needs a saw" },
+        { label = "Remove Broken Glass", order = 4, runnable = false, blockReason = "hands empty" },
     })
     l[#l + 1] = row("Take Pills", "Painkillers", "med", "Item_Pills")
     l[#l + 1] = row("Drink Beer", "Beer (Beer Can)", "drink", "Item_BeerCan")

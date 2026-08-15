@@ -31,6 +31,9 @@
     text-transform:uppercase; padding:6px 14px 4px; cursor:pointer; }
   button:hover{ background:var(--enamel-hover); border-bottom-color:var(--fault); }
   button:active{ background:#8E1B1F; border-bottom-width:2px; padding-top:7px; }
+  button.b2{ background:#1A1513; border-bottom-color:#080605; color:#C6BBB0; }
+  button.b2:hover{ background:#241D18; border-bottom-color:#080605; }
+  button.b2.on{ background:var(--enamel); border-bottom-color:var(--lip); color:#FBF3EE; }
   .stage{ display:grid; place-items:center; padding:12px; height:calc(100% - 48px);
     background:repeating-conic-gradient(#0D0907 0% 25%, #120E0C 0% 50%) 50% / 20px 20px; }
   canvas{ image-rendering:pixelated; box-shadow:0 6px 22px rgba(0,0,0,.55); cursor:pointer; outline:none; }
@@ -41,7 +44,10 @@
 <body>
 <div class="bar">
   <b>Sauce's Short Order</b>
-  <input id="q" type="text" placeholder="type an order... arrows to move, Tab to browse" autocomplete="off">
+  <input id="q" type="text" placeholder="type an order... try: barricade &middot; 5 open box &middot; pils &middot; ?" autocomplete="off">
+  <button id="skin" class="b2" title="cycle the five skins">skin: diner</button>
+  <button id="bleed" class="b2" title="fake a bleeding moodle — watch the ranking">bleed</button>
+  <button id="hurt" class="b2" title="fake four injuries — per-part treatment rows">hurt</button>
   <button id="reset">reset</button>
   <span class="hint" id="hint">real pal_ui.lua, <span class="ok">running in your browser</span></span>
 </div>
@@ -146,6 +152,31 @@ function flush(){
 cv.addEventListener('click', e => { cv.focus(); const [x,y]=frameCoords(e); run(`click ${x} ${y}`); });
 cv.addEventListener('mousemove', e => { moveAt = frameCoords(e); scheduleFlush(); });
 cv.addEventListener('wheel', e => { e.preventDefault(); wheelAt = frameCoords(e); wheelSteps += (e.deltaY>0?-1:1); scheduleFlush(); }, { passive:false });
+
+// ── state controls: skins + needs fixtures (each rebuilds server-side) ───────
+const SKINS = ['diner','midnight','paper','forge','cartRadio'];
+let skinIx = 0;
+const skinBtn = document.getElementById('skin');
+const bleedBtn = document.getElementById('bleed');
+const hurtBtn = document.getElementById('hurt');
+skinBtn.addEventListener('click', () => {
+  skinIx = (skinIx + 1) % SKINS.length;
+  skinBtn.textContent = 'skin: ' + SKINS[skinIx].toLowerCase();
+  qEl.value = '';
+  run(`theme ${SKINS[skinIx]}`);
+});
+bleedBtn.addEventListener('click', () => {
+  const on = !bleedBtn.classList.contains('on');
+  bleedBtn.classList.toggle('on', on); hurtBtn.classList.remove('on');
+  qEl.value = '';
+  run(`bleeding ${on ? 'on' : 'off'}`);
+});
+hurtBtn.addEventListener('click', () => {
+  const on = !hurtBtn.classList.contains('on');
+  hurtBtn.classList.toggle('on', on); bleedBtn.classList.remove('on');
+  qEl.value = '';
+  run(`wounded ${on ? 'on' : 'off'}`);
+});
 const KEYMAP = { ArrowUp:'up', ArrowDown:'down', Enter:'enter', Tab:'tab', Escape:'esc', F1:'f1' };
 document.addEventListener('keydown', e => { const k = KEYMAP[e.key]; if (k){ e.preventDefault(); run(`key ${k}`); } });
 qEl.addEventListener('input', () => run(`text ${qEl.value}`));

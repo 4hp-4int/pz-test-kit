@@ -38,7 +38,11 @@ function collectTextureNames(program) {
   };
   const names = new Set();
   const states = ["render", "text beer", "reset", "text eat", "reset",
-    "key tab", "reset", "key down", "key down", "key enter", "reset"];
+    "key tab", "reset", "key down", "key down", "key enter", "reset",
+    "text 5 open box", "reset", "text ?", "reset",
+    "bleeding on", "bleeding off", "wounded on", "wounded off",
+    "theme midnight", "theme paper", "theme forge", "theme cartRadio",
+    "theme diner", "reset"];
   for (const ev of states) {
     for (const op of tick(ev).ops || [])
       if (op.op === "texture" && op.name) names.add(op.name);
@@ -51,7 +55,8 @@ function main() {
 
   // icons: union of a live-run texture sweep and the scene's declared Item_*
   // names, base64-inlined from the warmed cache
-  const sceneSrc = fs.readFileSync(MODULES["UIView/scenes/SaucePalette"], "utf8");
+  const sceneSrc = fs.readFileSync(MODULES["UIView/scenes/SaucePalette"], "utf8")
+    + fs.readFileSync(MODULES["UIView/scenes/PaletteStates"], "utf8");
   const names = new Set(sceneSrc.match(/Item_[A-Za-z0-9_]+/g) || []);
   for (const n of collectTextureNames(lua)) names.add(n);
   const icons = {};
