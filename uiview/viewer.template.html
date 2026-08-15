@@ -4,20 +4,20 @@
 <meta charset="utf-8">
 <title>UIView — PZ headless UI preview</title>
 <style>
-  :root { --bg:#15131a; --panel:#1d1b24; --ink:#d8d2e6; --accent:#9b6dd6; }
+  :root { --bg:#0C0A09; --panel:#1C1613; --ink:#E8E2D6; --accent:#E8873A; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
          font:13px/1.4 ui-monospace,"Cascadia Code",Consolas,monospace; }
-  header { padding:10px 16px; border-bottom:1px solid #2c2836; display:flex;
+  header { padding:10px 16px; border-bottom:1px solid #332C24; display:flex;
            gap:16px; align-items:center; flex-wrap:wrap; }
   header h1 { font-size:14px; margin:0; color:var(--accent); letter-spacing:.5px; }
   header label { user-select:none; cursor:pointer; opacity:.85; }
   .wrap { display:flex; gap:0; height:calc(100vh - 46px); }
   .stage { flex:1; overflow:auto; display:grid; place-items:center;
            background:
-             repeating-conic-gradient(#1b1922 0% 25%, #201d29 0% 50%) 50% / 22px 22px; }
+             repeating-conic-gradient(#0D0907 0% 25%, #120E0C 0% 50%) 50% / 22px 22px; }
   canvas { box-shadow:0 6px 40px #0008; image-rendering:pixelated; }
-  aside { width:300px; border-left:1px solid #2c2836; overflow:auto; padding:10px 12px; background:var(--panel); }
+  aside { width:300px; border-left:1px solid #332C24; overflow:auto; padding:10px 12px; background:var(--panel); }
   aside h2 { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#7c7390; margin:14px 0 6px; }
   .tree-node { padding:1px 0 1px 12px; border-left:1px solid #322e3e; cursor:default; }
   .tree-node:hover { background:#2a2636; }

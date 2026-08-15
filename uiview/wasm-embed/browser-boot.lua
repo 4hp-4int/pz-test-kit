@@ -5,6 +5,11 @@
 require "UIView/UIMock"
 UIView_setScreen(1280, 800)
 
+-- The embed redraws only on input events, so a mid-flight row-cascade frame
+-- would freeze half-slid. Kill motion: every captured frame is the settled one.
+local T = require "palette/pal_theme"
+if T then T.motionEnabled = false end
+
 local Render = require "UIView/Render"
 local Input  = require "UIView/Input"
 local scene  = require "UIView/scenes/SaucePalette"

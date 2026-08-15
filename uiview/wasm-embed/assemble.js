@@ -6,7 +6,16 @@ const path = require("path");
 
 const HERE = __dirname;
 const UIVIEW = path.resolve(HERE, "..", "media", "lua", "client", "UIView");
-const SIR = "C:/Users/Khalen/Code/pz-mods/sauce-invrender/media/lua/client/palette";
+const SSO = "C:/Users/Khalen/Code/pz-mods/sauce-shortorder/media/lua/client/palette";
+
+// The full require closure of Sauce's Short Order's pal_ui (v1.3+), in
+// dependency order. Everything pal_ui pulls in is inlined so the browser VM
+// runs the shipping panel unmodified.
+const PAL = [
+  "pal_theme", "pal_i18n", "pal_text", "pal_score", "pal_resolve",
+  "pal_filter", "pal_groups", "pal_food", "pal_chrome", "pal_highlight",
+  "pal_settings", "pal_api", "pal_ui",
+];
 
 const MODULES = {
   "UIView/Recorder": path.join(UIVIEW, "Recorder.lua"),
@@ -14,8 +23,8 @@ const MODULES = {
   "UIView/Render": path.join(UIVIEW, "Render.lua"),
   "UIView/Input": path.join(UIVIEW, "Input.lua"),
   "UIView/scenes/SaucePalette": path.join(UIVIEW, "scenes", "SaucePalette.lua"),
-  "palette/pal_ui": path.join(SIR, "pal_ui.lua"),
 };
+for (const m of PAL) MODULES["palette/" + m] = path.join(SSO, m + ".lua");
 
 function longBracket(src) {
   // pick an = level that doesn't collide with the source

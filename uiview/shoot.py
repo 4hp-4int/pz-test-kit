@@ -16,6 +16,7 @@ def main():
     seek = None
     el = None
     w, h = 1320, 868
+    dsf = 1
     args = sys.argv[3:]
     i = 0
     while i < len(args):
@@ -23,6 +24,8 @@ def main():
             seek = float(args[i + 1]); i += 2
         elif args[i] == "--el":
             el = args[i + 1]; i += 2
+        elif args[i] == "--dsf":
+            dsf = int(args[i + 1]); i += 2
         else:
             w = int(args[i]); h = int(args[i + 1]); i += 2
     url = "file:///" + html.replace("\\", "/")
@@ -37,7 +40,8 @@ def main():
             page.wait_for_timeout(60)
             page.locator("#stage").screenshot(path=png)
         else:
-            page = browser.new_page(viewport={"width": w, "height": h})
+            page = browser.new_page(viewport={"width": w, "height": h},
+                                    device_scale_factor=dsf)
             page.goto(url, wait_until="networkidle")
             page.wait_for_timeout(450)
             if el:

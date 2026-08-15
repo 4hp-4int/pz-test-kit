@@ -17,6 +17,19 @@ do
     Render.emit(root, 1280, 800, "palette")
 end
 
+-- Browse mode (Tab) and the typo-fallback state, for the blog post's figures.
+do
+    local root = Palette.build("")
+    if root.entry and root.entry.onOtherKey then
+        root.entry.onOtherKey(root.entry, Keyboard.KEY_TAB)
+    end
+    Render.emit(root, 1280, 800, "palettebrowse")
+end
+do
+    local root = Palette.build("pils")
+    Render.emit(root, 1280, 800, "palettetypo")
+end
+
 local function findText(substr)
     for _, op in ipairs(Recorder.ops) do
         if op.op == "text" and tostring(op.str):find(substr, 1, true) then return op end

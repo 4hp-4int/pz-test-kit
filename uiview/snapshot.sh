@@ -18,10 +18,10 @@ mkdir -p "$SNAPDIR"
 UPDATE=0
 [ "${1:-}" = "--update" ] && UPDATE=1
 
-RAW="$(cd "$HERE" && bash "$KIT/pztest" 2>/dev/null || true)"
+RAW="$(cd "$HERE" && bash "$KIT/pztest" --verbose 2>/dev/null || true)"
 
 names="$(printf '%s\n' "$RAW" \
-  | grep -oE '@@UIVIEW_BEGIN:[A-Za-z0-9_]+@@' \
+  | grep -oE '@@UIVIEW_BEGIN:[A-Za-z0-9_-]+@@' \
   | sed -E 's/@@UIVIEW_BEGIN:(.*)@@/\1/' | sort -u)"
 
 if [ -z "$names" ]; then

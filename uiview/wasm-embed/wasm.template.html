@@ -3,33 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SaucePalette — live (Lua in your browser)</title>
+<title>Sauce's Short Order — live (Lua in your browser)</title>
 <style>
-  :root { --bg:#15131a; --ink:#d8d2e6; --accent:#9b6dd6; }
+  /* Neo-Tokyo Chrome instrument skin — tokens from the site design system */
+  :root {
+    --well:#050302; --gunmetal:#1C1613; --enamel:#A32226; --lip:#5C0F12;
+    --enamel-hover:#BE2C31; --text:#E8E2D6; --text-bright:#F0EAE0;
+    --text-dim:#7E756C; --crt-g:#7FA86A; --fault:#E5565B;
+  }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; }
-  body { background:var(--bg); color:var(--ink);
-         font:13px/1.4 ui-monospace,"Cascadia Code",Consolas,monospace; }
-  .bar { display:flex; gap:10px; align-items:center; padding:8px 10px;
-         border-bottom:1px solid #2c2836; flex-wrap:wrap; }
-  .bar b { color:var(--accent); letter-spacing:.5px; font-size:12px; }
-  input[type=text]{ background:#0e0d12; border:1px solid #3a3550; color:var(--ink);
-    font:inherit; padding:5px 9px; border-radius:4px; flex:1; min-width:150px; }
-  button{ background:#2a2440; border:1px solid #4a4368; color:var(--ink); font:inherit;
-    padding:5px 10px; border-radius:4px; cursor:pointer; }
-  button:hover{ background:#372f54; }
-  .stage{ display:grid; place-items:center; padding:12px; height:calc(100% - 46px);
-    background:repeating-conic-gradient(#1b1922 0% 25%, #201d29 0% 50%) 50% / 20px 20px; }
-  canvas{ image-rendering:pixelated; box-shadow:0 4px 24px #0007; cursor:pointer; outline:none; }
-  .hint{ color:#6f6880; font-size:11px; }
+  body { background:var(--well); color:var(--text);
+         font:12px/1.4 ui-monospace,Consolas,monospace; }
+  .bar { display:flex; gap:12px; align-items:center; padding:9px 12px;
+         background:var(--gunmetal); flex-wrap:wrap;
+         box-shadow:inset 0 1px 0 rgba(232,226,214,.09), inset 0 -1px 0 rgba(0,0,0,.7); }
+  .bar b { color:var(--text-bright); font-size:11px; font-weight:400;
+           letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; }
+  input[type=text]{ background:var(--well); border:0; color:var(--text);
+    font:inherit; padding:6px 10px; flex:1; min-width:150px;
+    box-shadow:inset 0 3px 8px rgba(0,0,0,.95), inset 0 0 0 1px rgba(232,226,214,.07); }
+  input[type=text]:focus { outline:none;
+    box-shadow:inset 0 3px 8px rgba(0,0,0,.95), inset 0 0 0 1px rgba(232,135,58,.35); }
+  input[type=text]::placeholder { color:var(--text-dim); }
+  button{ background:var(--enamel); border:0; border-bottom:3px solid var(--lip);
+    color:#FBF3EE; font:inherit; font-size:10px; letter-spacing:.14em;
+    text-transform:uppercase; padding:6px 14px 4px; cursor:pointer; }
+  button:hover{ background:var(--enamel-hover); border-bottom-color:var(--fault); }
+  button:active{ background:#8E1B1F; border-bottom-width:2px; padding-top:7px; }
+  .stage{ display:grid; place-items:center; padding:12px; height:calc(100% - 48px);
+    background:repeating-conic-gradient(#0D0907 0% 25%, #120E0C 0% 50%) 50% / 20px 20px; }
+  canvas{ image-rendering:pixelated; box-shadow:0 6px 22px rgba(0,0,0,.55); cursor:pointer; outline:none; }
+  .hint{ color:var(--text-dim); font-size:11px; }
+  .hint .ok{ color:var(--crt-g); }
 </style>
 </head>
 <body>
 <div class="bar">
-  <b>SAUCEPALETTE</b>
-  <input id="q" type="text" placeholder="type to filter… arrows to move, Tab to browse" autocomplete="off">
+  <b>Sauce's Short Order</b>
+  <input id="q" type="text" placeholder="type an order... arrows to move, Tab to browse" autocomplete="off">
   <button id="reset">reset</button>
-  <span class="hint" id="hint">real pal_ui.lua, running in your browser</span>
+  <span class="hint" id="hint">real pal_ui.lua, <span class="ok">running in your browser</span></span>
 </div>
 <div class="stage"><canvas id="cv" tabindex="0"></canvas></div>
 
@@ -46,6 +60,10 @@ const qEl = document.getElementById('q');
 const hint = document.getElementById('hint');
 const IMAGES = new Map();
 for (const name in ASSETS){ const im = new Image(); im.src = ASSETS[name]; IMAGES.set(name, im); }
+// The first frame draws before the preloads finish decoding (drawImage on an
+// incomplete Image is a silent no-op) — redraw once they're all ready.
+Promise.all([...IMAGES.values()].map(im => im.decode().catch(() => null)))
+  .then(() => draw());
 
 // ── Fengari: boot the Lua VM once, expose tick(ev) -> frame JSON ──────────────
 const F = window.fengari;
@@ -56,6 +74,7 @@ lualib.luaL_openlibs(L);
   const program = document.getElementById('luaProgram').textContent;
   if (lauxlib.luaL_dostring(L, to_luastring(program)) !== lua.LUA_OK) {
     hint.textContent = 'lua boot error: ' + to_jsstring(lua.lua_tostring(L, -1));
+    hint.style.color = 'var(--fault)';
     lua.lua_pop(L, 1);
   }
 })();

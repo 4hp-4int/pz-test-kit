@@ -17,12 +17,43 @@ const OUT_DIR = process.argv[2] ||
 
 function b64(file) { return "data:image/png;base64," + fs.readFileSync(file).toString("base64"); }
 
+// Tick the assembled program through representative states and collect every
+// texture name the panel actually draws (item icons + the SSOChrome nine-patch
+// pieces), so the browser render is dressed exactly like the harness one.
+function collectTextureNames(program) {
+  const fengari = require("fengari");
+  const { lua, lauxlib, lualib, to_luastring, to_jsstring } = fengari;
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  if (lauxlib.luaL_dostring(L, to_luastring(program)) !== lua.LUA_OK)
+    throw new Error("assemble: " + to_jsstring(lua.lua_tostring(L, -1)));
+  const tick = ev => {
+    lua.lua_getglobal(L, to_luastring("UIView_tick"));
+    lua.lua_pushstring(L, to_luastring(ev));
+    if (lua.lua_pcall(L, 1, 1, 0) !== lua.LUA_OK)
+      throw new Error("tick " + ev + ": " + to_jsstring(lua.lua_tostring(L, -1)));
+    const s = to_jsstring(lua.lua_tostring(L, -1));
+    lua.lua_pop(L, 1);
+    return JSON.parse(s);
+  };
+  const names = new Set();
+  const states = ["render", "text beer", "reset", "text eat", "reset",
+    "key tab", "reset", "key down", "key down", "key enter", "reset"];
+  for (const ev of states) {
+    for (const op of tick(ev).ops || [])
+      if (op.op === "texture" && op.name) names.add(op.name);
+  }
+  return names;
+}
+
 function main() {
   const lua = assembleLua();
 
-  // icons referenced by the palette scene -> base64 from the warmed cache
+  // icons: union of a live-run texture sweep and the scene's declared Item_*
+  // names, base64-inlined from the warmed cache
   const sceneSrc = fs.readFileSync(MODULES["UIView/scenes/SaucePalette"], "utf8");
-  const names = [...new Set((sceneSrc.match(/Item_[A-Za-z0-9_]+/g) || []))];
+  const names = new Set(sceneSrc.match(/Item_[A-Za-z0-9_]+/g) || []);
+  for (const n of collectTextureNames(lua)) names.add(n);
   const icons = {};
   for (const n of names) {
     const f = path.join(UIVIEW, ".iconcache", n + ".png");
@@ -44,6 +75,6 @@ function main() {
 
   const kb = Math.round(html.length / 1024);
   console.error(`[wasm-embed] wrote embed.html (${kb} KB) + fengari-web.js + replay.js`);
-  console.error(`[wasm-embed] ${names.length} icons, lua program ${Math.round(lua.length/1024)} KB`);
+  console.error(`[wasm-embed] ${Object.keys(icons).length}/${names.size} textures inlined, lua program ${Math.round(lua.length/1024)} KB`);
 }
 main();

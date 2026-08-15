@@ -25,9 +25,13 @@ do
     end
 end
 
--- ── clock (no real time; monotonic counter is enough for animations) ─────────
-local _t = 0
-function getTimestampMs() _t = _t + 16; return _t end
+-- ── clock ────────────────────────────────────────────────────────────────────
+-- Report 0, exactly like the Kahlua test harness: pal_ui reads a zero clock as
+-- "headless, snap everything" (row glide, cascades), which is what an
+-- event-driven embed needs — it only redraws on input, so a mid-tween frame
+-- would freeze half-slid. Enter/progress animations are settled separately by
+-- T.motionEnabled = false in the boot.
+function getTimestampMs() return 0 end
 
 -- ── text: no localization in the browser, just echo the key ──────────────────
 function getText(key) return tostring(key or "") end
