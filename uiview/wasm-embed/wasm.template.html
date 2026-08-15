@@ -124,10 +124,28 @@ async function run(ev){
 }
 
 // ── input -> Lua (synchronous; a tick is just a JS call) ─────────────────────
+// A tick costs ~100ms under Fengari (full frame render), so per-event ticks
+// back up into seconds of lag on a wheel flick or a mouse sweep. Continuous
+// events coalesce: accumulate wheel steps and the latest hover position, flush
+// at most one tick per animation frame. Discrete events still run immediately.
 function frameCoords(e){ const r = cv.getBoundingClientRect(); return [Math.round(CROP.x + (e.clientX-r.left)/ZOOM), Math.round(CROP.y + (e.clientY-r.top)/ZOOM)]; }
+let wheelSteps = 0, wheelAt = null, moveAt = null, flushId = 0;
+function scheduleFlush(){ if (!flushId) flushId = requestAnimationFrame(flush); }
+function flush(){
+  flushId = 0;
+  if (wheelSteps){
+    const d = Math.max(-20, Math.min(20, wheelSteps)); wheelSteps = 0;
+    run(`wheel ${wheelAt[0]} ${wheelAt[1]} ${d}`);
+    moveAt = null;                 // hover is stale mid-scroll; drop it
+  } else if (moveAt){
+    const [x,y] = moveAt; moveAt = null;
+    run(`move ${x} ${y}`);
+  }
+  if (wheelSteps || moveAt) scheduleFlush();
+}
 cv.addEventListener('click', e => { cv.focus(); const [x,y]=frameCoords(e); run(`click ${x} ${y}`); });
-cv.addEventListener('mousemove', e => { const [x,y]=frameCoords(e); run(`move ${x} ${y}`); });
-cv.addEventListener('wheel', e => { e.preventDefault(); const [x,y]=frameCoords(e); run(`wheel ${x} ${y} ${e.deltaY>0?-1:1}`); }, { passive:false });
+cv.addEventListener('mousemove', e => { moveAt = frameCoords(e); scheduleFlush(); });
+cv.addEventListener('wheel', e => { e.preventDefault(); wheelAt = frameCoords(e); wheelSteps += (e.deltaY>0?-1:1); scheduleFlush(); }, { passive:false });
 const KEYMAP = { ArrowUp:'up', ArrowDown:'down', Enter:'enter', Tab:'tab', Escape:'esc', F1:'f1' };
 document.addEventListener('keydown', e => { const k = KEYMAP[e.key]; if (k){ e.preventDefault(); run(`key ${k}`); } });
 qEl.addEventListener('input', () => run(`text ${qEl.value}`));

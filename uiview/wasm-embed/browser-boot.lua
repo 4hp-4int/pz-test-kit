@@ -58,8 +58,17 @@ local function dispatch(ev)
             else Input.move(root, x, y) end
         end
     elseif cmd == "wheel" then
+        -- d may carry several coalesced browser wheel steps (a tick is ~100ms
+        -- under Fengari, so the JS side batches a burst into one event). The
+        -- panel's onMouseWheel only reads the sign, so replay |d| single steps.
         local x, y, d = ev:match("(%-?%d+%.?%d*)%s+(%-?%d+%.?%d*)%s+(%-?%d+%.?%d*)")
-        if x and y and d then Input.wheel(root, num(x), num(y), num(d)) end
+        if x and y and d then
+            x, y, d = num(x), num(y), num(d)
+            local sign = d > 0 and 1 or -1
+            for _ = 1, math.min(math.abs(d), 20) do
+                Input.wheel(root, x, y, sign)
+            end
+        end
     end
 end
 
