@@ -14,9 +14,10 @@
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; }
   body { background:var(--well); color:var(--text);
-         font:12px/1.4 ui-monospace,Consolas,monospace; }
+         font:12px/1.4 ui-monospace,Consolas,monospace;
+         display:flex; flex-direction:column; }
   .bar { display:flex; gap:12px; align-items:center; padding:9px 12px;
-         background:var(--gunmetal); flex-wrap:wrap;
+         background:var(--gunmetal); flex-wrap:wrap; flex:0 0 auto;
          box-shadow:inset 0 1px 0 rgba(232,226,214,.09), inset 0 -1px 0 rgba(0,0,0,.7); }
   .bar b { color:var(--text-bright); font-size:11px; font-weight:400;
            letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; }
@@ -34,9 +35,12 @@
   button.b2{ background:#1A1513; border-bottom-color:#080605; color:#C6BBB0; }
   button.b2:hover{ background:#241D18; border-bottom-color:#080605; }
   button.b2.on{ background:var(--enamel); border-bottom-color:var(--lip); color:#FBF3EE; }
-  .stage{ display:grid; place-items:center; padding:12px; height:calc(100% - 48px);
+  /* margin-auto centring, not place-items:center — an oversized canvas in a
+     centred grid gets its top-left clipped away with no way to scroll to it */
+  .stage{ display:flex; padding:12px; flex:1 1 auto; min-height:0;
+    overflow:auto; overscroll-behavior:contain;
     background:repeating-conic-gradient(#0D0907 0% 25%, #120E0C 0% 50%) 50% / 20px 20px; }
-  canvas{ image-rendering:pixelated; box-shadow:0 6px 22px rgba(0,0,0,.55); cursor:pointer; outline:none; }
+  canvas{ margin:auto; image-rendering:pixelated; box-shadow:0 6px 22px rgba(0,0,0,.55); cursor:pointer; outline:none; }
   .hint{ color:var(--text-dim); font-size:11px; }
   .hint .ok{ color:var(--crt-g); }
 </style>
@@ -45,6 +49,7 @@
 <div class="bar">
   <b>Sauce's Short Order</b>
   <input id="q" type="text" placeholder="type an order... try: barricade &middot; 5 open box &middot; pils &middot; ?" autocomplete="off">
+  <button id="zoom" class="b2" title="cycle canvas zoom: fit, 100%, 150%, 200%">zoom fit</button>
   <button id="skin" class="b2" title="cycle the five skins">skin: diner</button>
   <button id="bleed" class="b2" title="fake a bleeding moodle — watch the ranking">bleed</button>
   <button id="hurt" class="b2" title="fake four injuries — per-part treatment rows">hurt</button>
@@ -95,23 +100,39 @@ function tick(ev){
   return s;
 }
 
-// ── draw (crop to the panel + fit the iframe, both dims) ─────────────────────
+// ── draw (crop to the panel, then fit the iframe or honour a fixed zoom) ─────
+// The backing store is sized in device pixels (CSS px x devicePixelRatio) and
+// the transform carries the same factor, so panel text — real fillText, not a
+// bitmap font — is rasterised at the display's true resolution instead of being
+// upscaled by the compositor on a 125%/150% Windows desktop.
 let FRAME = { width: 480, height: 320, ops: [], tree: null };
 let ZOOM = 1, CROP = { x:0, y:0 };
+const ZOOM_STEPS = [null, 1, 1.5, 2];   // null = fit to the frame
+let zoomIx = 0;
 function draw(){
   const t = FRAME.tree || { x:0, y:0, w:FRAME.width, h:FRAME.height };
   const M = 12;
   const cx = (t.x||0) - M, cy = (t.y||0) - M;
   CROP.x = cx; CROP.y = cy;
   const cw = (t.w||FRAME.width) + M*2, ch = (t.h||FRAME.height) + M*2;
-  const barEl = document.querySelector('.bar');
-  const barH = barEl ? barEl.offsetHeight : 50;
-  const availW = Math.max(240, window.innerWidth - 28);
-  const availH = Math.max(180, window.innerHeight - barH - 18);
-  ZOOM = Math.max(0.5, Math.min(availW/cw, availH/ch, 2));
-  cv.width = cw*ZOOM; cv.height = ch*ZOOM;
+  const step = ZOOM_STEPS[zoomIx];
+  if (step){
+    ZOOM = step;
+  } else {
+    const barEl = document.querySelector('.bar');
+    const barH = barEl ? barEl.offsetHeight : 50;
+    // 28 = the stage's 12px padding either side + slack; the stage scrolls now,
+    // so an over-estimate here costs a scrollbar the fit was supposed to avoid
+    const availW = Math.max(240, window.innerWidth - 28);
+    const availH = Math.max(180, window.innerHeight - barH - 28);
+    ZOOM = Math.max(0.5, Math.min(availW/cw, availH/ch, 2));
+  }
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(cw*ZOOM*dpr); cv.height = Math.round(ch*ZOOM*dpr);
   cv.style.width = cw*ZOOM+'px'; cv.style.height = ch*ZOOM+'px';
-  ctx.setTransform(ZOOM,0,0,ZOOM, -cx*ZOOM, -cy*ZOOM);
+  ctx.setTransform(ZOOM*dpr,0,0,ZOOM*dpr, -cx*ZOOM*dpr, -cy*ZOOM*dpr);
+  // icons are pixel art: no bilinear mush when we're magnifying them
+  ctx.imageSmoothingEnabled = ZOOM*dpr < 1;
   ctx.clearRect(cx, cy, cw, ch);
   R.drawFrame(ctx, FRAME, { images: IMAGES });
 }
@@ -152,6 +173,25 @@ function flush(){
 cv.addEventListener('click', e => { cv.focus(); const [x,y]=frameCoords(e); run(`click ${x} ${y}`); });
 cv.addEventListener('mousemove', e => { moveAt = frameCoords(e); scheduleFlush(); });
 cv.addEventListener('wheel', e => { e.preventDefault(); wheelAt = frameCoords(e); wheelSteps += (e.deltaY>0?-1:1); scheduleFlush(); }, { passive:false });
+
+// ── zoom: cycle fit -> 100 -> 150 -> 200. Past fit the canvas outgrows the
+// stage and the stage scrolls (native scrollbars only — the wheel over the
+// canvas belongs to the panel's own list). Land on the top of the panel,
+// horizontally centred, rather than wherever the old scroll offset pointed.
+const zoomBtn = document.getElementById('zoom');
+const stage = document.querySelector('.stage');
+function zoomLabel(){
+  const s = ZOOM_STEPS[zoomIx];
+  return 'zoom ' + (s ? Math.round(s*100) : 'fit');
+}
+zoomBtn.addEventListener('click', () => {
+  zoomIx = (zoomIx + 1) % ZOOM_STEPS.length;
+  zoomBtn.classList.toggle('on', zoomIx !== 0);
+  zoomBtn.textContent = zoomLabel();
+  draw();
+  stage.scrollTop = 0;
+  stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2);
+});
 
 // ── state controls: skins + needs fixtures (each rebuilds server-side) ───────
 const SKINS = ['diner','midnight','paper','forge','cartRadio'];
