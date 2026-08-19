@@ -202,12 +202,36 @@ function States.build(opts)
     if opts.browse then root.entry.onOtherKey(root.entry, Keyboard.KEY_TAB) end
     if opts.help then root.showHelp = true end
     if opts.expandGroup then
-        -- select the Equip group and expand it
-        for i, r in ipairs(root.rows) do
-            if r.kind == "group" then root.sel = i; break end
-        end
-        root:runSel()
+        -- select the Equip group and expand it.
+        -- NB: this expansion does NOT survive the first rendered frame — the
+        -- panel's prerender query poll refilters (see States.selectGroup), which
+        -- rebuilds the groups and drops the flag. Fine for row-level assertions
+        -- on an unrendered root; anything that CAPTURES must use
+        -- States.settle + States.selectGroup instead.
+        States.selectGroup(root)
     end
+    return root
+end
+
+-- Render one throwaway frame so the panel's own first-frame work has happened.
+-- SaucePaletteUI:_lastQuery starts nil (only enterPickMode and the poll itself
+-- ever set it), so the first prerender always sees "" ~= nil, refilters, and
+-- calls selectFirstSelectable() — wiping any selection/expansion set at build
+-- time. The real game eats that same frame before the player can press a key,
+-- so settling here is what a player actually sees, not a workaround.
+function States.settle(root, w, h)
+    local Render = require "UIView/Render"
+    Render.capture(root, w or 1280, h or 800)
+    return root
+end
+
+-- Select the first group row (pal_groups emits kind == "group" for a collapsed
+-- family) and Enter it, which toggles the family open.
+function States.selectGroup(root)
+    for i, r in ipairs(root.rows) do
+        if r.kind == "group" then root.sel = i; break end
+    end
+    root:runSel()
     return root
 end
 
@@ -233,14 +257,17 @@ function States.gallery()
     local Render = require "UIView/Render"
     local W, H = 1280, 800
     local out = {}
-    local function shot(label, caption, opts)
+    -- `act` (optional) runs against a SETTLED root — after the panel has eaten
+    -- its first rendered frame — so state it sets survives into the capture.
+    local function shot(label, caption, opts, act)
         local root = States.build(opts)
+        if act then act(States.settle(root, W, H)) end
         out[#out + 1] = { label = label, caption = caption, frame = Render.capture(root, W, H) }
     end
 
     shot("zero",     "Zero-state (suggested)", {})
     shot("filtered", "Typed 'ba' (filter)",    { query = "ba" })
-    shot("group",    "Group expanded",          { expandGroup = true })
+    shot("group",    "Group expanded",          {}, States.selectGroup)
     shot("browse",   "Browse (by category)",    { browse = true })
     shot("bleeding", "Needs-aware (bleeding)",  { bleeding = true })
     shot("wounded",  "Medical (injury-aware)",  { wounded = true })

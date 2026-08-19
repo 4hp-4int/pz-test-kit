@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UIView — SaucePalette single-state plates</title>
+<style>
+  :root { --bg:#0C0A09; --ink:#E8E2D6; --accent:#E8873A; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:13px ui-monospace,Consolas,monospace; padding:14px; }
+  h1 { font-size:14px; color:var(--accent); letter-spacing:.5px; margin:0 0 12px; }
+  .plate { margin:0 0 18px; }
+  .plate h2 { font-size:12px; margin:0 0 6px; color:#cdbff0; font-weight:normal; }
+  .plate .dim { color:#6f6880; }
+  canvas { display:block; image-rendering:pixelated; }
+</style>
+</head>
+<body>
+<h1>UIVIEW · SaucePalette state plates (2×)</h1>
+<div id="plates"></div>
+
+<script>/*__REPLAY__*/</script>
+<script>
+const STORYBOARD = /*__FRAME__*/{"frames":[]};
+const ASSETS = /*__ASSETS__*/{};
+
+const R = window.UIViewReplay;
+const beats = STORYBOARD.frames || [];
+const host = document.getElementById('plates');
+
+// 2x device pixels; 16 logical px of stage around the panel. The checker is
+// painted INTO the canvas (a CSS stage background never reaches toDataURL),
+// matching the post's existing sso-orderbox-2x.png plate: 20 logical px
+// squares (40 device px), #0D0907 on the origin square.
+const SCALE = 2, MARGIN = 16, CHECK = 20;
+const CHECK_A = '#0D0907', CHECK_B = '#120E0C';
+
+function checker(ctx, w, h) {
+  for (let gy = 0; gy * CHECK < h; gy++) {
+    for (let gx = 0; gx * CHECK < w; gx++) {
+      ctx.fillStyle = ((gx + gy) % 2) ? CHECK_B : CHECK_A;
+      ctx.fillRect(gx * CHECK, gy * CHECK,
+                   Math.min(CHECK, w - gx * CHECK),
+                   Math.min(CHECK, h - gy * CHECK));
+    }
+  }
+}
+
+// Real inked extent of a frame's ops, using the same font metrics the replay
+// core draws with (ctx.measureText, not a character-count guess) so a beat
+// that paints outside its panel — e.g. an overlay legend — is detected rather
+// than silently cropped.
+function opsExtent(ctx, frame) {
+  let clip = null, stack = [], box = null;
+  const add = (x1, y1, x2, y2) => {
+    if (!(x2 > x1) || !(y2 > y1)) return;
+    box = box ? [Math.min(box[0], x1), Math.min(box[1], y1),
+                 Math.max(box[2], x2), Math.max(box[3], y2)]
+              : [x1, y1, x2, y2];
+  };
+  for (const op of (frame.ops || [])) {
+    if (op.op === 'clip') {
+      stack.push(clip);
+      const n = [op.x, op.y, op.x + op.w, op.y + op.h];
+      clip = clip ? [Math.max(clip[0], n[0]), Math.max(clip[1], n[1]),
+                     Math.min(clip[2], n[2]), Math.min(clip[3], n[3])] : n;
+      continue;
+    }
+    if (op.op === 'unclip') { clip = stack.length ? stack.pop() : null; continue; }
+    if (op.x == null || op.y == null) continue;
+    let x1, y1, x2, y2;
+    if (op.op === 'text') {
+      const px = R.fontPx(op.font);
+      ctx.font = px + 'px ui-monospace,Consolas,monospace';
+      const w = ctx.measureText(String(op.str == null ? '' : op.str)).width;
+      x1 = op.align === 'right' ? op.x - w
+         : (op.align === 'centre' ? op.x - w / 2 : op.x);
+      x2 = x1 + w; y1 = op.y; y2 = op.y + px;
+    } else {
+      x1 = op.x; y1 = op.y; x2 = op.x + (op.w || 0); y2 = op.y + (op.h || 0);
+    }
+    if (clip) {
+      x1 = Math.max(x1, clip[0]); y1 = Math.max(y1, clip[1]);
+      x2 = Math.min(x2, clip[2]); y2 = Math.min(y2, clip[3]);
+    }
+    add(x1, y1, x2, y2);
+  }
+  return box;
+}
+
+function plate(id, beat, images, crop, note) {
+  const cv = document.createElement('canvas');
+  cv.id = id;
+  cv.width = crop.w * SCALE; cv.height = crop.h * SCALE;
+  cv.style.width = crop.w + 'px'; cv.style.height = crop.h + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+  checker(ctx, crop.w, crop.h);
+  ctx.textBaseline = 'top';
+  ctx.save();
+  ctx.translate(-crop.x, -crop.y);
+  R.drawFrame(ctx, beat.frame, { images });
+  ctx.restore();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'plate';
+  const h2 = document.createElement('h2');
+  h2.innerHTML = id + ' <span class="dim">' + (crop.w * SCALE) + '×' + (crop.h * SCALE)
+               + (note ? ' · ' + note : '') + '</span>';
+  wrap.appendChild(h2); wrap.appendChild(cv);
+  host.appendChild(wrap);
+  return { id: id, w: cv.width, h: cv.height,
+           crop: [crop.x, crop.y, crop.w, crop.h], full: !!note };
+}
+
+const probe = document.createElement('canvas').getContext('2d');
+
+R.preload(STORYBOARD, { assetMap: ASSETS }).then(images => {
+  const made = [];
+  for (const beat of beats) {
+    const fr = beat.frame, t = fr.tree || {};
+    const crop = { x: t.x - MARGIN, y: t.y - MARGIN,
+                   w: t.w + MARGIN * 2, h: t.h + MARGIN * 2 };
+    made.push(plate('st-' + beat.label, beat, images, crop, null));
+
+    // Anything inked outside the panel box gets a second, uncropped plate so
+    // the overflow is visible instead of guillotined.
+    const e = opsExtent(probe, fr);
+    if (!e) continue;
+    const ux1 = Math.min(t.x, Math.floor(e[0])), uy1 = Math.min(t.y, Math.floor(e[1]));
+    const ux2 = Math.max(t.x + t.w, Math.ceil(e[2])), uy2 = Math.max(t.y + t.h, Math.ceil(e[3]));
+    const over = { l: t.x - ux1, t: t.y - uy1, r: ux2 - (t.x + t.w), b: uy2 - (t.y + t.h) };
+    if (over.l || over.t || over.r || over.b) {
+      const fc = { x: ux1 - MARGIN, y: uy1 - MARGIN,
+                   w: (ux2 - ux1) + MARGIN * 2, h: (uy2 - uy1) + MARGIN * 2 };
+      made.push(plate('st-' + beat.label + '-full', beat, images, fc,
+                      'overflow L' + over.l + ' T' + over.t + ' R' + over.r + ' B' + over.b));
+    }
+  }
+  window.__plates = made;
+  window.__ready = true;
+});
+window.__ready = window.__ready || false;
+</script>
+</body>
+</html>
