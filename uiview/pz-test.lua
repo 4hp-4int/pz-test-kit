@@ -8,6 +8,14 @@ return {
 
     -- Index these mods' media/lua into the require path so scenes can load
     -- their actual UI files (e.g. require "palette/pal_ui").
+    --
+    -- NOTE: the order box's own 61 unit tests now live in sauce-shortorder/tests/
+    -- and run from that repo (`cd sauce-shortorder && ../pz-test-kit/pztest`) —
+    -- a feature and its tests belong in one repo. What stays here is what is a
+    -- statement about MORE THAN ONE mod, and so belongs where both are visible:
+    -- test_palette.lua (render snapshots shared with the promo-shot suite),
+    -- test_palette_lens.lua (palette x SIR), test_accent_coherence, and
+    -- test_sso_packmanifest. Those are why this dependency is still here.
     dependencies = {
         "../../sauce-shortorder",   -- the order box (pal_*)
         "../../sauce-invrender",    -- the inventory rendering (sir_*)

@@ -63,6 +63,8 @@ local function mockPart(def)
         getWoundInfectionLevel = function() return def.infection or 0 end,
         isNeedBurnWash = function() return def.burn or false end,
         bleeding = function() return def.bleeding or false end,
+        isBandageDirty = function() return def.bandageDirty or false end,
+        getBandageType = function() return def.bandageType end,
     }
 end
 Med.part = mockPart
@@ -76,7 +78,10 @@ local function mockPlayer(def)
             return { getMoodleLevel = function() return def.hasMoodle and 1 or 0 end }
         end,
         getBodyDamage = function()
-            return { getOverallBodyHealth = function() return 80 end,
+            -- The provider gates on moodle OR overall health < 100 (a bandaged part
+            -- whose wound has quieted shows no moodle). Default 100 = untouched, so a
+            -- `hasMoodle = false` def really is a healthy player unless it says so.
+            return { getOverallBodyHealth = function() return def.health or 100 end,
                      getBodyParts = function() return listOf(parts) end }
         end,
         getInventory = function() return { getItems = function() return listOf(items) end } end,
