@@ -50,9 +50,25 @@ for ext in png jpg gif; do
 done
 
 echo "deployed $mod_id → $dst"
+
+# The agent is what makes `eval` work on 2026-08+ builds (PZ unbound loadstring
+# from Lua). Say so at deploy time rather than letting it surface as a baffling
+# nil later: ZombieBuddy finds the jar via mod.info's javaJarFile line, and
+# ZombieBuddy itself only attaches if the JVM was started with -javaagent.
+if [[ -f "$dst/42.0/media/java/shared/PZShellAgent.jar" ]]; then
+    echo "  agent: PZShellAgent.jar deployed"
+else
+    echo "  agent: MISSING — eval will not work on PZ 2026-08+ builds."
+    echo "         build it with: (cd agent && ./build.ps1)"
+fi
+
 echo
 echo "next steps:"
 echo "  1. ensure $mod_id is in your servertest.ini Mods= line"
-echo "  2. restart the dedi"
-echo "  3. arm the gate:   ./pz-shell enable"
-echo "  4. try a probe:    ./pz-shell eval 'return 1+1'"
+echo "  2. ZombieBuddy must be installed AND the JVM launched with"
+echo "     -javaagent:ZombieBuddy.jar (Steam launch options, or vmArgs in"
+echo "     ProjectZomboid64.json). Without it the agent never loads."
+echo "  3. restart the dedi"
+echo "  4. arm the gate:   ./pz-shell enable"
+echo "  5. check the agent: ./pz-shell eval 'return PZShell_agentVersion()'"
+echo "  6. try a probe:     ./pz-shell eval 'return 1+1'"

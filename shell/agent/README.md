@@ -44,6 +44,28 @@ against `LuaManager.env` — the table `platform.newEnvironment()` produced at b
 server VM in a separate environment, probes would silently see an empty world;
 this asserts they don't.
 
+## Wiring
+
+ZombieBuddy does **not** scan for jars. It reads two lines from the mod's
+`mod.info`, both relative to the version folder:
+
+```
+javaJarFile=media/java/shared/PZShellAgent.jar
+javaPkgName=com.darksauce.pzshell
+```
+
+Miss either and the jar deploys, is never loaded, `PZShell_loadchunk` stays nil,
+and `eval` fails with no indication why.
+
+Deliberately **not** declared: `require=\ZombieBuddy`. VPSFx does that because it
+is completely inert without the agent; pz-shell is not — `tail`, `reload` and
+`profile` all still work. A hard require would make the whole mod fail to load
+for anyone without ZombieBuddy, to protect one of its four features.
+
+And the agent only attaches at all if the JVM was started with
+`-javaagent:ZombieBuddy.jar` — Steam launch options, or `vmArgs` in
+`ProjectZomboid64.json`. That is a per-machine setting no mod can assert.
+
 ## Build
 
 Requires ZombieBuddy installed (`ZombieBuddy.jar` in the PZ install root) and a
