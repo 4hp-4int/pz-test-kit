@@ -103,7 +103,7 @@ local function evalSnippet(code)
         origPrint(line)
     end
 
-    local fn, compileErr = loadstring(code, "=pz-shell")
+    local fn, compileErr = PZShell.compile(code, "=pz-shell")
 
     local resultLine
     if not fn then
@@ -145,6 +145,40 @@ end
 -- a huge Lua literal in the bash CLI. Attached to _G.PZShell for discoverability.
 
 _G.PZShell = _G.PZShell or {}
+
+-- ─── Compiling a string into a function ──────────────────────────────────────
+--
+-- This used to be `loadstring`. PZ's 2026-08 security patch removed it (and
+-- loadstream) from the Lua environment, which takes out the one thing a REPL
+-- cannot work without.
+--
+-- It removed the BINDING, not the compiler. LuaCompiler is byte-identical in
+-- the patched jar and PZ still uses it to load every .lua file off disk; what
+-- changed is that LuaManager stopped calling LuaCompiler.register(), which is
+-- what installed the globals. The agent in ../../agent/ re-exposes exactly that
+-- entry point — same compiler, same LuaManager.env, same LuaClosure — as
+-- PZShell_loadchunk, and this is the single seam both call sites go through.
+--
+-- No agent, no eval: there is no pure-Lua way back. Say so once, clearly, rather
+-- than failing with "attempt to call nil" at the call site.
+--
+--- @param code string
+--- @param chunkname string
+--- @return function|nil fn, string|nil err
+function PZShell.compile(code, chunkname)
+    if PZShell_loadchunk then
+        local fn = PZShell_loadchunk(code, chunkname)
+        if fn then return fn, nil end
+        local err = PZShell_lastError and PZShell_lastError()
+        return nil, err or "compile failed"
+    end
+    -- Pre-patch builds still have the global; use it when it's there.
+    if loadstring then return loadstring(code, chunkname) end
+    return nil, "pz-shell: nothing on this build can compile Lua. PZ removed "
+        .. "loadstring, and the ZombieBuddy agent (PZShellAgent.jar) isn't "
+        .. "loaded — check ZombieBuddy is installed and the jar is in the mod's "
+        .. "media/java/shared/. See shell/agent/README.md."
+end
 
 --- Recursively serialise a pure-Lua value to a loadstring-ready Lua expression.
 --- Handles number/boolean/string/nil/table. Skips functions/userdata with a
@@ -351,7 +385,7 @@ function PZShell.loadSnapshot(name)
     local path = PZShell._SNAPSHOT_DIR .. "/" .. name .. ".txt"
     local src = readFile(path)
     if not src then return nil, "snapshot not found: " .. name end
-    local fn, compileErr = loadstring(src, "=snapshot/" .. name)
+    local fn, compileErr = PZShell.compile(src, "=snapshot/" .. name)
     if not fn then return nil, "load error: " .. tostring(compileErr) end
     local ok, val = pcall(fn)
     if not ok then return nil, "run error: " .. tostring(val) end

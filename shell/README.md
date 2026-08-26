@@ -14,7 +14,7 @@ Seven things that collapse the dedi debug loop:
 6. **`snapshot save/restore/list/show/delete`** — dump server state (or any eval'd expression) to a Lua source file, round-trippable via `loadstring`. Default capture: VPS runtime accumulators, sandbox, connected-player weapon ModData. Supports `--expr '<lua>'` or `-f <path>` for arbitrary captures.
 7. **`puppet <action> [--as <user>] [args]`** — script server-side player actions: `equip`, `unequip`, `inventory`, `drop`, `reload`, `damage`, `credit-kills`, `whoami`. Operates on first connected player by default; `--as <username>` targets a specific one. `credit-kills N` is the fastest way to exercise VPS affix/trait thresholds.
 
-`eval` and `reload` sit on a file-queue protocol between the host CLI (`./pz-shell`) and a tiny server mod (`./mod/`): the mod polls `Zomboid/Lua/pz-shell/queue.lua`, runs whatever lands there through `loadstring()+pcall()`, writes the result to `Zomboid/Lua/pz-shell/result.lua`. `tail` bypasses that — it just `docker exec`s a `tail -F | grep` pipe against the debug log file.
+`eval` and `reload` sit on a file-queue protocol between the host CLI (`./pz-shell`) and a tiny server mod (`./mod/`): the mod polls `Zomboid/Lua/pz-shell/queue.lua`, runs whatever lands there through `PZShell.compile()+pcall()`, writes the result to `Zomboid/Lua/pz-shell/result.lua`. `tail` bypasses that — it just `docker exec`s a `tail -F | grep` pipe against the debug log file.
 
 ## Install
 
@@ -155,7 +155,7 @@ Defences NOT in place:
 
 - **Hot reload duplicates listeners.** PZ's `require()` has no cache — each call re-runs the file's top-level code (decomp: `LuaManager.require` just delegates to `RunLua`, no `package.loaded` equivalent; the `package` table doesn't even exist in PZ's Kahlua). Any module that does `Events.X.Add(handler)` in its body registers `handler` a second time on reload with the old handler still attached. Use `reload` for pure-def modules and for modules whose `Add` calls are conditional / de-duplicating. Otherwise a full restart is still correct.
 - **`print()` during eval is captured.** The mod temporarily redirects `_G.print` while the snippet runs. Any other code that fires during the pcall (event handlers in the same tick) and calls `print()` will also land in your result. Annoying but rare.
-- **Long evals block the server tick.** `loadstring()+pcall()` runs inline with the poll tick. A 2-second eval freezes the dedi for 2 seconds. Keep probes fast.
+- **Long evals block the server tick.** `PZShell.compile()+pcall()` runs inline with the poll tick. A 2-second eval freezes the dedi for 2 seconds. Keep probes fast.
 - **Windows paths.** The host CLI is bash-only for now. Run from Git Bash / WSL / Docker Desktop terminal. A `.ps1` twin is a nice-to-have.
 
 ## Profiling example: catching over-sync
@@ -223,3 +223,18 @@ Future ideas if the need arises:
 - **Headless Java puppet** — a real fake client that connects via TCP/UDP and can actually equip items client-authoritatively. Big project; server-side puppet covers 90% of the use case.
 - **Snapshot diff** — `pz-shell snapshot diff <a> <b>` shows what changed between two captures. Useful for "before/after affix earn" comparisons.
 - **Profile replay** — record a sequence of puppet actions + snapshots as a single script, replay it against a fresh dedi for CI-style regression testing.
+
+## Build 2026-08+ requires the agent
+
+PZ's 2026-08 security patch removed `loadstring`/`loadstream` from Lua, which is
+the one thing `eval` cannot work without. It removed the *binding*, not the
+compiler — `LuaCompiler` is untouched and still public — so `shell/agent/` is a
+one-class ZombieBuddy agent that re-exposes that entry point as
+`PZShell_loadchunk`. `PZShell.compile()` prefers it, falls back to `loadstring`
+on older builds, and says exactly what's missing if neither is there.
+
+```
+cd shell/agent && ./build.ps1     # -> ../mod/media/java/shared/PZShellAgent.jar
+```
+
+Needs ZombieBuddy installed and active. See `shell/agent/README.md`.
