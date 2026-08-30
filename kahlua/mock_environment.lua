@@ -382,7 +382,20 @@ function _pz_create_mock_zombie(opts)
         _x = opts.x or 0,
         _y = opts.y or 0,
         _id = _pz_gen_id(),
+        -- Real IsoZombie inherits getModData() from IsoObject, and mods use it
+        -- as per-zombie storage -- durable kill attribution, hit bookkeeping,
+        -- status effects. The mock lacked it, and because well-written mod code
+        -- feature-checks (`if not zombie.getModData then return end`) rather
+        -- than crashing, every such path silently no-opped under the sim while
+        -- its tests still passed. Untested code that looks tested.
+        _modData = opts.modData or {},
     }
+    -- getID() is VM-LOCAL; getOnlineID() is the id both VMs agree on. Returning
+    -- the same number for both let a mod send getID() over the wire and still
+    -- pass every test, then fail in MP because the server resolved a different
+    -- zombie or none at all. Offset them so the two are never interchangeable
+    -- by accident. Pass opts.onlineId to pin a specific value.
+    zombie._online_id = opts.onlineId or (zombie._id + 100000)
     zombie.getHealth = function(self) return self._health end
     zombie.setHealth = function(self, v) self._health = v end
     zombie.isAlive = function(self) return self._health > 0 end
@@ -398,8 +411,9 @@ function _pz_create_mock_zombie(opts)
     zombie.isCrawling = function(self) return self._crawling end
     zombie.getX = function(self) return self._x end
     zombie.getY = function(self) return self._y end
-    zombie.getOnlineID = function(self) return self._id end
+    zombie.getOnlineID = function(self) return self._online_id end
     zombie.getID = function(self) return self._id end
+    zombie.getModData = function(self) return self._modData end
     zombie.getCurrentSquare = function(self)
         return _pz_create_mock_square({x=self._x, y=self._y})
     end
