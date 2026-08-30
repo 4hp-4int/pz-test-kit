@@ -60,6 +60,13 @@ SEED_CLASSES = [
     "zombie/interfaces/IMaskerable",
     "zombie/popman/ObjectPool",
     "zombie/util/StringUtils",
+    # PZ's REAL .txt script parser, for scriptcheck (see ScriptCheck.java).
+    # Same principle as shipping the real Kahlua VM instead of a Lua-alike: a
+    # reimplementation would agree with the engine right up to the moment it
+    # mattered. The closure is tiny -- ScriptParser pulls only ScriptBucket,
+    # and StringUtils (above) was already here for Kahlua.
+    "zombie/scripting/ScriptParser",
+    "zombie/scripting/ScriptBucket",
 ]
 
 # Broader packages where we need most/all classes

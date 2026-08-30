@@ -37,7 +37,7 @@ if (-not (Test-Path $jar)) {
     exit 1
 }
 
-$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher')
+$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck')
 
 $needCompile = $false
 foreach ($src in $sources) {
@@ -62,6 +62,26 @@ if ($needCompile) {
     } finally {
         Pop-Location
     }
+}
+
+# scriptcheck — validate media/scripts/*.txt with PZ's OWN parser.
+#
+# Separate subcommand rather than part of the test run: it needs no mod config,
+# no Lua, and no test files, so it can run on a mod that has no suite at all,
+# and it is the cheapest possible CI gate (parses ~1000 files in under a
+# second). See kahlua/ScriptCheck.java for what it checks and why.
+if ($Args.Count -ge 1 -and $Args[0] -eq 'scriptcheck') {
+    $targets = @($Args[1..($Args.Count - 1)] | Where-Object { $_ })
+    if ($targets.Count -eq 0) {
+        $default = Join-Path (Get-Location).Path 'media/scripts'
+        if (-not (Test-Path $default)) {
+            Write-Host "[scriptcheck] no media/scripts in $((Get-Location).Path) - nothing to check"
+            exit 0
+        }
+        $targets = @($default)
+    }
+    & java -cp "$jar;$kahluaDir" ScriptCheck @targets
+    exit $LASTEXITCODE
 }
 
 if ($Args.Count -ge 1 -and $Args[0] -eq 'init') {

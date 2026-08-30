@@ -43,7 +43,7 @@ case "${OSTYPE:-}" in
         ;;
 esac
 
-SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher)
+SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck)
 
 # Recompile when any .java is newer than its .class.
 need_compile=0
@@ -59,6 +59,24 @@ done
 if [ "$need_compile" = "1" ]; then
     echo "[pztest] compiling Java sources..." >&2
     (cd "$KAHLUA_DIR" && javac -cp "$JAR" "${SOURCES[@]/%/.java}")
+fi
+
+# scriptcheck subcommand — validate media/scripts/*.txt with PZ's OWN parser.
+#
+# Kept separate from the test run: it needs no pz-test.lua, no Lua and no test
+# files, so it works on a mod with no suite at all, and it is the cheapest CI
+# gate there is (~1000 files in under a second). See kahlua/ScriptCheck.java.
+if [ "${1:-}" = "scriptcheck" ]; then
+    shift
+    CP_SC="$(winpath "$JAR")$CPSEP$(winpath "$KAHLUA_DIR")"
+    if [ $# -eq 0 ]; then
+        if [ ! -d "media/scripts" ]; then
+            echo "[scriptcheck] no media/scripts in $(pwd) - nothing to check"
+            exit 0
+        fi
+        set -- "$(winpath "$(pwd)/media/scripts")"
+    fi
+    exec java -cp "$CP_SC" ScriptCheck "$@"
 fi
 
 # Init subcommand — scaffolds pz-test.lua + a starter test in the current mod.

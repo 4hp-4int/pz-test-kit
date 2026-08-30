@@ -27,6 +27,10 @@ inputs:
     description: 'Git ref (tag / branch / SHA) of pz-test-kit to use. Defaults to the action ref.'
     required: false
     default: ''
+  scriptcheck:
+    description: 'Validate media/scripts/*.txt with PZ''s own parser before running tests. A malformed script file fails silently in game -- the engine logs a debug warning and the items simply do not exist -- so this catches a whole class of bug the Lua suite cannot see. Set to false to skip.'
+    required: false
+    default: 'true'
 
 outputs:
   junit-xml:
@@ -69,7 +73,19 @@ runs:
           KahluaTestRunner.java \
           DualVMSim.java \
           StubbingClassLoader.java \
-          PZTestKitLauncher.java
+          PZTestKitLauncher.java \
+          ScriptCheck.java
+
+    # Before the Lua suite: a broken .txt makes every item in the file vanish
+    # with no error the tests could observe, so failing here gives a far
+    # clearer signal than a downstream test that cannot find an item.
+    - name: Check scripts
+      if: ${{ inputs.scriptcheck == 'true' }}
+      shell: bash
+      run: |
+        chmod +x "$PZTEST_KIT_DIR/pztest"
+        cd "${{ inputs.mod-root }}"
+        "$PZTEST_KIT_DIR/pztest" scriptcheck
 
     - name: Run tests
       id: run
