@@ -343,6 +343,10 @@ public class DualVMSim {
         ep.env.rawset("_pz_sim_mod", cmd.module);
         ep.env.rawset("_pz_sim_cmd", cmd.command);
         ep.env.rawset("_pz_sim_args", cmd.args);
+        // Which endpoint sent this (0=server, 1..N=clients). OnClientCommand's
+        // real signature carries the sending PLAYER, so the dispatcher needs to
+        // know who that was -- see sim/event_dispatch.lua.
+        ep.env.rawset("_pz_sim_source", Double.valueOf(cmd.sourceIndex));
 
         KitLua.run(ep.thread, ep.env, "sim/event_dispatch.lua");
     }
