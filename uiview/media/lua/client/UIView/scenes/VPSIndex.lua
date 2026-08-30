@@ -31,10 +31,18 @@ require "VorpallySauced/Bondings"
 require "VorpallySauced/CompendiumData"
 require "VorpallySauced/Knowledge"
 require "VorpallySauced/Chrome"
+require "VorpallySauced/Layout"
 
 local fm = UIView_fontMetrics
 local K = VorpallySauced.Knowledge
 local Chrome = VorpallySauced.Chrome
+local L = VorpallySauced.Layout
+
+-- The harness owns text metrics; the engine asks rather than assumes.
+L.setMeasurer(function(font, text)
+    local m = fm(font)
+    return math.floor(#tostring(text) * m.w + 0.5), m.h
+end)
 
 local VPSIndex = {}
 
@@ -132,107 +140,90 @@ local function sectionTitle(sec)
     return base
 end
 
---- Progress as a bar of the volume's own size, so the eight books stay
---- comparable at a glance (Vol. IV holds 7 entries, Vol. VII holds 43).
-function Page:renderMeter(x, y, w, h, known, total, witnessed)
-    self:drawRect(x, y, w, h, 0.10, INK[1], INK[2], INK[3])
-    if total <= 0 then return end
-    local kw = math.floor(w * known / total + 0.5)
-    if kw > 0 then self:drawRect(x, y, kw, h, 0.30, INK[1], INK[2], INK[3]) end
-    local ww = math.floor(w * witnessed / total + 0.5)
-    if ww > 0 then self:drawRect(x, y, ww, h, 0.85, TEAL[1], TEAL[2], TEAL[3]) end
+--- One volume row, as a TREE. No coordinates anywhere: the label column is
+--- measured, the title follows it, and the spacer pushes the count to the
+--- right edge. The "Vol. VIIIBLOODED" collision is not fixed here, it is
+--- unrepresentable.
+local function volumeRow(sec, meterW)
+    local vol = sec.volume
+    local ink = sec.collapsed and FAINT or INK
+
+    local note
+    if sec.collapsed then
+        note = "unread"
+    elseif sec.isStudied and sec.witnessed == sec.total then
+        note = "complete"
+    elseif sec.isStudied then
+        note = ("studied - %d met in the field"):format(sec.witnessed)
+    else
+        note = ("%d met in the field, unread"):format(sec.witnessed)
+    end
+
+    local known = sec.total > 0 and math.floor(meterW * sec.known / sec.total + 0.5) or 0
+    local seen  = sec.total > 0 and math.floor(meterW * sec.witnessed / sec.total + 0.5) or 0
+
+    return L.col({ gap = 3 },
+        L.row({ gap = 14 },
+            L.text(vol and ("Vol. " .. vol.volumeNum) or "", { color = MUTED, minW = 0 }),
+            L.text(sectionTitle(sec), { color = ink }),
+            L.spacer(),
+            L.text(("%d / %d"):format(sec.known, sec.total), { color = MUTED })),
+        -- Meter as a stack: track, then what is known, then what has actually
+        -- been met. Scaled to the BOOK'S own size so eight lopsided volumes
+        -- stay comparable at a glance.
+        L.stack({},
+            L.rect({ h = 3, w = meterW, color = { INK[1], INK[2], INK[3], 0.10 } }),
+            L.rect({ h = 3, w = known,  color = { INK[1], INK[2], INK[3], 0.30 } }),
+            L.rect({ h = 3, w = seen,   color = { TEAL[1], TEAL[2], TEAL[3], 0.85 } })),
+        L.text(note, { color = FAINT }))
 end
 
---- THE CONTENTS PAGE.
----
---- Eight rows, one per volume -- not 179 entries. The earlier draft put every
---- section on one surface and it was simply busy: a page of names and dashes
---- that answered "what exists" by showing all of it at once, which is the one
---- way to make 179 things feel like noise instead of a collection.
----
---- The index is a table of contents. It says what the game is made of, how big
---- each part is, and which parts you have opened -- the whole shape in eight
---- lines. The entries themselves live on a volume page, one book at a time,
---- which is also how you actually acquire them.
+--- The whole page, as one tree. There is not a single coordinate below this
+--- line: the card insets its own content, the spacer finds the right edge, and
+--- every column is measured. That is the entire reason this layer exists.
 function Page:prerender()
     ISPanel.prerender(self)
-
-    Chrome.nine(self, "lite_panel", 0, 0, self.width, self.height, 1)
-
-    local cardX, cardY = PAD, PAD
-    local cardW = self.width - PAD * 2
-    local cardH = self.height - PAD * 2
-    Chrome.nine(self, "lite_card", cardX, cardY, cardW, cardH, 1)
-
-    local ci = Chrome.inset("lite_card") or 14
-    Chrome.tile(self, "paper_tile", cardX + ci, cardY + ci,
-                cardW - ci * 2, cardH - ci * 2, 0.35)
 
     local sections, summary = withFixture(function()
         return K.sections(nil), select(2, K.index(nil))
     end)
 
-    local x = cardX + ci + 10
-    local y = cardY + ci + 10
-    local innerW = cardW - ci * 2 - 20
-    local rule = Chrome.tex("stitch_rule")
+    local cardInset = Chrome.inset("lite_card") or 14
+    local meterW = self.width - PAD * 2 - cardInset * 2 - 20 - 120
 
-    self:drawText("THE INDEX", x, y, INK[1], INK[2], INK[3], 1, UIFont.Medium)
-    local head = ("%d of %d met"):format(summary.witnessed, summary.total)
-    self:drawText(head, x + innerW - fw(UIFont.Small, head), y + 4,
-                  MUTED[1], MUTED[2], MUTED[3], 1, UIFont.Small)
-    y = y + fh(UIFont.Medium) + 6
-    if rule then self:drawTextureScaled(rule, x, y, innerW, 4, 0.7, INK[1], INK[2], INK[3]) end
-    y = y + 16
+    local rows = {}
+    for _, sec in ipairs(sections) do rows[#rows + 1] = volumeRow(sec, meterW) end
 
-    local lineH = fh(UIFont.Small)
+    -- Named parts rather than one deep literal. A tree written as five nested
+    -- constructors is as unreadable as the arithmetic it replaced, and the
+    -- first attempt at exactly that would not even compile.
+    local header = L.row({},
+        L.text("THE INDEX", { font = UIFont.Medium, color = INK }),
+        L.spacer(),
+        L.text(("%d of %d met"):format(summary.witnessed, summary.total),
+               { color = MUTED }))
 
-    -- MEASURE the number column instead of guessing it. A fixed 54px fits
-    -- "Vol. I" and collides with "Vol. VIII", which renders as "Vol. VIIIBLOODED"
-    -- -- and it only shows up on the last row, so a preview built from the
-    -- first few volumes would look fine.
-    local numW = 0
-    for _, sec in ipairs(sections) do
-        local v = sec.volume
-        if v then numW = math.max(numW, fw(UIFont.Small, "Vol. " .. v.volumeNum)) end
-    end
-    local titleX = numW + 14
+    local body = L.col({ gap = 12, pad = 10, fill = true },
+        header,
+        L.col({ gap = 12 }, unpack(rows)))
 
-    for _, sec in ipairs(sections) do
-        local vol = sec.volume
-        local title = sectionTitle(sec)
-        local num = vol and ("Vol. " .. vol.volumeNum) or ""
+    local card = L.nine("lite_card", {
+        inset = cardInset, fill = true, children = { body },
+    })
 
-        -- An unopened book is quieter, not louder. (The first pass had this
-        -- backwards -- collapsed sections used the LIGHTEST ink, so the thing
-        -- you had never touched was the boldest line on the page.)
-        local ink = sec.collapsed and FAINT or INK
+    local page = L.nine("lite_panel", {
+        inset = Chrome.inset("lite_panel") or 20, children = { card },
+    })
 
-        self:drawText(num, x, y, MUTED[1], MUTED[2], MUTED[3], 1, UIFont.Small)
-        self:drawText(title, x + titleX, y, ink[1], ink[2], ink[3], 1, UIFont.Small)
+    L.render(self, page, 0, 0, self.width, self.height)
 
-        local count = ("%d / %d"):format(sec.known, sec.total)
-        self:drawText(count, x + innerW - fw(UIFont.Small, count), y,
-                      MUTED[1], MUTED[2], MUTED[3], 1, UIFont.Small)
-
-        y = y + lineH + 3
-        self:renderMeter(x + titleX, y, innerW - titleX - fw(UIFont.Small, "00 / 00") - 10, 3,
-                         sec.known, sec.total, sec.witnessed)
-        y = y + 5
-
-        -- One line of state, which is also the lead.
-        local note
-        if sec.collapsed then
-            note = "unread"
-        elseif sec.isStudied and sec.witnessed == sec.total then
-            note = "complete"
-        elseif sec.isStudied then
-            note = ("studied - %d met in the field"):format(sec.witnessed)
-        else
-            note = ("%d met in the field, unread"):format(sec.witnessed)
-        end
-        self:drawText(note, x + titleX, y, FAINT[1], FAINT[2], FAINT[3], 1, UIFont.Small)
-        y = y + lineH + 12
+    -- The guard the hand-positioned version could not have: if any two labels
+    -- ever overlap, say so in the preview rather than waiting for someone to
+    -- notice on a screenshot.
+    local hits = L.overlaps(page)
+    if #hits > 0 then
+        self:drawText("LAYOUT COLLISION: " .. tostring(hits[1].a) .. " / " .. tostring(hits[1].b),
+                      12, self.height - 20, 1, 0.3, 0.3, 1, UIFont.Small)
     end
 end
 
@@ -244,3 +235,4 @@ end
 
 VPSIndex.W, VPSIndex.H = W, H
 return VPSIndex
+
