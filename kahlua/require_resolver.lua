@@ -120,7 +120,7 @@ function require(name)
             chunk = _pz_cov_compile(source, name, chunkName)
         end
         if not chunk then
-            chunk, cerr = loadstring(source, chunkName)
+            chunk, cerr = _pz_compile(source, chunkName)
         end
         if not chunk then
             error("compile error in '" .. name .. "': " .. tostring(cerr), 2)

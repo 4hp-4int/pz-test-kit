@@ -11,7 +11,7 @@ if type(_pz_test_source) ~= "string" then
     error("_pz_test_source not set", 0)
 end
 
-local chunk, err = loadstring(
+local chunk, err = _pz_compile(
     "return (function()\n" .. _pz_test_source .. "\nend)()",
     _pz_test_name or "test_file")
 if not chunk then

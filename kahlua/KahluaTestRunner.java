@@ -734,6 +734,7 @@ public class KahluaTestRunner {
 
         // 2. Module index + require resolver
         installModuleIndex(env, index);
+        installCompiler(env);
         loadFile(thread, env, kahluaDir.resolve("require_resolver.lua"));
 
         // 2b. Coverage instrumentation runtime (opt-in via --coverage). Loaded
@@ -812,6 +813,31 @@ public class KahluaTestRunner {
 
         // 6. Post-scripts hook
         loadFile(thread, env, kahluaDir.resolve("post_scripts.lua"));
+
+        // 7. Match PZ's runtime surface: no loadstring. LAST, so every harness
+        //    file above has already been compiled and switched to _pz_compile.
+        removeRemovedGlobals(env);
+    }
+
+    /**
+     * Strip globals PZ's runtime does NOT have, so mod code cannot depend on
+     * one and pass here while failing in the game.
+     *
+     * `loadstring` (and `loadstream`) were removed by PZ's 2026-08 security
+     * patch. Kahlua still ships them, which made this harness quietly MORE
+     * permissive than the thing it models — the exact failure mode a test kit
+     * must not have. TooltipLib shipped a `loadstring` closure that a passing
+     * suite said nothing about and that had to be torn out in v1.6.2.
+     *
+     * The harness's own infrastructure still needs a compiler (the require
+     * resolver, coverage instrumentation and the config/test-file loaders all
+     * compile source at runtime), so it uses `_pz_compile` instead: same
+     * semantics, a name no one will mistake for a PZ API, and consistent with
+     * the `_pz_`-prefixed harness globals already in the env.
+     */
+    private static void removeRemovedGlobals(KahluaTable env) {
+        env.rawset("loadstring", null);
+        env.rawset("loadstream", null);
     }
 
     // ── Module index ───────────────────────────────────────────────
@@ -923,6 +949,88 @@ public class KahluaTestRunner {
         }
         env.rawset("_pz_module_sources", sources);
         env.rawset("_pz_module_files", files);
+    }
+
+    /**
+     * Install `PZTestKit.compile(src [, chunkname])` — a SYNTAX CHECK for Lua
+     * source, returning `true` or `nil, message`.
+     *
+     * This exists because PZ REMOVED `loadstring` from its runtime. Kahlua still
+     * has the compiler, so the global happens to be present in this harness —
+     * which makes it a trap: a test written against `loadstring` passes here and
+     * describes an API the game does not have, so the habit leaks into mod code
+     * and breaks on load. (VorpallySauced's TooltipLib dependency shipped exactly
+     * that call and had to drop it in v1.6.2.)
+     *
+     * So the capability is exposed under the kit's own namespace instead. It
+     * cannot be mistaken for a PZ API, and it deliberately does NOT return the
+     * compiled chunk: the use case is "does this file parse", which matters for
+     * the dozen or so UI modules that derive from ISPanel and therefore cannot
+     * be executed offline at all. Handing back a runnable chunk would invite
+     * exactly the dynamic-code habit PZ removed the global to prevent.
+     */
+    private static void installCompiler(KahluaTable env) {
+        KahluaTable pzTestKit = env.rawget("PZTestKit") instanceof KahluaTable
+            ? (KahluaTable) env.rawget("PZTestKit")
+            : new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+        env.rawset("PZTestKit", pzTestKit);
+
+        final KahluaTable envRef = env;
+
+        // The harness's own drop-in for the removed global: same signature and
+        // same return contract as loadstring (chunk, or nil + message), under a
+        // name that reads as infrastructure. Everything in kahlua/*.lua that
+        // used to call loadstring calls this.
+        env.rawset("_pz_compile", new JavaFunction() {
+            @Override
+            public int call(LuaCallFrame frame, int nArguments) {
+                if (nArguments < 1 || !(frame.get(0) instanceof String)) {
+                    frame.push(null);
+                    frame.push("_pz_compile: expected a source string");
+                    return 2;
+                }
+                String src = (String) frame.get(0);
+                String name = (nArguments >= 2 && frame.get(1) instanceof String)
+                    ? (String) frame.get(1) : "chunk";
+                try {
+                    frame.push(LuaCompiler.loadstring(src, name, envRef));
+                    return 1;
+                } catch (Exception e) {
+                    String msg = e.getMessage();
+                    if (msg == null || msg.isEmpty()) msg = e.toString();
+                    frame.push(null);
+                    frame.push(name + ": " + msg);
+                    return 2;
+                }
+            }
+        });
+
+        pzTestKit.rawset("compile", new JavaFunction() {
+            @Override
+            public int call(LuaCallFrame frame, int nArguments) {
+                if (nArguments < 1 || !(frame.get(0) instanceof String)) {
+                    frame.push(null);
+                    frame.push("PZTestKit.compile: expected a source string");
+                    return 2;
+                }
+                String src = (String) frame.get(0);
+                String name = (nArguments >= 2 && frame.get(1) instanceof String)
+                    ? (String) frame.get(1) : "chunk";
+                try {
+                    LuaCompiler.loadstring(src, name, envRef);
+                    frame.push(Boolean.TRUE);
+                    return 1;
+                } catch (Exception e) {
+                    // Kahlua nests the useful part; an empty message here would
+                    // make a failing parse check impossible to act on.
+                    String msg = e.getMessage();
+                    if (msg == null || msg.isEmpty()) msg = e.toString();
+                    frame.push(null);
+                    frame.push(name + ": " + msg);
+                    return 2;
+                }
+            }
+        });
     }
 
     // ── File loading helpers ───────────────────────────────────────
@@ -1050,10 +1158,27 @@ public class KahluaTestRunner {
             KahluaThread thread = new KahluaThread(System.out, platform, env);
             thread.debugOwnerThread = Thread.currentThread();
             env.rawset("_pz_config_source", Files.readString(configFile));
+            // load_config.lua compiles the config source, so this bare env needs
+            // the compiler too. It is NOT a test env and never goes through
+            // buildEnv, which is precisely how it got missed: the config load
+            // failed, the catch below swallowed it, and the only symptom was
+            // `dependencies` and `test_file_excludes` quietly having no effect.
+            installCompiler(env);
             LuaClosure c = LuaCompiler.loadstring(
                 Files.readString(kahluaDir.resolve("context/load_config.lua")),
                 "context/load_config.lua", env);
-            thread.pcall(c, new Object[0]);
+            // pcall RETURNS false on error rather than throwing, so the catch
+            // below never saw config failures. A pz-test.lua that does not load
+            // silently drops `dependencies` and `test_file_excludes` -- the mod
+            // still tests, just against a different set of files than the author
+            // asked for, which is worse than a hard failure because it looks
+            // like a pass.
+            Object[] r = thread.pcall(c, new Object[0]);
+            if (r != null && r.length > 0 && Boolean.FALSE.equals(r[0])) {
+                System.out.println("  WARNING: pz-test.lua failed to load: "
+                    + (r.length > 1 ? String.valueOf(r[1]) : "unknown error"));
+                return null;
+            }
             Object cfg = env.rawget("_pz_config");
             return cfg instanceof KahluaTable ? (KahluaTable) cfg : null;
         } catch (Exception e) {

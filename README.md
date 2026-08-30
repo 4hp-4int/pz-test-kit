@@ -47,6 +47,7 @@ That test failed loudly the moment someone would have reintroduced the 4-arg for
 | **JUnit XML output** | `--junit-xml` for CI. Works with GitHub Actions Test Reporter, VS Code Test Explorer, etc. |
 | **Skip support** | `PZTestKit.skip("reason")` + `PZTestKit.skipInGame(...)` for environment-gated tests. Surfaces as `<skipped>` in JUnit, not `<failure>`. |
 | **Line coverage** | `--coverage[=<substr>]` reports per-file line coverage. Source instrumentation (PZ's Kahlua has no debug hooks) with a compile-verify fallback, so it can never break the code under test. |
+| **Matches PZ's runtime surface** | `loadstring` / `loadstream` are **removed from the env**, as PZ's 2026-08 security patch removed them. Kahlua still ships them, so without this the kit would be *more permissive than the game* — green-lighting code that crashes on load. Use `PZTestKit.compile(src)` for syntax checks. |
 
 ---
 
@@ -479,6 +480,14 @@ Mocks replace the **data source**, not the **runtime**. Instead of spawning a re
 **`require 'X/Y' failed`** — The resolver only indexes `media/lua/{shared,client,server}/`. Custom Lua roots: open an issue.
 
 **`PZ install not found — falling back to mocks for 3 entries`** — `vanilla_requires` wants a local PZ install. Set `PZ_INSTALL_DIR` env var, or install PZ via Steam in a default path, or accept the fallback (mocks satisfy the surface, but you lose vanilla-drift detection on CI).
+
+**`attempt to call nil` on `loadstring`** — Deliberate. PZ removed `loadstring` and `loadstream` in its 2026-08 security patch, so the kit removes them too; a harness that keeps an API the game dropped will pass code that crashes on load. If you want to check that a file *parses* — useful for UI modules deriving from `ISPanel`, which can't be executed offline at all — use the kit's own entry point:
+
+```lua
+local ok, err = PZTestKit.compile(source, "chunkname")   -- true | nil, message
+```
+
+It returns a verdict, not a runnable chunk, on purpose: handing one back would reintroduce exactly the dynamic-code habit PZ removed the global to prevent.
 
 **Tests pass offline but fail in-game** — Your test may rely on mock-only behavior (writing to `weapon._privateField`, overriding `weapon.getX` methods). Real PZ's HandWeapon Java proxy rejects both. Use `PZTestKit.Fixtures.weapon({...})` for state you need to control — it's a Lua table in both environments.
 

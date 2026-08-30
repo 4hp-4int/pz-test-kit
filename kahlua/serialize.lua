@@ -32,13 +32,13 @@ local next = next
 
 function deserialize(str)
    -- for lua 5.0 (and 5.1)
-   local f = assert(loadstring("return function(_) return " .. str .. " end"))
+   local f = assert(_pz_compile("return function(_) return " .. str .. " end"))
    setfenv(f, desEnv)
    return f()(desFun)
 
    -- for lua 5.1
 --[[
-   local f = assert(loadstring("local _ = ... return " .. str .. " end"))
+   local f = assert(_pz_compile("local _ = ... return " .. str .. " end"))
    setfenv(f, desEnv)
    return f(desFun)
 ]]

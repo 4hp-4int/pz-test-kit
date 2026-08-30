@@ -241,7 +241,7 @@ function _pz_cov_compile(source, name, path)
         print("[coverage] instrument error in " .. tostring(name) .. ": " .. tostring(inst))
         return nil
     end
-    local chunk, cerr = loadstring(inst, key)
+    local chunk, cerr = _pz_compile(inst, key)
     if not chunk then
         entry.fallback = true; entry.points = {}
         print("[coverage] instrumented source failed to compile (" .. tostring(name) ..

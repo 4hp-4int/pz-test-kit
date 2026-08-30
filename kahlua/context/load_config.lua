@@ -12,7 +12,7 @@
 
 if type(_pz_config_source) ~= "string" then return end
 
-local chunk, err = loadstring(
+local chunk, err = _pz_compile(
     "return (function()\n" .. _pz_config_source .. "\nend)()",
     "pz-test.lua")
 if not chunk then

@@ -128,28 +128,27 @@ function Page:prerender()
 
     local LORE = "I don't know who's gonna read this. Maybe nobody. But someone's gotta write it down before we all forget what's real and what ain't. It started maybe a week after the blockade. Tommy Culver's hatchet."
 
+    -- Pages produce CONTENT; the card is the host's. In the game the panel
+    -- draws one card behind a pinned masthead and a scrolling list, which is
+    -- why the components stopped wrapping themselves in one -- so the preview
+    -- supplies the card here, exactly as the panel does.
     local pages = {
-        C.IndexPage({
-            sections = sections, summary = summary,
-            width = PAGE_W, fonts = FONTS,
-        }),
+        C.IndexPage({ sections = sections, summary = summary, fonts = FONTS }),
         C.VolumePage({
             volume = volSection and volSection.volume or nil,
             isStudied = true,
             icon = volSection and C.volumeIcon(volSection) or nil,
             intro = LORE,
             rows = volRows,
-            unmeasuredText = "unmeasured",
-            width = PAGE_W,
-            progressText = volSection and ("%d / %d met"):format(
-                volSection.witnessed, volSection.total) or "",
+            witnessed = volSection and volSection.witnessed or nil,
+            total = volSection and volSection.total or nil,
             fonts = FONTS,
         }),
         C.MemorialPage({ bonds = BONDS, cap = 32, fonts = FONTS }),
         C.BondPage({
             bond = BONDS[3],
-            -- Provenance as it renders once SauceTooltips is installed. Absent
-            -- entries are the honest case when no street was close enough.
+            -- Provenance as the memorial renders it. Absent entries are the
+            -- honest case when no street was close enough to claim.
             marks = {
                 { label = "Mark",    name = "Undying-Wrought",  place = "near Cortman Medical" },
                 { label = "Bond",    name = "of the Red Feast", place = "on West Point Road" },
@@ -161,7 +160,7 @@ function Page:prerender()
 
     local collisions = 0
     for i, page in ipairs(pages) do
-        local shell = C.Shell({ children = { page } })
+        local shell = C.Shell({ children = { C.Card({ children = { page } }) } })
         L.render(self, shell, GAP + (i - 1) * (PAGE_W + GAP), GAP, PAGE_W, PAGE_H)
         collisions = collisions + #L.overlaps(shell)
 
@@ -173,8 +172,15 @@ function Page:prerender()
         if slot then
             self:drawRect(slot.x, slot.y, slot.w, slot.h, 0.05, 0, 0, 0)
             self:drawRectBorder(slot.x, slot.y, slot.w, slot.h, 0.15, 0, 0, 0)
+            -- Wrapped to the SAME column the game's ISRichTextPanel uses --
+            -- C.LORE_MARGIN_* -- including the right margin that pays for the
+            -- scroll bar. Wrapping to the raw slot width here would show a
+            -- comfortable paragraph in the preview and a line running under
+            -- the scroll bar in the game.
+            local ml, mr = C.LORE_MARGIN_L, C.LORE_MARGIN_R
             local para = L.wraptext(LORE, { color = C.FAINT })
-            L.render(self, para, slot.x + 6, slot.y + 5, slot.w - 12, slot.h - 10)
+            L.render(self, para, slot.x + ml, slot.y + C.LORE_MARGIN_T,
+                     slot.w - ml - mr, slot.h - C.LORE_MARGIN_T * 2)
         end
     end
 
