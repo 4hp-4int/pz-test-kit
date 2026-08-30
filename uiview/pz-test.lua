@@ -6,6 +6,13 @@ return {
         "UIView/UIMock",
     },
 
+    -- Load a real EN bundle so scenes render NAMES, not translation keys. The
+    -- VPS index sorts and prints affix names through getText; without this
+    -- every row reads "UI_VorpallySauced_Prefix_Keen", which makes the preview
+    -- useless for judging typography, column width or alphabetical order --
+    -- the three things the preview exists to judge.
+    translate = "EN",
+
     -- Index these mods' media/lua into the require path so scenes can load
     -- their actual UI files (e.g. require "palette/pal_ui").
     --
