@@ -136,7 +136,7 @@ function Page:prerender()
         C.VolumePage({
             volume = volSection and volSection.volume or nil,
             isStudied = true,
-            titleText = "The Stir",
+            icon = volSection and C.volumeIcon(volSection) or nil,
             intro = LORE,
             rows = volRows,
             unmeasuredText = "unmeasured",
