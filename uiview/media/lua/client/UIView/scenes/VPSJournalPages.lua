@@ -118,7 +118,7 @@ function Page:prerender()
     local volRows = {}
     if volSection then
         for i, r in ipairs(volSection.rows) do
-            if i > 10 then break end
+            if i > 5 then break end
             local row = {}
             for k, v in pairs(r) do row[k] = v end
             row.valueText = "+12% crit"
