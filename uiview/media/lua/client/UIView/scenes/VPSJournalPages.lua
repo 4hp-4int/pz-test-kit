@@ -118,7 +118,7 @@ function Page:prerender()
     local volRows = {}
     if volSection then
         for i, r in ipairs(volSection.rows) do
-            if i > 5 then break end
+            if i > 6 then break end
             local row = {}
             for k, v in pairs(r) do row[k] = v end
             row.valueText = "+12% crit"
@@ -173,7 +173,7 @@ function Page:prerender()
         if slot then
             self:drawRect(slot.x, slot.y, slot.w, slot.h, 0.05, 0, 0, 0)
             self:drawRectBorder(slot.x, slot.y, slot.w, slot.h, 0.15, 0, 0, 0)
-            local para = L.paragraph(LORE, { width = slot.w - 12, color = C.FAINT })
+            local para = L.wraptext(LORE, { color = C.FAINT })
             L.render(self, para, slot.x + 6, slot.y + 5, slot.w - 12, slot.h - 10)
         end
     end
