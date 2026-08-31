@@ -33,7 +33,7 @@ require "VorpallySauced/FieldJournalUI"
 
 local Scene = {}
 
-local PANEL_W, PANEL_H = 560, 700
+local PANEL_W, PANEL_H = 560, 800
 local GAP = 18
 local W = PANEL_W * 4 + GAP * 5
 local H = PANEL_H + GAP * 2
