@@ -335,6 +335,28 @@ CharacterStat = {
     STRENGTH = "STRENGTH",
 }
 
+-- ItemTag / ItemBodyLocation — open registries in B42, not closed enums.
+--
+-- Mods and vanilla alike reference members by name (ItemTag.WRITE gates map
+-- annotation in ISMap.lua:234; ItemBodyLocation.HAT and friends replaced the
+-- old body-location STRINGS). Enumerating them here would go stale the first
+-- time TIS or a mod registers a new one, and the failure would look like a
+-- broken mod rather than a missing mock. So: mint a stable token per name on
+-- first use. Identity is what callers actually rely on -- the value is only
+-- ever passed straight back into a container/item method.
+local function _pz_open_registry(name)
+    return setmetatable({}, {
+        __index = function(t, key)
+            local token = name .. "." .. tostring(key)
+            rawset(t, key, token)
+            return token
+        end,
+    })
+end
+
+ItemTag = ItemTag or _pz_open_registry("ItemTag")
+ItemBodyLocation = ItemBodyLocation or _pz_open_registry("ItemBodyLocation")
+
 function _pz_create_mock_stats()
     local stats = {
         _values = {

@@ -1240,9 +1240,36 @@ public class KahluaTestRunner {
                     System.out.println("  [vanilla_requires] FAIL (" + entry + "): " + err + " — falling back to mock");
                 } else {
                     System.out.println("  [vanilla_requires] OK   (" + entry + ")");
+                    markVanillaRequireSatisfied(env, entry);
                 }
             } catch (Exception e) {
                 System.out.println("  [vanilla_requires] EXC  (" + entry + "): " + e.getMessage() + " — falling back to mock");
+            }
+        }
+    }
+
+    /**
+     * A vanilla file that loaded successfully must also SATISFY a `require`
+     * for it, or the config is a trap: the kit reports "OK (ISReadABook)" and
+     * then any module doing `require "TimedActions/ISReadABook"` dies with
+     * "not found in module index". The class is right there in the env; the
+     * resolver just never heard about it.
+     *
+     * Both spellings are registered because both are legitimate. PZ resolves
+     * requires relative to media/lua/<context>/, so mod code writes
+     * "TimedActions/ISReadABook" while the config names the file
+     * "shared/TimedActions/ISReadABook".
+     */
+    private static void markVanillaRequireSatisfied(KahluaTable env, String entry) {
+        Object stubsRaw = env.rawget("_pz_stub_requires");
+        if (!(stubsRaw instanceof KahluaTable)) return;
+        KahluaTable stubs = (KahluaTable) stubsRaw;
+        stubs.rawset(entry, Boolean.TRUE);
+        int slash = entry.indexOf('/');
+        if (slash > 0) {
+            String ctx = entry.substring(0, slash);
+            if (ctx.equals("shared") || ctx.equals("client") || ctx.equals("server")) {
+                stubs.rawset(entry.substring(slash + 1), Boolean.TRUE);
             }
         }
     }
