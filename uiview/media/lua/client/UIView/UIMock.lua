@@ -15,8 +15,9 @@
         getMouseX/getMouseY + UIView_setMouse() to drive hit-tests
 
     Fidelity caveats:
-      - Text width is APPROXIMATED per font (avg glyph width). Layouts that flow
-        on MeasureStringX are close, not pixel-exact. Tune FONT below if needed.
+      - Text width is EXACT for ASCII: per-glyph advances generated from PZ's
+        own .fnt files (UIView/FontMetrics.lua). Non-ASCII falls back to the
+        font's mean advance. Pick the size with UIView_setFontSize("1x".."4x").
       - Textures are recorded by name as placeholder boxes (no pixels headless).
 ]]
 
@@ -28,7 +29,12 @@ local SCREEN_W, SCREEN_H = 1920, 1080
 local _core = {
     getScreenWidth  = function(self) return SCREEN_W end,
     getScreenHeight = function(self) return SCREEN_H end,
-    getOptionFontSizeReal = function(self) return 1 end,
+    -- Mirrors the modelled size directory, so anything reading the option
+    -- agrees with what MeasureStringX is actually using.
+    getOptionFontSizeReal = function(self)
+        local d = _G.UIView_getFontSize and _G.UIView_getFontSize() or "2x"
+        return ({ ["1x"] = 2, ["2x"] = 3, ["3x"] = 4, ["4x"] = 5 })[d] or 3
+    end,
     -- used by the real ISInventoryPage chrome
     getOptionInventoryContainerSize = function(self) return 1 end,
     getGameMode = function(self) return "Survivor" end,
@@ -58,6 +64,15 @@ UIFont = {
     AutoNormLarge  = "Large",
 }
 
+-- REAL PER-GLYPH METRICS, generated from PZ's own .fnt files. See
+-- UIView/FontMetrics.lua and uiview/tools/gen_font_metrics.py.
+--
+-- The table below is the LEGACY average-width fallback, kept only for the case
+-- where the generated file is absent (a checkout that has never run the
+-- generator). It is what every preview used to flow on, and the reason a
+-- wrapped paragraph could look comfortable in the mock and run off the card in
+-- the game: an average is right for a random string and wrong for every
+-- specific one, and the error accumulates with length.
 local FONT = {
     Small     = { h = 14, w = 6.2 },
     Medium    = { h = 18, w = 8.0 },
@@ -71,6 +86,7 @@ local FONT = {
     Cred1     = { h = 20, w = 9.0 },
     Code      = { h = 14, w = 7.0 },
 }
+
 -- Global font scale (models the in-game UI font-size option: fixed-pixel
 -- layouts that ignore it are a real bug class -- see SIR's metrics tokens).
 -- Scenes set it via PZTestKit-style: UIMock_setFontScale(1.8); modules that
@@ -79,7 +95,69 @@ local _fontScale = 1
 function _G.UIMock_setFontScale(s) _fontScale = s or 1 end
 function _G.UIMock_getFontScale() return _fontScale end
 
+local METRICS = nil
+pcall(function() METRICS = require "UIView/FontMetrics" end)
+
+-- Which of PZ's four font-size directories to model. The game picks this from
+-- the font-size option (TextManager.java:207) -- 2->1x, 3->2x, 4->3x, 5->4x --
+-- so judging a layout at the wrong one is judging someone else's screen.
+local _sizeDir = "2x"
+function _G.UIView_setFontSize(dir) _sizeDir = dir or "2x" end
+function _G.UIView_getFontSize() return _sizeDir end
+
+--- Exact width, matching AngelCodeFont.getWidth(text, 0, len-1, false):
+--- advances for every glyph except the last, which contributes its ink WIDTH,
+--- and unknown codepoints contribute nothing at all.
+local function exactWidth(font, str)
+    local set = METRICS and METRICS[_sizeDir]
+    local m = set and (set[font] or set.Small)
+    if not m then return nil end
+
+    local s = tostring(str)
+    local n = #s
+    local w, maxw = 0, 0
+    for i = 1, n do
+        local cp = s:byte(i)
+        if cp == 10 then
+            w = 0
+        else
+            local a = m.adv[cp]
+            if a then
+                if i == n then
+                    w = w + (m.wid[cp] or a)
+                else
+                    w = w + a
+                end
+            elseif cp >= 128 then
+                -- Outside the generated ASCII range (CJK / Cyrillic): the mean
+                -- advance, so those previews stay approximate rather than wrong
+                -- by the whole string.
+                w = w + m.fallback
+            end
+            if w > maxw then maxw = w end
+        end
+    end
+    return math.floor(maxw * _fontScale + 0.5)
+end
+--- Baseline offset for a font at the modelled size, or nil when the generated
+--- metrics are unavailable.
+local function fontBase(font)
+    local set = METRICS and METRICS[_sizeDir]
+    local m = set and (set[font] or set.Small)
+    if not m or not m.base then return nil end
+    return math.floor(m.base * _fontScale + 0.5)
+end
+
 local function fontMetrics(font)
+    local set = METRICS and METRICS[_sizeDir]
+    local real = set and (set[font] or set.Small)
+    if real then
+        local h = real.h
+        if _fontScale ~= 1 then h = math.floor(h * _fontScale + 0.5) end
+        -- `w` is kept for the handful of callers that still want an average
+        -- glyph; nothing that flows a layout should use it.
+        return { h = h, w = real.fallback * _fontScale }
+    end
     local m = FONT[font] or FONT.Small
     if _fontScale == 1 then return m end
     return { h = math.floor(m.h * _fontScale + 0.5), w = m.w * _fontScale }
@@ -88,7 +166,8 @@ end
 local _textManager = {
     MeasureStringX = function(self, font, str)
         if not str then return 0 end
-        return math.floor(#tostring(str) * fontMetrics(font).w + 0.5)
+        return exactWidth(font, str)
+            or math.floor(#tostring(str) * fontMetrics(font).w + 0.5)
     end,
     MeasureStringY = function(self, font, str)
         return fontMetrics(font).h
@@ -342,10 +421,26 @@ local function pushText(self, str, x, y, r, g, b, a, font, align, static)
         local fh = fontMetrics(font or UIFont.Small).h
         if ty < st.y or ty + fh > st.y + st.h then return end
     end
+    local f = font or UIFont.Small
     Recorder.push({ op = "text", str = tostring(str),
         x = self:getAbsoluteX() + x + sx, y = self:getAbsoluteY() + y + sy,
         r = c.r, g = c.g, b = c.b, a = c.a,
-        font = font or UIFont.Small, align = align, el = self._uid })
+        -- The PZ-exact width of this string. The viewer draws in a browser
+        -- monospace face, so without it the picture is drawn at one width while
+        -- the layout was computed at another -- which is how a line can look
+        -- like it overflows a card in the preview and fit perfectly in game.
+        mw = exactWidth(f, str),
+        -- PZ's real line height for this font at the modelled size. The viewer
+        -- used a hardcoded px per font name, which at 2x meant drawing 12px
+        -- glyphs into a 26px line box -- small text in a big row, and a large
+        -- letter-spacing correction to make up the width.
+        fh = fontMetrics(f).h,
+        -- Distance from the top of the line box down to the baseline. Lets the
+        -- viewer place glyphs vertically where PZ places them rather than where
+        -- a browser font happens to sit -- without it a strike-through rendered
+        -- as an underline, which reads as a link, not as "this is over".
+        fb = fontBase(f),
+        font = f, align = align, el = self._uid })
 end
 
 function ISUIElement:drawText(str, x, y, r, g, b, a, font)

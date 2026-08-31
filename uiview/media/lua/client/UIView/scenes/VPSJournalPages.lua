@@ -26,15 +26,19 @@ require "VorpallySauced/Chrome"
 require "VorpallySauced/Provenance"
 require "VorpallySauced/Components"
 
-local fm = UIView_fontMetrics
 local K  = VorpallySauced.Knowledge
 local L  = VorpallySauced.Layout
 local C  = VorpallySauced.Components
 local Tally = VorpallySauced.Tally
 
+-- THE SAME MEASURER THE PANEL INSTALLS. The scene used to flow on an average
+-- glyph width while the game flows on MeasureStringX, so a wrapped paragraph
+-- could sit comfortably here and run off the card in the game -- a preview that
+-- confidently predicts the wrong layout is worse than no preview.
 L.setMeasurer(function(font, text)
-    local m = fm(font)
-    return math.floor(#tostring(text) * m.w + 0.5), m.h
+    local tm = getTextManager()
+    font = font or UIFont.Small
+    return tm:MeasureStringX(font, tostring(text)), tm:MeasureStringY(font, tostring(text))
 end)
 
 local Pages = {}
@@ -163,25 +167,6 @@ function Page:prerender()
         local shell = C.Shell({ children = { C.Card({ children = { page } }) } })
         L.render(self, shell, GAP + (i - 1) * (PAGE_W + GAP), GAP, PAGE_W, PAGE_H)
         collisions = collisions + #L.overlaps(shell)
-
-        -- The preview has no ISRichTextPanel, so it draws what the host will
-        -- put in the slot: the reserved box, and the lore wrapped inside it.
-        -- Showing the RESERVATION is the point -- an empty slot on this page
-        -- would look like the lore had gone missing.
-        local slot = L.slots(shell).lore
-        if slot then
-            self:drawRect(slot.x, slot.y, slot.w, slot.h, 0.05, 0, 0, 0)
-            self:drawRectBorder(slot.x, slot.y, slot.w, slot.h, 0.15, 0, 0, 0)
-            -- Wrapped to the SAME column the game's ISRichTextPanel uses --
-            -- C.LORE_MARGIN_* -- including the right margin that pays for the
-            -- scroll bar. Wrapping to the raw slot width here would show a
-            -- comfortable paragraph in the preview and a line running under
-            -- the scroll bar in the game.
-            local ml, mr = C.LORE_MARGIN_L, C.LORE_MARGIN_R
-            local para = L.wraptext(LORE, { color = C.FAINT })
-            L.render(self, para, slot.x + ml, slot.y + C.LORE_MARGIN_T,
-                     slot.w - ml - mr, slot.h - C.LORE_MARGIN_T * 2)
-        end
     end
 
     -- The guard a hand-positioned page could not have. Says it here rather

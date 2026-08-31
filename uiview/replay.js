@@ -158,14 +158,51 @@
           ctx.lineWidth = 1;
           ctx.strokeRect(op.x + 0.5, op.y + 0.5, op.w - 1, op.h - 1);
           break;
-        case "text":
+        case "text": {
           ctx.fillStyle = css(op.r, op.g, op.b, op.a);
-          ctx.font = fontPx(op.font) + "px ui-monospace,Consolas,monospace";
+          // Prefer the line height PZ actually reports for this font at the
+          // modelled size; the FONTPX table is a fallback for older frames.
+          // ~0.75 em per line box is the usual bitmap-font ratio, and getting
+          // this right is what keeps the letter-spacing correction small.
+          var px = op.fh ? Math.max(6, Math.round(op.fh * 0.75)) : fontPx(op.font);
+          ctx.font = px + "px ui-monospace,Consolas,monospace";
+          // PZ's drawText y is the TOP of the line box; canvas fillText
+          // defaults to the alphabetic BASELINE. Without this every string in
+          // every preview sits roughly a line lower than the game draws it --
+          // invisible in a page of pure text, and wrong the moment anything is
+          // positioned against a glyph (a strike-through rendered as an
+          // underline, which is a link affordance, on the memorial page).
+          // Vertical placement, PZ-exact when the frame carries a baseline:
+          // draw on the ALPHABETIC baseline at y + fb, which is where PZ's
+          // bitmap font puts it. Falling back to "top" lines the glyph box up
+          // with the browser font's own ascent instead, which sits the letters
+          // higher in the line and drops anything positioned against them --
+          // the memorial's strike-through landed under the word.
+          var fb = op.fb;
+          ctx.textBaseline = fb ? "alphabetic" : "top";
           ctx.textAlign = op.align === "centre" ? "center"
             : (op.align === "right" ? "right" : "left");
-          ctx.fillText(op.str, op.x, op.y);
+          // op.mw is the width PZ's own font metrics gave this string, which is
+          // what the layout was computed against. The canvas draws a different
+          // typeface, so close the difference with LETTER SPACING rather than a
+          // horizontal scale: scaling stretches the letterforms themselves and
+          // the whole preview reads as squashed or smeared, which is its own
+          // kind of lie. Spacing keeps every glyph its true shape and still
+          // lands the string on the width the layout reserved for it.
+          var hasSpacing = ("letterSpacing" in ctx);
+          if (op.mw && hasSpacing) {
+            ctx.letterSpacing = "0px";
+            var natural = ctx.measureText(op.str).width;
+            var n = op.str.length;
+            if (n > 0 && natural > 0) {
+              ctx.letterSpacing = ((op.mw - natural) / n).toFixed(3) + "px";
+            }
+          }
+          ctx.fillText(op.str, op.x, op.y + (fb || 0));
+          if (hasSpacing) ctx.letterSpacing = "0px";
           ctx.textAlign = "left";
           break;
+        }
         case "texture": {
           // NIL-texture draw (name ""): the engine's DrawTextureScaledColor
           // with a null texture paints a SOLID colour quad (how TooltipLib's
