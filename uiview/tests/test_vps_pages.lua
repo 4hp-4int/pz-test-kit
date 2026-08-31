@@ -23,9 +23,13 @@ tests["pages_render_all_three_surfaces"] = function()
     for _, op in ipairs(Recorder.ops) do
         if op.op == "text" then seen[tostring(op.str)] = true end
     end
-    if not Assert.isTrue(seen["IN YOUR HANDS"], "the held weapon page") then return false end
+    -- "IN YOUR HANDS" was a fourth surface, deliberately removed: you may not be
+    -- holding a weapon when you open the journal, so a page about the one in
+    -- your hands is a page that is often about nothing. The assertion outlived
+    -- the surface and had been failing ever since.
     if not Assert.isTrue(seen["THE INDEX"], "the contents page") then return false end
-    return Assert.isTrue(seen["THE ONES BEFORE"], "the memorial page")
+    if not Assert.isTrue(seen["THE ONES BEFORE"], "the memorial page") then return false end
+    return Assert.isTrue(seen["WHAT IT DOCUMENTS"], "and a volume, reread")
 end
 
 tests["pages_have_no_layout_collisions"] = function()

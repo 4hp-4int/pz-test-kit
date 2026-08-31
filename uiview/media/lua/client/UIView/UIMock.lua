@@ -253,7 +253,17 @@ function ISUIElement:initialise()
     self.childrenInOrder = self.childrenInOrder or {}
 end
 
-function ISUIElement:instantiate() end
+--- Vanilla's instantiate() builds the Java object AND calls createChildren()
+--- (ISUIElement.lua:1007). The mock's was a no-op, so a real panel mounted here
+--- only got the children the SCENE built by hand, and nothing nested ever built
+--- its own -- which is why a viewport's scroll bar simply did not exist in the
+--- preview while the game had one taking 17px off the content column.
+--- Guarded, because addChild instantiates too and a panel may be added twice.
+function ISUIElement:instantiate()
+    if self._instantiated then return end
+    self._instantiated = true
+    self:createChildren()
+end
 function ISUIElement:createChildren() end
 
 -- geometry --------------------------------------------------------------------
@@ -264,7 +274,14 @@ function ISUIElement:getHeight() return self.height end
 function ISUIElement:setX(x) self.x = x end
 function ISUIElement:setY(y) self.y = y end
 function ISUIElement:setWidth(w) self.width = w end
-function ISUIElement:setHeight(h) self.height = h end
+-- Vanilla anchors the scroll bar to its parent's bottom, so the Java side
+-- resizes it whenever the parent does. Without mirroring that, a viewport that
+-- is resized after construction previews with a bar running past the bottom of
+-- the card it belongs to.
+function ISUIElement:setHeight(h)
+    self.height = h
+    if self.vscroll then self.vscroll.height = h end
+end
 function ISUIElement:getRight() return self.x + self.width end
 function ISUIElement:getBottom() return self.y + self.height end
 function ISUIElement:getCenterX() return self.x + self.width / 2 end
@@ -315,6 +332,9 @@ end
 function ISUIElement:addChild(child)
     if child.children == nil then child.children = {}; child.childrenInOrder = {} end
     child.parent = self
+    -- Vanilla instantiates an added child (ISUIElement.lua:1455), which is what
+    -- gives it its own children.
+    if child.instantiate then child:instantiate() end
     self.children[child._uid or (#self.childrenInOrder + 1)] = child
     table.insert(self.childrenInOrder, child)
     return child
@@ -526,9 +546,32 @@ function ISUIElement:suspendStencil() self._stencilOff = true end
 function ISUIElement:resumeStencil() self._stencilOff = false end
 function ISUIElement:repaintStencilRect() end
 function ISUIElement:updateScrollbars() end
-function ISUIElement:setScrollHeight() end
+function ISUIElement:setScrollHeight(h) self._scrollHeight = h or 0 end
+function ISUIElement:getScrollHeight() return self._scrollHeight or 0 end
+function ISUIElement:setYScroll(y) self._yScroll = y or 0 end
+function ISUIElement:getIsVisible() return self._visible ~= false end
+
+--- Vanilla adds a real ISScrollBar child here. Modelling it MATTERS: the bar
+--- occupies a 17px column on the right of the element, so a preview without one
+--- shows content in space the game does not have -- which is how a lore column
+--- looked fine in the mock and ran under the scroll bar in the game. It also
+--- makes the bar visible to a mod that reskins it, so chrome can be judged.
+function ISUIElement:addScrollBars(addHorizontal)
+    if self.vscroll then return end
+    local bar = ISScrollBar:new(self, true)
+    bar:initialise()
+    self:addChild(bar)
+    self.vscroll = bar
+end
+function ISUIElement:removeScrollBars()
+    self.vscroll = nil
+end
+function ISUIElement:isVScrollBarVisible()
+    return self.vscroll ~= nil and (self._scrollHeight or 0) > (self.height or 0)
+end
 function ISUIElement:setScrollWidth() end
-function ISUIElement:getScrollHeight() return 0 end
+-- (getScrollHeight lives with setScrollHeight above; a second stub here
+-- returned 0 forever and made every scroll bar invisible.)
 function ISUIElement:getScrollWidth() return 0 end
 
 -- ============================================================================
@@ -602,12 +645,25 @@ function ISButton:setWidthToTitle(min)
     self.width = math.max(w, min or 0)
 end
 
+-- VANILLA SPLIT, and it matters. ISButton draws its BACKGROUND and BORDER in
+-- prerender (gated on displayBackground) and its IMAGE/LABEL in render. A mod
+-- that reskins a button replaces prerender -- that is the documented seam, and
+-- it is what VPS's Chrome.dressButton does.
+--
+-- This mock used to draw all three in prerender, so a dressed button previewed
+-- with NO LABEL: the reskin looked like it had eaten the text. The bug was
+-- entirely in the mock, and it would have sent someone hunting through the
+-- chrome code for a fault that was never there.
 function ISButton:prerender()
+    if self.displayBackground == false then return end
     local over = self:isMouseOver()
     local bc = (over and self.backgroundColorMouseOver) or self.backgroundColor
     self:drawRect(0, 0, self.width, self.height, bc.a, bc.r, bc.g, bc.b)
     local b = self.borderColor
     self:drawRectBorder(0, 0, self.width, self.height, b.a, b.r, b.g, b.b)
+end
+
+function ISButton:render()
     if self.image then
         -- icon button (bag tabs, container buttons): draw the texture inset,
         -- tinted by textureColor like vanilla ISButton (SIR's window dress
@@ -636,6 +692,72 @@ end
 -- ============================================================================
 -- ISLabel
 -- ============================================================================
+-- ============================================================================
+-- ISScrollBar
+-- ============================================================================
+-- Modelled on vanilla ISScrollBar (geometry from :setPosition, draw from
+-- :render). It exists here for two reasons that both bit us:
+--
+--   * it OCCUPIES A COLUMN. 17px on the right of its parent, always. A preview
+--     without one shows content sitting in space the game does not have, which
+--     is how a lore column looked comfortable in the mock and ran underneath
+--     the bar in the game.
+--   * it is RESKINNABLE. A mod that dresses the bar (as VPS does) has to be
+--     able to see the result; an invisible bar previews as "fine" no matter
+--     what it actually looks like.
+--
+-- The thumb geometry mirrors vanilla's arithmetic so its size tracks the real
+-- scroll ratio rather than being a decorative rectangle.
+ISScrollBar = ISUIElement:derive("ISScrollBar")
+
+function ISScrollBar:new(parent, vertical)
+    local o = ISUIElement:new(0, 0, 17, parent and parent.height or 0)
+    setmetatable(o, self)
+    self.__index = self
+    o.parent = parent
+    o.vertical = vertical ~= false
+    o.pos = 0
+    o.background = true
+    o.backgroundColor = { r = 0, g = 0, b = 0, a = 0.6 }
+    o.borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 }
+    return o
+end
+
+function ISScrollBar:initialise()
+    local p = self.parent
+    if not p then return end
+    self.x = (p.width or 0) - 16
+    self.y = 0
+    self.width = 17
+    self.height = p.height or 0
+end
+
+function ISScrollBar:render()
+    local p = self.parent
+    if not p or not self.vertical then return end
+    local sh = p.getScrollHeight and p:getScrollHeight() or 0
+    if sh <= self.height then return end
+
+    if self.background then
+        self:drawRect(4, 0, self.width - 5, self.height,
+            self.backgroundColor.a, self.backgroundColor.r,
+            self.backgroundColor.g, self.backgroundColor.b)
+    end
+
+    local del = self.height / sh
+    local boxheight = math.max(math.ceil(del * (self.height - 32)), 8)
+    local dif = math.ceil((self.height - 32 - boxheight) * (self.pos or 0))
+    self.barx, self.bary = 5, 16 + dif
+    self.barwidth, self.barheight = 8, boxheight
+
+    -- Vanilla paints the thumb from three textures; the shape is what matters
+    -- for judging a reskin, so it is one rect here.
+    self:drawRect(self.barx, self.bary, 9, self.barheight, 1, 0.9, 0.9, 0.9)
+    self:drawRectBorder(3, 0, self.width - 4, self.height,
+        self.borderColor.a, self.borderColor.r,
+        self.borderColor.g, self.borderColor.b)
+end
+
 ISLabel = ISUIElement:derive("ISLabel")
 
 function ISLabel:new(x, y, height, name, r, g, b, a, font, center)
