@@ -26,6 +26,16 @@ for a in "$@"; do
   esac
 done
 
+ROOTS=("$KIT/../sauce-shortorder" "$KIT/../sauce-invrender" "$KIT/../SauceCanonical" "$KIT/../PZ-TooltipLib" "$KIT/../SauceTooltips" "$KIT/../VorpallySauced")
+
+# Texture sizes BEFORE the harness runs: UIMock's getTexture reads the
+# generated table, and any code that tiles or fits by source size needs the
+# real numbers to behave the way it does in game. Regenerated every run --
+# a stale table is worse than an obviously missing one, and this is only a few
+# ms of .pack header parsing.
+python "$HERE/tools/gen_texture_sizes.py" "${ROOTS[@]}" 2>/dev/null >&2 \
+  || echo "[uiview] warning: texture sizes not regenerated (using committed table)" >&2
+
 echo "[uiview] rendering scene '$SCENE' via Kahlua harness..." >&2
 RAW="$(cd "$HERE" && bash "$KIT/pztest" --verbose 2>/dev/null || true)"
 
@@ -61,7 +71,6 @@ fi
 printf '%s\n' "$JSON" > "$JSONOUT"
 
 # Inline replay core + base64 icons + frame/storyboard JSON into a self-contained shell.
-ROOTS=("$KIT/../sauce-shortorder" "$KIT/../sauce-invrender" "$KIT/../SauceCanonical" "$KIT/../PZ-TooltipLib" "$KIT/../SauceTooltips" "$KIT/../VorpallySauced")
 python "$HERE/build_view.py" \
   --template "$TEMPLATE" \
   --json "$JSONOUT" \

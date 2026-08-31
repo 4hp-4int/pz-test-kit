@@ -43,6 +43,43 @@ tests["panel_renders_its_shell_and_every_surface"] = function()
     return Assert.isTrue(seen["WHAT IT BECAME"], "and the weapon drilldown")
 end
 
+--- THE SPREAD IS TILED PAPER, AND A TILE MUST NOT BE STRETCHED.
+---
+--- This is the bug that got past every other check. Chrome.tile hand-rolled
+--- its own loop and clamped the DESTINATION rect at the sheet edge before
+--- calling drawTextureScaled -- which has no source crop, so the last column
+--- held the whole 512px paper texture compressed into the leftover 334px. The
+--- grain changed frequency mid-page and the boundary landed a few pixels
+--- outside the fold, so it read as a second crease beside the real one.
+---
+--- The preview could not show it either, because getTexture used to claim
+--- 32x32 for everything: the same code tiled at 32px here, the remainder was
+--- 13px, and the artifact was sub-pixel. One fold on screen here, two in game.
+---
+--- So the assertion is on the OP KIND, not on pixels: paper and leather go
+--- through the engine's tiler, which crops. Any scaled draw of a tile is the
+--- old bug returning.
+tests["panel_tiles_paper_and_leather_without_stretching_them"] = function()
+    local ops = frameOps()
+    local tiled, stretched = 0, 0
+    for _, op in ipairs(ops) do
+        local name = tostring(op.name or "")
+        if name:find("_tile", 1, true) then
+            if op.op == "texture_tiled" then
+                tiled = tiled + 1
+            elseif op.op == "texture" then
+                stretched = stretched + 1
+            end
+        end
+    end
+    if not Assert.isTrue(tiled > 0,
+            "the sheet and the boards are drawn with the engine tiler") then
+        return false
+    end
+    return Assert.equal(stretched, 0,
+        "no tile is drawn through a scaling draw (found " .. stretched .. ")")
+end
+
 tests["panel_renders_the_buttons_the_pages_do_not_own"] = function()
     -- The whole point of this scene. A page component cannot draw these, so
     -- nothing was checking they existed, were labelled, or were chromed.

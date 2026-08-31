@@ -522,6 +522,30 @@ function ISUIElement:drawTextureScaledAspect(tex, x, y, w, h, a, r, g, b)
     pushTexture(self, tex, x, y, w, h, a, r, g, b, false)
 end
 
+-- Vanilla's own tiler (UIElement.DrawTextureTiled). It differs from a loop of
+-- drawTextureScaled in the one way that matters: the partial tile at the far
+-- edge is CROPPED from the source, not squashed into the remainder. Recorded
+-- as its own op so the replayer can use a canvas pattern and reproduce that,
+-- rather than us re-implementing the loop here and inheriting whichever
+-- behaviour we happened to write.
+--
+-- Note the argument order: (r, g, b, a), unlike drawTextureScaled's
+-- (a, r, g, b). Getting this wrong tints everything and is easy to miss.
+function ISUIElement:drawTextureTiled(tex, x, y, w, h, r, g, b, a)
+    local c = rgba(r, g, b, a)
+    local sx, sy = scrollXY(self)
+    local ay, ah = clipY(self, self:getAbsoluteY() + y + sy, h or 0)
+    if not ay then return end
+    Recorder.push({ op = "texture_tiled", name = tex and tostring(tex) or "",
+        x = self:getAbsoluteX() + x + sx, y = ay, w = w or 0, h = ah,
+        -- The source rows already scrolled past are skipped by clipY, so the
+        -- pattern has to start from the same phase the untruncated draw would.
+        oy = ah - (h or 0),
+        r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
+end
+ISUIElement.drawTextureTiledX = ISUIElement.drawTextureTiled
+ISUIElement.drawTextureTiledY = ISUIElement.drawTextureTiled
+
 function ISUIElement:drawItemIcon(item, x, y, a, w, h)
     local name = "item"
     if item and item.getName then local ok, n = pcall(function() return item:getName() end); if ok and n then name = n end end
@@ -867,12 +891,36 @@ if isKeyDown == nil then function isKeyDown(k) return false end end
 -- getTexture returns a mock whose tostring is the asset path, so draw calls that
 -- take a Texture object (e.g. the pin star via getTexture) record the path and
 -- the viewer/build resolves the real PNG — same as drawTextureScaled(path).
+-- REAL DIMENSIONS, NOT 32x32.
+--
+-- This stub used to claim 32x32 for every texture in the game. Most draws pass
+-- an explicit destination rect and never ask, so it looked harmless -- but any
+-- code that TILES, fits, or steps by the source size reads getWidth() and got
+-- a lie, and the preview then could not show the resulting artifact.
+--
+-- Measured: VorpallySauced's journal tiles a 512x512 paper texture over an
+-- 846px sheet. In game the 334px remainder held a squashed copy of the whole
+-- tile and read as a second crease beside the page fold. Here the same code
+-- tiled at 32px, the remainder was 13px, and nothing was visible. The preview
+-- said one fold; the screen said two.
+--
+-- TextureSizes.lua is generated from the same .pack files the game loads
+-- (uiview/tools/gen_texture_sizes.py). 32 stays as the fallback for anything
+-- outside a pack, which is at least no worse than before.
+local TEX_SIZES = {}
+pcall(function() TEX_SIZES = require "UIView/TextureSizes" or {} end)
+
 if getTexture == nil then
     function getTexture(path)
         if not path then return nil end
+        local base = tostring(path):match("([^/\]+)$") or tostring(path)
+        base = base:gsub("%.png$", "")
+        local size = TEX_SIZES[base] or TEX_SIZES[tostring(path)]
+        local w = size and size[1] or 32
+        local h = size and size[2] or 32
         return setmetatable({
-            getWidth = function() return 32 end, getHeight = function() return 32 end,
-            getWidthOrig = function() return 32 end, getHeightOrig = function() return 32 end,
+            getWidth = function() return w end, getHeight = function() return h end,
+            getWidthOrig = function() return w end, getHeightOrig = function() return h end,
             getName = function() return path end,
         }, { __tostring = function() return path end })
     end

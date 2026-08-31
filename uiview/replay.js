@@ -62,7 +62,8 @@
     var seen = {}, out = [];
     frameList(frames).forEach(function (fr) {
       (fr.ops || []).forEach(function (op) {
-        if (op.op === "texture" && op.name && !seen[op.name]) {
+        if ((op.op === "texture" || op.op === "texture_tiled")
+            && op.name && !seen[op.name]) {
           seen[op.name] = 1; out.push(op.name);
         }
       });
@@ -226,6 +227,35 @@
           } else {
             placeholderBox(ctx, op.x, op.y, w, h);
           }
+          break;
+        }
+        // Vanilla DrawTextureTiled: repeat at NATIVE size and CROP the tile
+        // that runs off the edge. A canvas pattern does exactly that, which is
+        // the point of replaying it as a pattern rather than as a loop of
+        // drawImage calls -- the loop is what gets the last tile wrong.
+        case "texture_tiled": {
+          var timg = images && images.get(op.name);
+          var tw = op.w || 0, th = op.h || 0;
+          if (!timg || tw <= 0 || th <= 0) {
+            if (tw > 0 && th > 0) placeholderBox(ctx, op.x, op.y, tw, th);
+            break;
+          }
+          var tinted = (op.r != null && op.r < 0.995)
+            || (op.g != null && op.g < 0.995)
+            || (op.b != null && op.b < 0.995)
+            ? tintedImage(timg, op.r, op.g, op.b) : timg;
+          var pat = ctx.createPattern(tinted, "repeat");
+          if (!pat) { placeholderBox(ctx, op.x, op.y, tw, th); break; }
+          ctx.save();
+          ctx.globalAlpha = op.a == null ? 1 : op.a;
+          // The pattern's origin is the canvas origin, so translate it to the
+          // rect: without this the phase depends on where the rect happens to
+          // sit and the grain slides as the panel moves.
+          ctx.translate(op.x, op.y + (op.oy || 0));
+          ctx.fillStyle = pat;
+          ctx.fillRect(0, -(op.oy || 0), tw, th);
+          ctx.restore();
+          ctx.globalAlpha = 1;
           break;
         }
         case "itemicon":

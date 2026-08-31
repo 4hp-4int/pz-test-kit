@@ -56,7 +56,11 @@ def discover_textures(blob: str):
     seen, out = set(), []
     for fr in frames:
         for op in fr["ops"]:
-            if op.get("op") == "texture":
+            # texture_tiled needs its source resolved exactly like texture --
+            # the replayer builds a canvas pattern from the same image. Missing
+            # it here does not fail loudly, it silently draws the "asset not
+            # found" placeholder over the whole tiled region.
+            if op.get("op") in ("texture", "texture_tiled"):
                 name = op.get("name")
                 if name and name not in seen:
                     seen.add(name)
