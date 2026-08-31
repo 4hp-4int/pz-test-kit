@@ -33,10 +33,10 @@ require "VorpallySauced/FieldJournalUI"
 
 local Scene = {}
 
-local PANEL_W, PANEL_H = 560, 800
+local PANEL_W, PANEL_H = 1032, 760
 local GAP = 18
-local W = PANEL_W * 4 + GAP * 5
-local H = PANEL_H + GAP * 2
+local W = PANEL_W * 2 + GAP * 3
+local H = PANEL_H * 2 + GAP * 3
 
 -- ── fixtures ───────────────────────────────────────────────────────────────
 -- The messy middle again: some volumes studied, some untouched, bonds both
@@ -129,9 +129,9 @@ end
 
 -- ── mounting ───────────────────────────────────────────────────────────────
 
-local function panelAt(x, configure)
+local function panelAt(x, y, configure)
     local JournalPanel = VorpallySauced.FieldJournalPanel
-    local p = JournalPanel:new(x, GAP, fixturePlayer())
+    local p = JournalPanel:new(x, y, fixturePlayer())
     p:initialise()
     -- instantiate() builds the children, exactly as vanilla does. Calling
     -- createChildren() as well would build the whole panel twice -- which it
@@ -171,8 +171,12 @@ function Scene.build()
         function(p) p.openBond = BONDS[1]; p:refresh() end,  -- one weapon
     }
 
+    -- Two across, two down: a spread is too wide for one row of four.
     for i, cfg in ipairs(views) do
-        host:addChild(panelAt(GAP + (i - 1) * (PANEL_W + GAP), cfg))
+        local col = (i - 1) % 2
+        local row = math.floor((i - 1) / 2)
+        host:addChild(panelAt(GAP + col * (PANEL_W + GAP),
+                              GAP + row * (PANEL_H + GAP), cfg))
     end
     return host
 end
