@@ -33,10 +33,14 @@ require "VorpallySauced/FieldJournalUI"
 
 local Scene = {}
 
-local PANEL_W, PANEL_H = 910, 668
+-- THE PANEL SIZES ITSELF, so the scene must ask rather than assume.
+--
+-- The book's page width now follows the player's font size (a 400px page is
+-- only a readable measure at PZ's 1x type), so a hardcoded 910 here silently
+-- cropped the right-hand page off every preview the moment the panel grew.
+-- The grid is laid out from the real size instead.
 local GAP = 18
-local W = PANEL_W * 2 + GAP * 3
-local H = PANEL_H * 2 + GAP * 3
+local PANEL_W, PANEL_H, W, H
 
 -- ── fixtures ───────────────────────────────────────────────────────────────
 -- The messy middle again: some volumes studied, some untouched, bonds both
@@ -51,7 +55,11 @@ local BONDS = {
       -- to count toward and the tally renders. A fully Blooded weapon draws
       -- none, which is correct and also shows nothing -- a fixture that picks
       -- the finished case previews the empty state forever.
-      prefixId = 1, suffixId = 2, bondingThreshold = 900,
+      -- LEGENDARY, THREE STATS EACH. Vampiric (crit / crit damage / speed) and
+      -- of the Eternal. This is the shape that used to be joined into one
+      -- pipe-separated line and shoved onto the name row; a fixture that only
+      -- carried single-stat affixes previewed the easy case forever.
+      prefixId = 34, suffixId = 31, bondingThreshold = 900,
       places = { prefix = { street = "Cortman Drive", band = "near" },
                  suffix = { street = "West Point Road", band = "on" } } },
     { weaponId = 502, name = "Hunting Rifle", kills = 61, isFirearm = true,
@@ -67,8 +75,11 @@ local BONDS = {
 
 local function discoveries()
     return {
-        discoveredPrefixes = { ["1"] = true, ["4"] = true, ["11"] = true },
-        discoveredSuffixes = { ["2"] = true, ["9"] = true },
+        -- 34 and 37 are legendary (three stats each), so the volume page has
+        -- both a witnessed multi-stat entry and unwitnessed neighbours.
+        discoveredPrefixes = { ["1"] = true, ["4"] = true, ["11"] = true,
+                               ["34"] = true, ["37"] = true },
+        discoveredSuffixes = { ["2"] = true, ["9"] = true, ["31"] = true },
         discoveredBondings = { ["3"] = true },
         discoveredFirearmPrefixes = {},
         discoveredFirearmSuffixes = { ["5"] = true },
@@ -76,6 +87,8 @@ local function discoveries()
         studiedVolumes = {
             ["VorpallySauced.CompendiumAwakening"] = true,
             ["VorpallySauced.CompendiumBondedWeapon"] = true,
+            -- Vol. IV documents the legendaries.
+            ["VorpallySauced.CompendiumLegendsOfBlade"] = true,
         },
         weaponBonds = BONDS,
     }
@@ -152,16 +165,40 @@ function Host:new(w, h)
     return o
 end
 
+--- Measure one panel, then size the grid to it.
+local function measurePanel()
+    local probe = VorpallySauced.FieldJournalPanel:new(0, 0, fixturePlayer())
+    PANEL_W, PANEL_H = probe.width, probe.height
+    W = PANEL_W * 2 + GAP * 3
+    H = PANEL_H * 2 + GAP * 3
+    Scene.W, Scene.H = W, H
+end
+
 function Scene.build()
     installFixtures()
+    measurePanel()
 
     local host = Host:new(W, H)
     host:initialise()
 
     local sections = VorpallySauced.Knowledge.sections(nil)
-    local studied
+    -- PREFER A VOLUME WITH MULTI-STAT ENTRIES. Picking the first studied book
+    -- meant previewing Vol. I forever -- every one of its entries is a single
+    -- stat on one line, which is the case that was never in doubt.
+    -- Highest PROPORTION of multi-stat entries, not merely "has one": Vol. I
+    -- turns out to carry a single multi-stat tier-1 affix among its twelve, so
+    -- "any" picked it and previewed eleven single-stat rows again. Vol. IV is
+    -- 7 of 7, which is the page that actually exercises the stacked form.
+    local studied, best = nil, -1
     for _, sec in ipairs(sections) do
-        if sec.isStudied then studied = sec.source break end
+        if sec.isStudied and #sec.rows > 0 then
+            local multi = 0
+            for _, r in ipairs(sec.rows) do
+                if r.affix and r.affix.stats then multi = multi + 1 end
+            end
+            local ratio = multi / #sec.rows
+            if ratio > best then studied, best = sec.source, ratio end
+        end
     end
 
     local views = {
@@ -181,5 +218,7 @@ function Scene.build()
     return host
 end
 
-Scene.W, Scene.H = W, H
+-- Provisional until build() measures a real panel; the harness reads these
+-- before it renders, and a nil here is a crash rather than a wrong number.
+Scene.W, Scene.H = 910 * 2 + GAP * 3, 668 * 2 + GAP * 3
 return Scene

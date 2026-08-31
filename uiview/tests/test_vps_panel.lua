@@ -37,10 +37,15 @@ local tests = {}
 
 tests["panel_renders_its_shell_and_every_surface"] = function()
     local seen = textSet(frameOps())
-    if not Assert.isTrue(seen["Morrison's Field Journal"], "the window title") then return false end
+    -- NO WINDOW TITLE. A stamped "Morrison's Field Journal" across the top
+    -- board cost 45px of page to name the thing the player had just opened
+    -- from a menu that said the same words. Asserted as ABSENT so bringing it
+    -- back is a deliberate act rather than a regression.
+    if not Assert.isFalse(seen["Morrison's Field Journal"] or false,
+            "no title bar; the pages get the height") then return false end
     if not Assert.isTrue(seen["THE INDEX"], "the contents page") then return false end
     if not Assert.isTrue(seen["THE ONES BEFORE"], "the memorial") then return false end
-    return Assert.isTrue(seen["WHAT IT BECAME"], "and the weapon drilldown")
+    return Assert.isTrue(seen["THE STIRRING"], "and the weapon drilldown")
 end
 
 --- THE SPREAD IS TILED PAPER, AND A TILE MUST NOT BE STRETCHED.
