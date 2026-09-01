@@ -106,9 +106,9 @@ tests["panel_tabs_hide_on_a_drilldown"] = function()
             if op.str == "The Index" then tabs = tabs + 1 end
         end
     end
-    -- Four panels: two are drilldowns (Back), two are tabbed views.
+    -- Five panels: two are drilldowns (Back), three are tabbed views.
     if not Assert.equal(backs, 2, "Back shows on exactly the two drilldowns") then return false end
-    return Assert.equal(tabs, 2, "and the tab row on exactly the two list views")
+    return Assert.equal(tabs, 3, "and the tab row on exactly the three list views")
 end
 
 tests["panel_has_no_layout_collisions"] = function()

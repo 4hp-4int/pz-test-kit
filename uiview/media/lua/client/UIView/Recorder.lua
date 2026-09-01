@@ -48,6 +48,14 @@ local function escape_str(s)
     s = s:gsub('\n', '\\n')
     s = s:gsub('\r', '\\r')
     s = s:gsub('\t', '\\t')
+    -- ANY REMAINING CONTROL BYTE, as a JSON \u escape.
+    --
+    -- One mangled em-dash put a raw 0x14 into a string and made the whole
+    -- scene invalid JSON. The failure was silent in the worst way: the viewer
+    -- resolved ZERO textures and drew a page of placeholder boxes with no
+    -- error anywhere. A display list must not be able to take the preview
+    -- down because one string had a bad byte in it.
+    s = s:gsub('%c', function(c) return string.format('\\u%04x', c:byte()) end)
     return s
 end
 

@@ -19,6 +19,24 @@ import java.nio.file.Paths;
 public class PZTestKitLauncher {
 
     public static void main(String[] args) throws Exception {
+        // STDOUT IS UTF-8, ALWAYS.
+        //
+        // The runner writes the uiview scene as a JSON block on stdout, and on
+        // a Windows JVM the default PrintStream encodes with the platform
+        // charset (cp1252 here). A single em-dash in a translated string came
+        // out as one byte 0x97 instead of three, which made the captured JSON
+        // invalid -- and the viewer answered that by resolving ZERO textures
+        // and drawing a page of placeholder boxes with no error anywhere.
+        //
+        // Any non-ASCII string in any locale hit this. The ES, RU and CN
+        // bundles could not have survived the trip at all.
+        System.setOut(new java.io.PrintStream(
+            new java.io.FileOutputStream(java.io.FileDescriptor.out), true,
+            java.nio.charset.StandardCharsets.UTF_8));
+        System.setErr(new java.io.PrintStream(
+            new java.io.FileOutputStream(java.io.FileDescriptor.err), true,
+            java.nio.charset.StandardCharsets.UTF_8));
+
         // Build classpath URLs from the same classpath this launcher was invoked with.
         String cp = System.getProperty("java.class.path");
         String sep = File.pathSeparator;

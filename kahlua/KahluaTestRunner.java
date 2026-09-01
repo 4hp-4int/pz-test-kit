@@ -1343,19 +1343,38 @@ public class KahluaTestRunner {
         loadFile(thread, env, kahluaDir.resolve("translate.lua"));
     }
 
-    /** Quote a string as a Lua literal. Escapes every byte that could end the
-     *  literal or be read as an escape; UTF-8 passes through untouched. */
+    /** Quote a string as a Lua literal.
+     *
+     *  BYTES, NOT CHARS, and the old comment claiming "UTF-8 passes through
+     *  untouched" was the bug. Lua 5.1 strings are byte strings and Kahlua
+     *  compiles from a Java String, so any char above 0xFF was narrowed to its
+     *  low byte on the way in: an em-dash (U+2014) arrived as 0x14, a raw
+     *  control character.
+     *
+     *  That is not cosmetic. It rendered as tofu in every preview, and when
+     *  the recorder emitted the same string into the scene JSON it produced
+     *  INVALID JSON -- which the viewer answered by resolving zero textures,
+     *  so an entire page previewed as placeholder boxes with nothing saying
+     *  why. Every non-ASCII string in every locale was affected; the ES, RU
+     *  and CN bundles were unreadable here by construction.
+     *
+     *  Encoding to UTF-8 and escaping each byte as \\ddd gives the Lua string
+     *  the same bytes the game holds, which is the only way measurement and
+     *  rendering here can match measurement and rendering there. */
     private static String luaQuote(String s) {
+        byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         StringBuilder sb = new StringBuilder("\"");
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
+        for (byte raw : bytes) {
+            int v = raw & 0xFF;
+            switch (v) {
                 case '"':  sb.append("\\\""); break;
                 case '\\': sb.append("\\\\"); break;
                 case '\n': sb.append("\\n");  break;
                 case '\r': sb.append("\\r");  break;
                 case '\t': sb.append("\\t");  break;
-                default:   sb.append(c);
+                default:
+                    if (v < 0x20 || v >= 0x7F) sb.append('\\').append(v);
+                    else sb.append((char) v);
             }
         }
         return sb.append('"').toString();

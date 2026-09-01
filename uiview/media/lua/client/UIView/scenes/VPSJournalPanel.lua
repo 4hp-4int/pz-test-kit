@@ -170,7 +170,7 @@ local function measurePanel()
     local probe = VorpallySauced.FieldJournalPanel:new(0, 0, fixturePlayer())
     PANEL_W, PANEL_H = probe.width, probe.height
     W = PANEL_W * 2 + GAP * 3
-    H = PANEL_H * 2 + GAP * 3
+    H = PANEL_H * 3 + GAP * 4
     Scene.W, Scene.H = W, H
 end
 
@@ -206,9 +206,13 @@ function Scene.build()
         function(p) p.openVolume = studied; p:refresh() end, -- a volume, reread
         function(p) p.activeTab = 2; p:refresh() end,        -- the ones before
         function(p) p.openBond = BONDS[1]; p:refresh() end,  -- one weapon
+        -- The reference tab. Its content is the same on every save, which is
+        -- exactly why it needs looking at: nothing in a fixture can make it
+        -- wrong, and nothing in play will make anyone notice if it is.
+        function(p) p.activeTab = 3; p:refresh() end,        -- character
     }
 
-    -- Two across, two down: a spread is too wide for one row of four.
+    -- Two across: a spread is too wide for one row.
     for i, cfg in ipairs(views) do
         local col = (i - 1) % 2
         local row = math.floor((i - 1) / 2)
@@ -220,5 +224,5 @@ end
 
 -- Provisional until build() measures a real panel; the harness reads these
 -- before it renders, and a nil here is a crash rather than a wrong number.
-Scene.W, Scene.H = 910 * 2 + GAP * 3, 668 * 2 + GAP * 3
+Scene.W, Scene.H = 910 * 2 + GAP * 3, 668 * 3 + GAP * 4
 return Scene
