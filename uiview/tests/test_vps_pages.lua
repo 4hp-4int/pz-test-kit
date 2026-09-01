@@ -29,10 +29,11 @@ tests["pages_render_all_three_surfaces"] = function()
     -- the surface and had been failing ever since.
     if not Assert.isTrue(seen["THE INDEX"], "the contents page") then return false end
     if not Assert.isTrue(seen["THE ONES BEFORE"], "the memorial page") then return false end
-    -- The volume page's contents heading is the SUBJECT ("Marks" / "Bonds" /
-    -- "Manifestations"), not a sentence announcing it.
-    return Assert.isTrue(seen["Marks"] or seen["Bonds"] or seen["Manifestations"],
-        "and a volume, reread")
+    -- The volume page has NO contents heading. "Marks" was the third place on
+    -- screen saying the same word, so the tier bands lead instead -- and a
+    -- band is what identifies the page now.
+    return Assert.isTrue(seen["Faint"] or seen["Strong"] or seen["Violent"]
+        or seen["Consuming"] or seen["Blooded"], "and a volume, reread")
 end
 
 tests["pages_have_no_layout_collisions"] = function()
