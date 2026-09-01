@@ -59,6 +59,10 @@ local BONDS = {
       -- of the Eternal. This is the shape that used to be joined into one
       -- pipe-separated line and shoved onto the name row; a fixture that only
       -- carried single-stat affixes previewed the easy case forever.
+      -- The ids the trait block needs. A fixture carrying only the RENDERED
+      -- character string previews the page as it looked before the effect was
+      -- reachable, which is the state this is meant to catch.
+      characterPrimary = "Seasoned", characterModifier = "HordeBreaker",
       prefixId = 34, suffixId = 31, bondingThreshold = 900,
       places = { prefix = { street = "Cortman Drive", band = "near" },
                  suffix = { street = "West Point Road", band = "on" } } },
