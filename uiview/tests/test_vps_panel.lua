@@ -122,4 +122,45 @@ tests["panel_has_no_layout_collisions"] = function()
     return Assert.isNil(banner, "nothing overlaps (" .. tostring(banner) .. ")")
 end
 
+
+--- WRAPPED TEXT MUST ACTUALLY WRAP.
+---
+--- Layout's fallback when a wrappable node never gets a usable width is to
+--- draw the WHOLE STRING on one line (Layout.paint: `if n.wrap and n._lines`
+--- ... else one drawText). Inside a stencilled viewport that is invisible as a
+--- bug and unmistakable as a symptom: the excerpt runs to the edge of the page
+--- and stops mid-word, looking like text cut off before it wrapped.
+---
+--- Components tested in isolation always get a width, because the test hands
+--- them one. Only the mounted panel exercises the real chain -- viewport width
+--- minus the scroll rail, through the page column, through a keyline row.
+tests["panel_wrapped_text_wraps_inside_its_column"] = function()
+    local ops = frameOps()
+    -- Every text op that reaches beyond the panel it belongs to is either an
+    -- unwrapped paragraph or an overflowing line; both are the same defect.
+    local panels = {}
+    for _, op in ipairs(ops) do
+        if op.op == "texture" and tostring(op.name or ""):find("cover_tl") then
+            panels[#panels + 1] = { x = op.x, w = 0 }
+        end
+    end
+    local widest, worst = 0, nil
+    for _, op in ipairs(ops) do
+        if op.op == "text" and op.mw and op.mw > 0 then
+            -- mw is the wrap width the layout gave the node; a line wider than
+            -- it did not fit the column it was measured against.
+            local w = getTextManager():MeasureStringX(op.font or UIFont.Small,
+                                                      tostring(op.str))
+            if w > op.mw + 1 and w - op.mw > widest then
+                widest, worst = w - op.mw, op
+            end
+        end
+    end
+    if worst then
+        return Assert.isTrue(false, ("%q overflows its %dpx column by %dpx")
+            :format(tostring(worst.str):sub(1, 40), worst.mw, widest))
+    end
+    return Assert.isTrue(true, "no wrapped line exceeds the column it was measured for")
+end
+
 return tests
