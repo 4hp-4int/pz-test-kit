@@ -163,4 +163,56 @@ tests["panel_wrapped_text_wraps_inside_its_column"] = function()
     return Assert.isTrue(true, "no wrapped line exceeds the column it was measured for")
 end
 
+--- EVERY FONT SIZE, NOT JUST THE PREVIEW'S.
+---
+--- The panel sizes itself to the player's type now, so a layout that fits at
+--- one size proves nothing about the other three -- and "text is cut off on
+--- the right" is precisely the report a single-size preview cannot answer.
+--- PZ ships four size directories; this walks all of them.
+---
+--- Centred text records its CENTRE rather than its left edge, which the first
+--- version of this check did not account for -- it duly "found" every tab
+--- label and button overrunning by a hundred pixels and found nothing real.
+--- Flatten the emitted element tree to id -> rect.
+local function rects(node, out)
+    out = out or {}
+    if not node then return out end
+    out[node.id] = node
+    for _, c in ipairs(node.children or {}) do rects(c, out) end
+    return out
+end
+
+tests["panel_text_fits_at_every_font_size"] = function()
+    local tm = getTextManager()
+    local bad = {}
+    for _, dir in ipairs({ "1x", "2x", "3x", "4x" }) do
+        UIView_setFontSize(dir)
+        local frame = Render.frame(Panel.build(), Panel.W, Panel.H)
+        local r = rects(frame and frame.tree)
+        local worst, worstStr, worstEl = 0, nil, nil
+        for _, op in ipairs(Recorder.ops) do
+            if op.op == "text" then
+                local el = r[op.el]
+                if el then
+                    local w = tm:MeasureStringX(op.font or UIFont.Small, tostring(op.str))
+                    -- Centred text records its CENTRE, not its left edge.
+                    local x0 = (op.align == "centre") and (op.x - w / 2) or op.x
+                    local over = (x0 + w) - (el.x + el.w)
+                    if over > worst then
+                        worst, worstStr, worstEl = over, tostring(op.str), op.el
+                    end
+                end
+            end
+        end
+        if worst > 0.5 then
+            bad[#bad + 1] = ("%s: %q overruns element %s by %dpx")
+                :format(dir, tostring(worstStr):sub(1, 40), tostring(worstEl),
+                        math.floor(worst))
+        end
+    end
+    UIView_setFontSize("2x")
+    return Assert.equal(#bad, 0, "no text overruns its element at any font size: "
+        .. table.concat(bad, "; "))
+end
+
 return tests
