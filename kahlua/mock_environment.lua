@@ -12,6 +12,40 @@
 ]]
 
 -- ============================================================================
+-- LUA BASE LIBRARY GAPS
+-- ============================================================================
+-- `next` IS MISSING FROM THIS KAHLUA BUILD AND PRESENT IN PZ'S.
+--
+-- Vanilla calls it -- ISPriorityTable.lua:162, `k,e = next(list, k)` -- in a
+-- shipped file that runs, so the engine plainly has it. This harness did not,
+-- which is worse than an absent mock: `next(t) == nil` is THE idiom for "is
+-- this table empty", so any code using it throws here and works in game. It
+-- cost a live debugging session on VorpallySauced's CustomAffixes.validate,
+-- where the only untested branch in the function was the one line that used
+-- it -- offline tests could not reach that line, so nothing ever noticed.
+--
+-- Implemented over pairs(): O(n) per call, which is fine for a test harness
+-- and exactly right for the empty-check idiom, where it is O(1).
+if next == nil then
+    function next(t, key)
+        if type(t) ~= "table" then
+            error("bad argument #1 to 'next' (table expected)")
+        end
+        if key == nil then
+            for k, v in pairs(t) do return k, v end
+            return nil
+        end
+        local seen = false
+        for k, v in pairs(t) do
+            if seen then return k, v end
+            if k == key then seen = true end
+        end
+        if seen then return nil end
+        error("invalid key to 'next'")
+    end
+end
+
+-- ============================================================================
 -- GLOBAL ID COUNTER
 -- ============================================================================
 _pz_next_id = 100000
