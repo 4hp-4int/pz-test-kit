@@ -44,22 +44,18 @@ line("  SuffixKillsMin:    " .. tostring(sv.SuffixKillsMin))
 line("  BondingKillsMin:   " .. tostring(sv.BondingKillsMin))
 line("  DisableMagazineSync: " .. tostring(sv.DisableMagazineSync))
 
--- The Event object is exposed to Lua as just Add/Remove — no way to
--- introspect listener counts. Instead, do a dispatch round-trip: install
--- a temporary listener on a test event, fire it, confirm it ran. If the
--- event bus is functional at all, this flips the flag.
+-- triggerEvent dispatches on the NEXT game tick, not synchronously -- a
+-- same-eval check always reads false (verified live 2026-09-04). What VPS
+-- actually depends on is its own EventBus, which IS synchronous, so probe that.
 local _fired = false
-local function testHandler() _fired = true end
-Events.OnServerStarted.Add(testHandler)
-Events.OnServerStarted.Remove(testHandler)  -- don't leak on real startup
--- Fire a one-off: triggerEvent runs every registered listener for a name.
--- We just want to prove the bus works end-to-end.
-local _probeFired = false
-local probeName = "VPSShellHealthProbe_" .. tostring(os.time and os.time() or 0)
-LuaEventManager.AddEvent(probeName)
-Events[probeName].Add(function() _probeFired = true end)
-triggerEvent(probeName)
-line("event bus dispatch:  " .. (_probeFired and "OK" or "FAIL"))
+local _f = function() _fired = true end
+local bus = VorpallySauced.Events and VorpallySauced.Events.OnUpgradeApplied
+if bus then
+    bus:addListener(_f)
+    bus:fire(nil, nil, "healthprobe", 1, false)
+    bus:removeListener(_f)
+end
+line("event bus dispatch:  " .. (_fired and "OK" or "FAIL"))
 
 -- Runtime cache size. In v1.10 this is the accumulator for appliedClipBonus,
 -- etc. — unbounded would suggest a leak.

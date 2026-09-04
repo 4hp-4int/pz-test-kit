@@ -16,12 +16,14 @@ if not ServerNS or not ServerNS._ensureServerReapplied then
     return "FAIL: VorpallySauced.Server._ensureServerReapplied not exposed (test hook missing)"
 end
 
--- Find "of Abundance" (+12 clipSize).
-local suffixId, bonus
+-- Find "of Abundance". clipSize affix values are FRACTIONS of live capacity
+-- now, not flat counts -- the probe used to hunt value == 12 and went stale
+-- when the table changed underneath it (caught on the v1.13.0 release pass).
+local suffixId, frac
 for i, s in ipairs(VorpallySauced.FirearmSuffixes) do
-    if s.stat == "clipSize" and s.value == 12 then suffixId, bonus = i, s.value; break end
+    if s.stat == "clipSize" and s.value == 0.30 then suffixId, frac = i, s.value; break end
 end
-if not suffixId then return "FAIL: no +12 clipSize suffix found" end
+if not suffixId then return "FAIL: no 0.30 clipSize suffix found" end
 
 -- Spawn + apply.
 local shotgun = instanceItem("Base.Shotgun")
@@ -32,6 +34,12 @@ shotgun:getModData().VorpallySauced.suffixId = suffixId
 SM.reapplyUpgrades(shotgun)
 
 local origMax = WD.getOriginalStat(shotgun, "maxAmmo") or 0
+-- Ask the mod's own arithmetic instead of re-deriving it: applyStat uses
+-- clipSizePctBonus over the effective magazine base, and a probe that copies
+-- the formula goes stale the moment the formula moves (this one did, twice).
+local base = (WD.getEffectiveMagBase and WD.getEffectiveMagBase(shotgun)) or origMax
+if not base or base <= 0 then base = origMax end
+local bonus = WD.clipSizePctBonus(base, frac)
 local expected = origMax + bonus
 local afterApply = shotgun:getMaxAmmo()
 if afterApply ~= expected then
