@@ -7,11 +7,26 @@ ScriptManager**, and gives tests:
 
 ```lua
 PZEngine.available()               -- false on a machine with no PZ install
-local bulb  = instanceItem("Base.LightBulb")     -- real zombie.inventory item
-local sm    = getScriptManager()                 -- real, fully parsed
-local axe   = instanceItem("Base.Axe")           -- real HandWeapon
-instanceof(axe, "HandWeapon")                    -- true (real class walk)
+local bulb = PZEngine.instanceItem("Base.LightBulb")  -- real zombie.inventory item
+local sm   = getScriptManager()                       -- real, fully parsed
+local axe  = PZEngine.instanceItem("Base.Axe")        -- real HandWeapon
+instanceof(axe, "HandWeapon")                         -- true (real class walk)
 ```
+
+## The global `instanceItem` is a separate, opt-in decision
+
+`PZEngine.instanceItem` is always real. The **global** `instanceItem` — what
+legacy suites and mod harness factories call — is only upgraded when the mod
+sets `engine_items = true`, and even then it *chains*: real item when the
+parsed registry knows the type, delegate to the previous factory for
+contrived test-only types.
+
+Why not always: flipping VPS's 1000-test legacy suite to real items surfaced
+~25 tests that legitimately depend on mock affordances — direct `_stats`
+writes, spy-wrapped methods, dual-VM sim items — none of which a real Java
+object can offer. Migrating a legacy suite to `engine_items = true` is
+per-test work, not a switch. New engine tests should use
+`PZEngine.instanceItem` explicitly and skip the question.
 
 Engine test files guard themselves:
 

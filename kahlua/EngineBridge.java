@@ -326,7 +326,9 @@ public final class EngineBridge {
      * No-op (installs an unavailable PZEngine) when boot failed or was
      * never attempted, so tests can always ask PZEngine.available().
      */
-    public static void installIntoEnv(Platform platform, KahluaTable env, List<String> extraExpose, PrintStream log) {
+    public static void installIntoEnv(Platform platform, se.krka.kahlua.vm.KahluaThread thread,
+                                      KahluaTable env, List<String> extraExpose,
+                                      boolean chainGlobalInstanceItem, PrintStream log) {
         KahluaTable pzEngine = platform.newTable();
         env.rawset("PZEngine", pzEngine);
         pzEngine.rawset("available", (JavaFunction) (frame, n) -> { frame.push(booted); return 1; });
@@ -362,12 +364,37 @@ public final class EngineBridge {
             for (Class<?> c : classes) exposer.expose(c);
             for (Class<?> c : classes) exposer.exposeLikeJavaRecursively(c, env);
 
-            // The game's own creation entry points, under the game's names.
-            env.rawset("instanceItem", (JavaFunction) (frame, n) -> {
+            // Real minting is ALWAYS on PZEngine.instanceItem — engine test
+            // files reach it regardless of what the mod's harness did to the
+            // global. The GLOBAL instanceItem chain is opt-in per mod
+            // (engine_items = true): the migration to real items surfaced
+            // that legacy suites legitimately poke mock internals (_stats
+            // writes, spy-wrapped methods, dual-VM sim items) — things a
+            // real Java object cannot do — so flipping a whole suite is a
+            // per-test migration, not a default.
+            JavaFunction realInstanceItem = (frame, n) -> {
                 Object name = frame.get(0);
                 frame.push(name instanceof String s ? createItem(s) : null);
                 return 1;
-            });
+            };
+            pzEngine.rawset("instanceItem", realInstanceItem);
+            if (chainGlobalInstanceItem) {
+                // Chain, don't replace: real when the parsed registry knows
+                // the type, delegate to the mod's factory / kit mock for
+                // contrived test-only types.
+                env.rawset("_pz_engine_instanceItem", realInstanceItem);
+                String chain = "local real, prev = _pz_engine_instanceItem, instanceItem\n"
+                    + "instanceItem = function(fullType)\n"
+                    + "    local item = real(fullType)\n"
+                    + "    if item ~= nil then return item end\n"
+                    + "    if prev ~= nil then return prev(fullType) end\n"
+                    + "    return nil\n"
+                    + "end\n";
+                se.krka.kahlua.vm.LuaClosure closure =
+                    se.krka.kahlua.luaj.compiler.LuaCompiler.loadstring(chain, "engine_instanceItem_chain", env);
+                thread.pcall(closure, new Object[0]);
+                log.println("[engine] global instanceItem chained (engine_items = true)");
+            }
             env.rawset("getScriptManager", (JavaFunction) (frame, n) -> {
                 try {
                     frame.push(cls("zombie.scripting.ScriptManager").getField("instance").get(null));

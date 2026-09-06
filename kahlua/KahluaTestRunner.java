@@ -778,24 +778,6 @@ public class KahluaTestRunner {
         }
         loadFile(thread, env, kahluaDir.resolve("config_loader.lua"));
 
-        // 3a2. Engine mode — real PZ classes for this env. Installed after
-        //      the mocks so `instanceItem`/`getScriptManager` override any
-        //      mock of the same name, and after the config so engine_expose
-        //      extends the exposed-class list. When the boot failed (or
-        //      engine is off in config but forced by --engine on a machine
-        //      with no PZ install), PZEngine still exists and reports
-        //      unavailable, so engine-guarded tests skip loudly, not crash.
-        if (engineOn) {
-            List<String> extraExpose = new ArrayList<>();
-            Object cfgObj = env.rawget("_pz_config");
-            if (cfgObj instanceof KahluaTable cfgTable
-                && cfgTable.rawget("engine_expose") instanceof KahluaTable exposeTable) {
-                int i = 1;
-                while (exposeTable.rawget(i) instanceof String s) { extraExpose.add(s); i++; }
-            }
-            EngineBridge.installIntoEnv(new TestPlatform(), env, extraExpose, System.out);
-        }
-
         // 3b. Sandbox auto-discovery — parse media/sandbox-options.txt and
         //     fill in defaults NOT already covered by pz-test.lua's sandbox
         //     block. Zero-config for mods with vanilla-style sandbox files.
@@ -854,6 +836,30 @@ public class KahluaTestRunner {
 
         // 6. Post-scripts hook
         loadFile(thread, env, kahluaDir.resolve("post_scripts.lua"));
+
+        // 6b. Engine mode — real PZ classes for this env. Installed LAST
+        //     among the surface-defining steps, because mods can (and VPS
+        //     does) ship their own `instanceItem` factory via extra_scripts,
+        //     which would clobber an earlier install. The engine version
+        //     CHAINS: real item when the registry knows the type, delegate
+        //     to whatever instanceItem existed before (the mod's factory or
+        //     the kit mock) otherwise — so contrived test-only types keep
+        //     working while every real type upgrades to a real item. When
+        //     boot failed or never ran, PZEngine still exists and reports
+        //     unavailable, so engine-guarded tests skip loudly, not crash.
+        if (engineOn) {
+            List<String> extraExpose = new ArrayList<>();
+            boolean chainItems = false;
+            Object cfgObj = env.rawget("_pz_config");
+            if (cfgObj instanceof KahluaTable cfgTable) {
+                if (cfgTable.rawget("engine_expose") instanceof KahluaTable exposeTable) {
+                    int i = 1;
+                    while (exposeTable.rawget(i) instanceof String s) { extraExpose.add(s); i++; }
+                }
+                chainItems = Boolean.TRUE.equals(cfgTable.rawget("engine_items"));
+            }
+            EngineBridge.installIntoEnv(new TestPlatform(), thread, env, extraExpose, chainItems, System.out);
+        }
 
         // 7. Match PZ's runtime surface: no loadstring. LAST, so every harness
         //    file above has already been compiled and switched to _pz_compile.
