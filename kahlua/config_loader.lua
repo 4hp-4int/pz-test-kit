@@ -75,6 +75,43 @@ elseif cfg.strict_mocks == false then
     _pz_strict_mocks = false
 end
 
+-- ── 0c. Assert style ────────────────────────────────────────────────────────
+-- Kit asserts throw on failure (stop-at-first-failure). A mod that needs the
+-- legacy return-false semantics opts out here.
+if cfg.assert_style == "return" then
+    _pz_assert_style = "return"
+    print("[PZTestKit] Legacy return-style asserts enabled by config")
+end
+
+-- ── 0d. Ambient context ─────────────────────────────────────────────────────
+-- The harness defaults to MP-client (isClient()==true), which silently skips
+-- `if not isClient()` server/SP branches — the mismatch that let an SP mod's
+-- suite pass offline and self-destruct in game. `context = "sp"` (or
+-- "server"/"client"/"host") sets the suite's ambient truth BEFORE mod files
+-- load, so load-time guards see it too. Per-test needs still go through
+-- PZTestKit.withContext. Never applied inside DualVMSim endpoints — the sim
+-- assigns those contexts itself.
+if type(cfg.context) == "string" then
+    local isSimEndpoint = (_pz_client_index ~= nil) or (isServer and isServer())
+    if not isSimEndpoint then
+        local matrix = {
+            sp = { false, false }, server = { true, false },
+            dedi = { true, false }, client = { false, true },
+            host = { true, true },
+        }
+        local ctx = matrix[cfg.context]
+        if ctx then
+            local s, c = ctx[1], ctx[2]
+            _G.isServer = function() return s end
+            _G.isClient = function() return c end
+            print("[PZTestKit] Ambient context '" .. cfg.context .. "' set by config")
+        else
+            print("[PZTestKit] WARNING: unknown context '" .. tostring(cfg.context)
+                .. "' in pz-test.lua (want sp|server|client|host) — keeping default")
+        end
+    end
+end
+
 -- ── 1. SandboxVars defaults ─────────────────────────────────────────────────
 -- Deep-merge cfg.sandbox into SandboxVars. Existing values (set by mocks or
 -- test code) are NOT overwritten — config is defaults, not overrides.

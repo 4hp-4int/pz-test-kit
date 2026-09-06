@@ -54,9 +54,23 @@ local function pass(label, ...)
     PZTestKit._assertPasses = PZTestKit._assertPasses + 1
     print(string.format("  [PASS] " .. label, ...)); return true
 end
+
+-- A failed assert THROWS (caught by the executor, recorded as a FAIL with
+-- the printed [FAIL] line as the message). Stopping at the first failure is
+-- the point: the old return-false style let the test body keep running on
+-- state the failed assert just disproved, and the real failure drowned in
+-- cascading FAILs or a confusing nil error three lines later. The classic
+-- guard chain (`if not Assert.equal(...) then return false end`) still
+-- works — the guard just never sees false anymore. A mod that genuinely
+-- needs the old semantics sets `assert_style = "return"` in pz-test.lua.
+PZTestKit.ASSERT_FAIL_MARKER = "__PZTK_ASSERT_FAIL__"
 local function fail(label, ...)
     PZTestKit._assertFails = PZTestKit._assertFails + 1
-    print(string.format("  [FAIL] " .. label, ...)); return false
+    print(string.format("  [FAIL] " .. label, ...))
+    if _pz_assert_style ~= "return" then
+        error(PZTestKit.ASSERT_FAIL_MARKER)
+    end
+    return false
 end
 
 function Assert.equal(actual, expected, label)

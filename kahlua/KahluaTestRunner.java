@@ -503,6 +503,20 @@ public class KahluaTestRunner {
             }
             System.out.println("====================================================");
         }
+        // A run that executed ZERO tests is a failure, not a success. The
+        // usual cause is a --filter that matched nothing (filter matches
+        // test NAMES; a fresh test whose name lacks the filter string used
+        // to run 0 tests and exit green — the worst kind of green).
+        if (grandTotal == 0) {
+            if (filterPattern != null) {
+                System.out.println("*** ZERO TESTS RAN: filter '" + filterPattern
+                        + "' matched no test names (filters match test names, not file names) ***");
+            } else {
+                System.out.println("*** ZERO TESTS RAN: no test produced a result — "
+                        + "check test_paths/test_file_patterns in pz-test.lua ***");
+            }
+            System.exit(1);
+        }
         System.exit(grandFail + grandErr > 0 ? 1 : 0);
     }
 

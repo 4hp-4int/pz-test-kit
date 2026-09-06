@@ -132,8 +132,57 @@ local function isSkipMarker(v)
     return type(v) == "table" and v.__pztestkit_skip == true
 end
 
+-- ============================================================================
+-- PER-TEST SANDBOX (Events + context)
+-- ============================================================================
+-- Listener registrations and context stubs leak: a test that Events.X.Add()s
+-- a handler, or hand-stubs _G.isServer and then errors before restoring,
+-- silently poisons every later test in the file (the VPS Tier 2 incident
+-- class — a suite reporting damage the suite itself did). The executor now
+-- owns the discipline: snapshot before each test, restore after, in every
+-- outcome. Load-time registrations (mod files ran before this file) are in
+-- the first snapshot, so they persist — only what a TEST adds is scoped.
+-- pairs(Events) sees only rawset keys, which is exactly the touched set
+-- (the __index autovivifier rawsets on first access).
+local function snapshotSandbox()
+    local snap = { events = {}, isServer = _G.isServer, isClient = _G.isClient }
+    if type(Events) == "table" then
+        for evName, evt in pairs(Events) do
+            if type(evt) == "table" and type(evt._listeners) == "table" then
+                local copy = {}
+                for i, fn in ipairs(evt._listeners) do copy[i] = fn end
+                snap.events[evName] = copy
+            end
+        end
+    end
+    return snap
+end
+
+local function restoreSandbox(snap)
+    _G.isServer, _G.isClient = snap.isServer, snap.isClient
+    if type(Events) == "table" then
+        for evName, evt in pairs(Events) do
+            if type(evt) == "table" and type(evt._listeners) == "table" then
+                local saved = snap.events[evName]
+                if saved then
+                    local fresh = {}
+                    for i, fn in ipairs(saved) do fresh[i] = fn end
+                    evt._listeners = fresh
+                else
+                    -- Event first touched during the test: unscope it.
+                    evt._listeners = {}
+                end
+            end
+        end
+    end
+end
+
+local assertMarker = PZTestKit and PZTestKit.ASSERT_FAIL_MARKER or "__PZTK_ASSERT_FAIL__"
+
 for _, name in ipairs(names) do
     total = total + 1
+
+    local sandbox = snapshotSandbox()
 
     -- Reset player state between tests
     _pz_player._primaryHand = nil
@@ -234,8 +283,22 @@ for _, name in ipairs(names) do
         end
     end)
     print = basePrint
+    restoreSandbox(sandbox)
 
-    if not ok then
+    if not ok and tostring(err):find(assertMarker, 1, true) then
+        -- A kit assert threw: this is a FAILURE (the [FAIL] line already
+        -- printed says which assertion), not a runtime error.
+        failed = failed + 1
+        record.status = "fail"
+        local lines = failLines()
+        if lines == "" then lines = "assertion failed" end
+        local ledger = missLedger()
+        if ledger ~= "" then lines = lines .. "\n" .. ledger end
+        record.message = lines
+        if #details < 10 then
+            table.insert(details, name .. ": FAILED")
+        end
+    elseif not ok then
         errors = errors + 1
         record.status = "error"
         local msg = tostring(err):gsub("^%s+", "")

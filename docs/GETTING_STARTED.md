@@ -264,18 +264,49 @@ Assert.tableHas(tbl, key, "label")
 Assert.tableNotHas(tbl, key, "label")
 ```
 
-**Pattern: early-return on failure**
+**A failed assert stops the test.** Asserts throw on failure (the executor
+catches it and records a FAIL with the assertion's own message), so a test
+body is just a flat list of asserts — no plumbing:
 
 ```lua
 tests["multi_step"] = function()
     local weapon = instanceItem("Base.Axe")
-    if not Assert.notNil(weapon, "spawn") then return false end
-    if not Assert.equal(weapon:getConditionMax(), 13, "condMax") then return false end
-    return Assert.isTrue(weapon:hasSharpness(), "sharpenable")
+    Assert.notNil(weapon, "spawn")
+    Assert.equal(weapon:getConditionMax(), 13, "condMax")
+    Assert.isTrue(weapon:hasSharpness(), "sharpenable")
 end
 ```
 
-Each assertion returns true/false, so you can short-circuit and get a clear failure at the step that broke.
+The first failing assert ends the test with a clear message; nothing after
+it runs on state the failure just disproved. Passing asserts return `true`,
+so the older guard-chain style (`if not Assert.equal(...) then return false
+end`) still works — the guard just never fires. If your suite genuinely
+needs the legacy return-false semantics, set `assert_style = "return"` in
+`pz-test.lua`.
+
+**Every test runs in a sandbox.** The executor snapshots `Events` listeners
+and the `isServer`/`isClient` context functions before each test and
+restores them after, in every outcome — a test that registers a listener or
+stubs the context can't poison later tests, even if it errors before its
+own cleanup. Listeners your mod registered at *load* time persist (they're
+in the first snapshot); only what a test adds is scoped to that test.
+
+**Suite-wide ambient context.** The harness defaults to MP-client
+(`isClient()` true), which silently skips `if not isClient()` server/SP
+branches. If your mod is SP-first, declare it in `pz-test.lua`:
+
+```lua
+return {
+    context = "sp",   -- or "server", "client", "host"
+}
+```
+
+This applies before your mod files load, so load-time guards see it too.
+Per-test context needs still go through `PZTestKit.withContext`.
+
+**A run that executes zero tests exits 1.** The usual cause is a `--filter`
+that matched no test *names* (filters match names, not file names) — that
+used to exit green, which is the worst kind of green.
 
 ## Fixtures — the interesting stuff
 
