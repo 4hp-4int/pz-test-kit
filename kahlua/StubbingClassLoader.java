@@ -27,6 +27,17 @@ public class StubbingClassLoader extends URLClassLoader {
         super(urls, parent);
     }
 
+    /**
+     * Engine mode (EngineBridge): append a jar — projectzomboid.jar — at
+     * runtime. URLClassLoader searches in URL order, so everything already
+     * on the classpath (the runtime jar's baked stubs, the stubs/ dir)
+     * keeps overriding the real game classes; the synthetic-stub fallback
+     * below still absorbs anything the jar doesn't have.
+     */
+    public void addJar(URL url) {
+        super.addURL(url);
+    }
+
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
         if (name.startsWith("zombie.")) {

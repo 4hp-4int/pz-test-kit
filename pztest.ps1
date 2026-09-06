@@ -37,7 +37,7 @@ if (-not (Test-Path $jar)) {
     exit 1
 }
 
-$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck')
+$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck', 'EngineBridge')
 
 $needCompile = $false
 foreach ($src in $sources) {
@@ -128,7 +128,10 @@ return tests
 }
 
 $cpsep     = if ($IsWindows -or $env:OS -eq 'Windows_NT') { ';' } else { ':' }
-$classpath = "$jar$cpsep$stubs$cpsep$kahluaDir"
+# STUBS FIRST: the runtime jar bakes a copy of every stub at build time and
+# the classloader searches in order — jar-first meant an edited stub silently
+# lost to its stale baked copy until the jar was rebuilt.
+$classpath = "$stubs$cpsep$jar$cpsep$kahluaDir"
 
 # KahluaTestRunner resolves kahlua/ dir via cwd. cd into the kit's kahlua
 # directory first; the mod-root arg is absolute so discovery still works.

@@ -43,7 +43,7 @@ case "${OSTYPE:-}" in
         ;;
 esac
 
-SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck)
+SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck EngineBridge)
 
 # Recompile when any .java is newer than its .class.
 need_compile=0
@@ -121,7 +121,12 @@ EOF
     exit 0
 fi
 
-CP="$(winpath "$JAR")$CPSEP$(winpath "$STUBS")$CPSEP$(winpath "$KAHLUA_DIR")"
+# STUBS FIRST: the runtime jar bakes a copy of every stub at build time, and
+# URLClassLoader searches in order — with the jar first, editing a stub .java
+# and recompiling silently changes nothing until the jar is rebuilt (engine
+# mode found this the hard way). The live stubs directory is the source of
+# truth; the jar's baked copies serve distributions without a stubs/ dir.
+CP="$(winpath "$STUBS")$CPSEP$(winpath "$JAR")$CPSEP$(winpath "$KAHLUA_DIR")"
 CWD_ABS="$(winpath "$(pwd)")"
 
 # KahluaTestRunner's resolveKahluaDir() checks cwd for mock_environment.lua.

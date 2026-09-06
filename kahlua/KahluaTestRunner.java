@@ -39,6 +39,9 @@ public class KahluaTestRunner {
     // Coverage (set from --coverage[=<substr>]). Static so buildEnv (which builds
     // every env, incl. DualVMSim subs) can wire the instrumentation in.
     private static boolean coverageOn = false;
+    // Engine mode (EngineBridge): real PZ classes, real scripts, real items.
+    private static boolean engineOn = false;
+    private static boolean engineForcedOff = false;
     private static String  coverageScope = null;
     private static boolean coverageLines = false;   // --coverage-lines: dump uncovered line ranges
 
@@ -99,6 +102,8 @@ public class KahluaTestRunner {
                 }
                 if (a.equals("--verbose") || a.equals("-v")) { verbose = true; continue; }
                 if (a.equals("--no-prescan")) { noPrescan = true; continue; }
+                if (a.equals("--engine")) { engineOn = true; continue; }
+                if (a.equals("--no-engine")) { engineOn = false; engineForcedOff = true; continue; }
                 if (a.equals("--help") || a.equals("-h")) {
                     printUsage(); System.exit(0);
                 }
@@ -150,6 +155,24 @@ public class KahluaTestRunner {
 
         kahluaDir = resolveKahluaDir();
         KitLua.root = kahluaDir;  // enable Lua-file loading helper used by DualVMSim + buildEnv
+
+        // ── Engine mode (EngineBridge) ──────────────────────────────
+        // Opt-in via `engine = true` in pz-test.lua or --engine; --no-engine
+        // overrides. The config sniff is a regex on the source because the
+        // config proper is parsed per-file in Lua, and the engine must boot
+        // once, before any env exists. Boot failure is not fatal: PZEngine
+        // installs as unavailable and engine-guarded tests skip themselves.
+        if (!engineForcedOff && !engineOn) {
+            Path cfg = modRoot.resolve("pz-test.lua");
+            if (Files.exists(cfg)) {
+                String src = Files.readString(cfg);
+                engineOn = java.util.regex.Pattern
+                    .compile("(?m)^\\s*engine\\s*=\\s*true").matcher(src).find();
+            }
+        }
+        if (engineOn) {
+            EngineBridge.boot(null, modRoot, System.out);
+        }
 
         // ── Serve mode: resident VM that renders a scene + replays input ────
         // Build the env once, bootstrap the scene, then loop reading newline
@@ -754,6 +777,24 @@ public class KahluaTestRunner {
             loadFile(thread, env, kahluaDir.resolve("context/load_config.lua"));
         }
         loadFile(thread, env, kahluaDir.resolve("config_loader.lua"));
+
+        // 3a2. Engine mode — real PZ classes for this env. Installed after
+        //      the mocks so `instanceItem`/`getScriptManager` override any
+        //      mock of the same name, and after the config so engine_expose
+        //      extends the exposed-class list. When the boot failed (or
+        //      engine is off in config but forced by --engine on a machine
+        //      with no PZ install), PZEngine still exists and reports
+        //      unavailable, so engine-guarded tests skip loudly, not crash.
+        if (engineOn) {
+            List<String> extraExpose = new ArrayList<>();
+            Object cfgObj = env.rawget("_pz_config");
+            if (cfgObj instanceof KahluaTable cfgTable
+                && cfgTable.rawget("engine_expose") instanceof KahluaTable exposeTable) {
+                int i = 1;
+                while (exposeTable.rawget(i) instanceof String s) { extraExpose.add(s); i++; }
+            }
+            EngineBridge.installIntoEnv(new TestPlatform(), env, extraExpose, System.out);
+        }
 
         // 3b. Sandbox auto-discovery — parse media/sandbox-options.txt and
         //     fill in defaults NOT already covered by pz-test.lua's sandbox
