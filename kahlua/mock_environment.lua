@@ -73,7 +73,15 @@ function triggerEvent(name, ...)
     if not evt or not evt._listeners then return end
     _pz_event_coverage[name] = _pz_event_coverage[name] or { registered = 0, fired = 0 }
     _pz_event_coverage[name].fired = _pz_event_coverage[name].fired + 1
-    for _, fn in ipairs(evt._listeners) do
+    -- Iterate a SNAPSHOT: a listener that removes itself mid-dispatch (the
+    -- self-unregistering-prewarm pattern) must not shift its successor out
+    -- of this very dispatch. Real PZ's dispatcher is safe against this; an
+    -- ipairs over the live list silently skipped the next listener for one
+    -- frame — which cost a cart its unequip announcement and a debugging
+    -- session its afternoon.
+    local snapshot = {}
+    for i, fn in ipairs(evt._listeners) do snapshot[i] = fn end
+    for _, fn in ipairs(snapshot) do
         pcall(fn, ...)
     end
 end

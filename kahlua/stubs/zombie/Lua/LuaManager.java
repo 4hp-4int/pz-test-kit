@@ -17,6 +17,12 @@ public class LuaManager {
     public static KahluaThread debugthread = null;
     public static Object debugcaller = null;
 
+    // Engine mode: ZomboidGlobals.Load() reads LuaManager.env's
+    // "ZomboidGlobals" table. EngineBridge points this at a scratch env that
+    // ran the game's real defines.lua, so encumbrance and metabolism
+    // constants carry their real values instead of Java field defaults (0).
+    public static se.krka.kahlua.vm.KahluaTable env = null;
+
     // Engine mode (EngineBridge): real script-load code paths read
     // LuaManager.platform to build Kahlua tables (VehicleScript.LoadTable is
     // the first to trip it). A real J2SEPlatform is safe headless — it is
@@ -33,5 +39,22 @@ public class LuaManager {
     // traces with Lua frames. No Lua frames here — identity pass-through.
     public static StackTraceElement[] insertAnyLuaTraceElements(StackTraceElement[] elements) {
         return elements;
+    }
+
+    // Engine mode: real InventoryContainer construction copies its Lua-side
+    // defaults through these. Shallow copy matches the constructor's use.
+    public static se.krka.kahlua.vm.KahluaTable copyTable(se.krka.kahlua.vm.KahluaTable target,
+                                                          se.krka.kahlua.vm.KahluaTable source) {
+        if (source == null || target == null) return target;
+        se.krka.kahlua.vm.KahluaTableIterator it = source.iterator();
+        while (it.advance()) {
+            target.rawset(it.getKey(), it.getValue());
+        }
+        return target;
+    }
+
+    public static se.krka.kahlua.vm.KahluaTable copyTable(se.krka.kahlua.vm.KahluaTable source) {
+        se.krka.kahlua.vm.KahluaTable target = platform.newTable();
+        return copyTable(target, source);
     }
 }

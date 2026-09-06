@@ -187,6 +187,29 @@ public final class EngineBridge {
                 log.println("[engine] Translator.loadFiles skipped: " + root);
             }
 
+            // ZomboidGlobals (encumbrance multipliers, metabolism rates)
+            // load from the game's defines.lua via LuaManager.env in real
+            // boot; unloaded, every constant is a Java-default 0 and weight
+            // math quietly collapses. Run the REAL defines.lua in a scratch
+            // Kahlua env and hand it to the REAL loader. Best-effort.
+            try {
+                se.krka.kahlua.j2se.J2SEPlatform scratchPlatform = new se.krka.kahlua.j2se.J2SEPlatform();
+                KahluaTable scratchEnv = scratchPlatform.newEnvironment();
+                String defines = Files.readString(pzDir.resolve("media/lua/shared/defines.lua"));
+                se.krka.kahlua.vm.LuaClosure definesClosure =
+                    se.krka.kahlua.luaj.compiler.LuaCompiler.loadstring(defines, "defines.lua", scratchEnv);
+                se.krka.kahlua.vm.KahluaThread scratchThread =
+                    new se.krka.kahlua.vm.KahluaThread(System.out, scratchPlatform, scratchEnv);
+                scratchThread.debugOwnerThread = Thread.currentThread();
+                scratchThread.pcall(definesClosure, new Object[0]);
+                cls("zombie.Lua.LuaManager").getField("env").set(null, scratchEnv);
+                cls("zombie.ZomboidGlobals").getMethod("Load").invoke(null);
+                log.println("[engine] ZomboidGlobals loaded from defines.lua");
+            } catch (Throwable t) {
+                Throwable root = t; while (root.getCause() != null) root = root.getCause();
+                log.println("[engine] ZomboidGlobals load skipped: " + root);
+            }
+
             Class<?> smClass = cls("zombie.scripting.ScriptManager");
             Object sm = smClass.getField("instance").get(null);
             Class<?> loadModeClass = cls("zombie.scripting.ScriptLoadMode");
@@ -415,17 +438,20 @@ public final class EngineBridge {
                 return 1;
             });
 
-            // The mock instanceof only understands `_type`-tagged mock
-            // tables. With real Java objects in the env it must answer for
-            // both worlds: mock tables keep the tag contract, Java objects
-            // get a walk of the class hierarchy by simple name (the same
-            // answer the game's typeMap gives for exposed classes).
-            env.rawset("instanceof", (JavaFunction) (frame, n) -> {
+            // instanceof must answer for two worlds. Java objects get a walk
+            // of the real class hierarchy by simple name (the same answer
+            // the game's typeMap gives for exposed classes). Mock tables go
+            // to whatever instanceof was installed before us — dispatched in
+            // LUA, because answering for a table can mean running its
+            // metamethods, and invoking Lua from inside a JavaFunction frame
+            // corrupts the VM stack. (Found the hard way: a sealed fixture's
+            // __index closure, reached via tableget from Java, died silently
+            // inside an event pcall and a cart unequip never announced.)
+            env.rawset("_pz_engine_instanceof", (JavaFunction) (frame, n) -> {
                 Object obj = frame.get(0);
                 Object nameArg = frame.get(1);
-                if (obj == null || !(nameArg instanceof String name)) { frame.push(Boolean.FALSE); return 1; }
-                if (obj instanceof KahluaTable table) {
-                    frame.push(name.equals(table.rawget("_type")));
+                if (obj == null || !(nameArg instanceof String name) || obj instanceof KahluaTable) {
+                    frame.push(Boolean.FALSE);
                     return 1;
                 }
                 for (Class<?> c = obj.getClass(); c != null; c = c.getSuperclass()) {
@@ -437,6 +463,17 @@ public final class EngineBridge {
                 frame.push(Boolean.FALSE);
                 return 1;
             });
+            String isChain = "local javaIs, prev = _pz_engine_instanceof, instanceof\n"
+                + "instanceof = function(obj, name)\n"
+                + "    if type(obj) == \"table\" then\n"
+                + "        if prev ~= nil then return prev(obj, name) end\n"
+                + "        return false\n"
+                + "    end\n"
+                + "    return javaIs(obj, name)\n"
+                + "end\n";
+            se.krka.kahlua.vm.LuaClosure isClosure =
+                se.krka.kahlua.luaj.compiler.LuaCompiler.loadstring(isChain, "engine_instanceof_chain", env);
+            thread.pcall(isClosure, new Object[0]);
         } catch (Throwable t) {
             log.println("[engine] env install failed: " + t);
         }
