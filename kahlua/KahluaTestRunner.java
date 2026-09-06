@@ -871,6 +871,12 @@ public class KahluaTestRunner {
                     while (exposeTable.rawget(i) instanceof String s) { extraExpose.add(s); i++; }
                 }
                 chainItems = Boolean.TRUE.equals(cfgTable.rawget("engine_items"));
+                // engine_wire = true: DualVMSim payloads ride the REAL
+                // TableNetworkUtils serialization instead of pass-by-
+                // reference. Opt-in like engine_items — same lesson: sim
+                // suites may legitimately send mock structures the real
+                // wire refuses.
+                DualVMSim.setWireTransport(Boolean.TRUE.equals(cfgTable.rawget("engine_wire")));
             }
             // Never chain inside DualVMSim endpoints (server or client>0):
             // the sim models MP transport over mock item tables — real Java

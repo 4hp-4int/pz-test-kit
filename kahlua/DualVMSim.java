@@ -101,12 +101,27 @@ public class DualVMSim {
         int target;            // destination (-1 broadcast, 0 server, i client)
         String module;
         String command;
-        Object args;           // typically a KahluaTable
+        Object args;           // typically a KahluaTable (the SENDER's table)
+        byte[] wireBytes;      // real-wire serialization, when wire mode is on
 
         @Override public String toString() {
             return "Command{" + module + "/" + command + " src=" + sourceIndex + " tgt=" + target + "}";
         }
     }
+
+    // ── Real-wire transport (engine_wire = true) ─────────────────────────
+    // With the engine up and `engine_wire = true` in pz-test.lua, every
+    // command payload is serialized through zombie.network.TableNetworkUtils
+    // at SEND (exactly where GameClient/GameServer do it — vanilla-style
+    // ERROR line per dropped entry) and deserialized fresh PER DELIVERY, so
+    // each broadcast target gets its own copy like every client of a real
+    // broadcast. Consequences tests can rely on: functions and exotic keys
+    // vanish, numbers arrive as doubles, and a handler mutating its args
+    // cannot reach the sender's table. The endpoint's sent/received records
+    // keep the SENDER's original table (introspection, not transport).
+    private static boolean wireTransport = false;
+
+    public static void setWireTransport(boolean on) { wireTransport = on; }
 
     private final EnvBuilder builder;
     private final int numClients;
@@ -175,6 +190,26 @@ public class DualVMSim {
                         cmd.target = resolvePlayerTarget(a);
                     } else {
                         cmd.target = 0;
+                    }
+                }
+                if (wireTransport && cmd.args instanceof KahluaTable) {
+                    try {
+                        Object[] saved = EngineBridge.wireSave(cmd.args);
+                        if (saved != null) {
+                            cmd.wireBytes = (byte[]) saved[0];
+                            KahluaTable drops = (KahluaTable) saved[1];
+                            for (int di = 1; drops.rawget(di) != null; di++) {
+                                // Vanilla's exact complaint, [Sim]-prefixed.
+                                System.out.println("[Sim] ERROR: "
+                                    + (isServer ? "sendServerCommand" : "sendClientCommand")
+                                    + ": can't save key,value=" + drops.rawget(di)
+                                    + " (" + cmd.module + "/" + cmd.command + ")");
+                            }
+                        }
+                    } catch (RuntimeException e) {
+                        // A payload the real serializer cannot survive should
+                        // fail loudly — that's the fidelity being paid for.
+                        throw new RuntimeException(cmd.module + "/" + cmd.command + ": " + e.getMessage(), e);
                     }
                 }
                 outbox.add(cmd);
@@ -339,10 +374,19 @@ public class DualVMSim {
         ep.inbox.add(cmd);
         ep.received.add(cmd);
 
+        // Wire mode: this endpoint deserializes its own copy of the packet,
+        // like every real client of a broadcast. Otherwise the sender's
+        // table is passed by reference (legacy mock transport).
+        Object deliveredArgs = cmd.args;
+        if (cmd.wireBytes != null) {
+            Object loaded = EngineBridge.wireLoad(cmd.wireBytes);
+            if (loaded != null) deliveredArgs = loaded;
+        }
+
         ep.env.rawset("_pz_sim_event_name", eventName);
         ep.env.rawset("_pz_sim_mod", cmd.module);
         ep.env.rawset("_pz_sim_cmd", cmd.command);
-        ep.env.rawset("_pz_sim_args", cmd.args);
+        ep.env.rawset("_pz_sim_args", deliveredArgs);
         // Which endpoint sent this (0=server, 1..N=clients). OnClientCommand's
         // real signature carries the sending PLAYER, so the dispatcher needs to
         // know who that was -- see sim/event_dispatch.lua.

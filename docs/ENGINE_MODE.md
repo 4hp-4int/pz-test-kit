@@ -36,6 +36,38 @@ if not (PZEngine and PZEngine.available()) then return {} end
 
 so CI without a game install runs zero engine tests instead of failing.
 
+## The real wire (`engine_wire`)
+
+`PZEngine.wireRoundTrip(tbl)` returns `(received, drops)`: the payload as
+the other side of a `sendClientCommand` / `sendServerCommand` would see
+it, serialized through the real `zombie.network.TableNetworkUtils` — the
+exact save/load pair GameClient (:1858) and GameServer (:3487) run on
+every command — plus a 1..N array describing the top-level entries the
+wire dropped. Use it in any engine test to pin a command payload as
+wire-safe without spinning up a sim.
+
+With `engine_wire = true` in `pz-test.lua`, DualVMSim command payloads
+ride this serialization automatically: serialized once at send (vanilla's
+ERROR line per dropped entry, `[Sim]`-prefixed), deserialized fresh per
+delivery so each broadcast target gets its own copy. Consequences tests
+can rely on:
+
+- functions and non-string/number keys in a payload **vanish**, exactly
+  as on a live server
+- a handler mutating its received args **cannot** reach the sender's
+  table (the legacy pass-by-reference transport allowed it)
+- the endpoint's `sent()`/`received` records keep the *sender's* original
+  table — introspection, not transport
+
+Opt-in like `engine_items`, and for the same reason: a sim suite may
+legitimately send mock structures the real wire refuses.
+
+**Known boundary:** the wire's InventoryItem tag resolves items via
+WorldDictionary registry IDs, which only a loaded world populates. A real
+item inside a payload arrives `nil` in the harness but whole on a live
+server — world-save layer, outside engine scope. Pin item-in-payload
+behavior on the dedi (pz-shell).
+
 ## Why this works headless
 
 The dedicated server runs the whole script/item layer with no OpenGL and no

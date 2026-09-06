@@ -12,6 +12,13 @@
 ]]
 
 return {
+    -- Engine mode: real PZ scripts/items when a PZ install is present
+    -- (gracefully absent on CI — engine-guarded test files contribute no
+    -- tests). engine_wire additionally routes DualVMSim command payloads
+    -- through the REAL TableNetworkUtils serialization.
+    engine = true,
+    engine_wire = true,
+
     -- Preload these before any test file. Equivalent to a test file doing
     -- `require "MyMod/Core"`, but you don't have to repeat it everywhere.
     preload = {

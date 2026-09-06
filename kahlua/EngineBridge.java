@@ -438,6 +438,20 @@ public final class EngineBridge {
                 return 1;
             });
 
+            // PZEngine.wireRoundTrip(tbl) -> (received, drops): the payload
+            // as the OTHER side of a sendClientCommand/sendServerCommand
+            // would see it (real TableNetworkUtils bytes in the middle),
+            // plus a 1..N array describing every top-level entry the wire
+            // dropped. Usable from any engine test to pin a command payload
+            // as wire-safe without spinning up a full sim.
+            pzEngine.rawset("wireRoundTrip", (JavaFunction) (frame, n) -> {
+                Object[] saved = wireSave(frame.get(0));
+                if (saved == null) { frame.push(null); return 1; }
+                frame.push(wireLoad((byte[]) saved[0]));
+                frame.push(saved[1]);
+                return 2;
+            });
+
             // instanceof must answer for two worlds. Java objects get a walk
             // of the real class hierarchy by simple name (the same answer
             // the game's typeMap gives for exposed classes). Mock tables go
@@ -504,6 +518,78 @@ public final class EngineBridge {
             Throwable root = t; while (root.getCause() != null) root = root.getCause();
             System.err.println("[engine] CreateItem(" + fullType + ") failed: " + root);
             return null;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Real wire serialization (zombie.network.TableNetworkUtils)
+    // ------------------------------------------------------------------
+    // The EXACT save/load pair every command payload rides in real MP:
+    // GameClient.sendClientCommand (:1858) and GameServer's send (:3487)
+    // both call TableNetworkUtils.save; the receiving side loads with the
+    // same class. Round-tripping through it makes the wire's silent-drop
+    // semantics observable offline: functions, non-string/number keys and
+    // any other unsendable entry vanish exactly as they do on a live
+    // server (vanilla logs an ERROR per dropped top-level entry at send;
+    // DualVMSim mirrors that line). Nested tables recurse; drops INSIDE a
+    // nested table are silent in vanilla too — canSave only scans the top
+    // level — so they are silent here, faithfully.
+
+    private static final se.krka.kahlua.j2se.J2SEPlatform WIRE_PLATFORM =
+            new se.krka.kahlua.j2se.J2SEPlatform();
+
+    /** Serialize a payload table through the real wire format. Returns
+     *  { byte[] bytes, KahluaTable drops } where drops is a 1..N array of
+     *  "key,value" descriptions of entries the wire refused (the same
+     *  key,value rendering vanilla's ERROR line uses). Null when the
+     *  engine is down or the input is not a table. Serializer failures
+     *  propagate as RuntimeException — a payload that crashes the real
+     *  serializer should fail the test loudly, not quietly fall back. */
+    public static Object[] wireSave(Object table) {
+        if (loader == null || !booted || !(table instanceof KahluaTable tbl)) return null;
+        try {
+            Class<?> tnu = cls("zombie.network.TableNetworkUtils");
+            java.lang.reflect.Method canSave = tnu.getMethod("canSave", Object.class, Object.class);
+
+            KahluaTable drops = WIRE_PLATFORM.newTable();
+            int dropCount = 0;
+            se.krka.kahlua.vm.KahluaTableIterator it = tbl.iterator();
+            while (it.advance()) {
+                if (!Boolean.TRUE.equals(canSave.invoke(null, it.getKey(), it.getValue()))) {
+                    drops.rawset(++dropCount, it.getKey() + "," + it.getValue());
+                }
+            }
+
+            java.nio.ByteBuffer bb = java.nio.ByteBuffer.allocate(1 << 20);
+            Class<?> writerCls = cls("zombie.core.network.ByteBufferWriter");
+            Object writer = writerCls.getConstructor(java.nio.ByteBuffer.class).newInstance(bb);
+            tnu.getMethod("save", KahluaTable.class, writerCls).invoke(null, tbl, writer);
+            bb.flip();
+            byte[] bytes = new byte[bb.remaining()];
+            bb.get(bytes);
+            return new Object[] { bytes, drops };
+        } catch (Throwable t) {
+            Throwable root = t; while (root.getCause() != null) root = root.getCause();
+            throw new RuntimeException("real wire save failed: " + root, root);
+        }
+    }
+
+    /** Deserialize wire bytes into a fresh table — the receiving side's
+     *  view. Each call returns an independent copy, exactly like every
+     *  client of a broadcast deserializing its own packet. */
+    public static Object wireLoad(byte[] bytes) {
+        if (loader == null || !booted || bytes == null) return null;
+        try {
+            Class<?> tnu = cls("zombie.network.TableNetworkUtils");
+            Class<?> readerCls = cls("zombie.core.network.ByteBufferReader");
+            Object reader = readerCls.getConstructor(java.nio.ByteBuffer.class)
+                    .newInstance(java.nio.ByteBuffer.wrap(bytes));
+            Object out = WIRE_PLATFORM.newTable();
+            tnu.getMethod("load", KahluaTable.class, readerCls).invoke(null, out, reader);
+            return out;
+        } catch (Throwable t) {
+            Throwable root = t; while (root.getCause() != null) root = root.getCause();
+            throw new RuntimeException("real wire load failed: " + root, root);
         }
     }
 
