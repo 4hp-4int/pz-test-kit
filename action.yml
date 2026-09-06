@@ -31,11 +31,18 @@ inputs:
     description: 'Validate media/scripts/*.txt with PZ''s own parser before running tests. A malformed script file fails silently in game -- the engine logs a debug warning and the items simply do not exist -- so this catches a whole class of bug the Lua suite cannot see. Set to false to skip.'
     required: false
     default: 'true'
+  pz-install-dir:
+    description: 'Path to a Project Zomboid install (or staged vanilla files) on the runner. Exported as PZ_INSTALL_DIR so engine mode and vanilla_requires resolve it. Without one, engine-guarded tests contribute nothing and the run says so.'
+    required: false
+    default: ''
 
 outputs:
   junit-xml:
     description: 'Path to the JUnit XML report written by the run.'
     value: ${{ steps.run.outputs.junit-xml }}
+  engine-available:
+    description: 'Whether engine mode had a PZ install to run against ("true"/"false"). "false" with engine = true in pz-test.lua means engine-guarded tests were skipped.'
+    value: ${{ steps.run.outputs.engine-available }}
 
 runs:
   using: 'composite'
@@ -74,7 +81,9 @@ runs:
           DualVMSim.java \
           StubbingClassLoader.java \
           PZTestKitLauncher.java \
-          ScriptCheck.java
+          ScriptCheck.java \
+          EngineBridge.java \
+          PzLocator.java
 
     # Before the Lua suite: a broken .txt makes every item in the file vanish
     # with no error the tests could observe, so failing here gives a far
@@ -94,9 +103,24 @@ runs:
         chmod +x "$PZTEST_KIT_DIR/pztest"
         JUNIT_PATH="${{ inputs.junit-xml }}"
         FILTER="${{ inputs.filter }}"
+        if [ -n "${{ inputs.pz-install-dir }}" ]; then
+          export PZ_INSTALL_DIR="${{ inputs.pz-install-dir }}"
+        fi
         FLAGS=("--junit-xml" "$JUNIT_PATH")
         if [ -n "$FILTER" ]; then
           FLAGS+=("--filter" "$FILTER")
         fi
-        "$PZTEST_KIT_DIR/pztest" "${{ inputs.mod-root }}" "${FLAGS[@]}"
+        # Tee so the engine-availability line is inspectable after the run.
+        LOG="$RUNNER_TEMP/pztest-run.log"
+        set -o pipefail
+        "$PZTEST_KIT_DIR/pztest" "${{ inputs.mod-root }}" "${FLAGS[@]}" 2>&1 | tee "$LOG"
         echo "junit-xml=$JUNIT_PATH" >> "$GITHUB_OUTPUT"
+        # Reduced coverage must be visible in the annotations, not just the
+        # transcript: a green run with the engine down is NOT the same green
+        # as a run that exercised the engine tests.
+        if grep -q "^ENGINE UNAVAILABLE:" "$LOG"; then
+          echo "engine-available=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=PZ engine unavailable::engine-guarded tests contributed nothing on this runner — stage a PZ install and set pz-install-dir to run them."
+        else
+          echo "engine-available=true" >> "$GITHUB_OUTPUT"
+        fi

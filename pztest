@@ -43,7 +43,7 @@ case "${OSTYPE:-}" in
         ;;
 esac
 
-SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck EngineBridge)
+SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck EngineBridge PzLocator)
 
 # Recompile when any .java is newer than its .class.
 need_compile=0

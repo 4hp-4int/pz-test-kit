@@ -44,15 +44,25 @@ Files are loaded **in order**, so list dependencies first (e.g., `ISBaseObject` 
 
 ## PZ install detection
 
-The kit looks for PZ in this order:
+The kit locates PZ with a shared resolver (`PzLocator`, used by both
+`vanilla_requires` and engine mode), in this order:
 
 1. `$PZ_INSTALL_DIR` env var (highest priority — set this on CI if you stage the game)
-2. Common Steam paths:
-   - Windows: `C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid`
-   - Windows (alt drive): `D:\SteamLibrary\steamapps\common\ProjectZomboid`
-   - Linux: `~/.steam/steam/steamapps/common/ProjectZomboid`
-   - macOS: `~/Library/Application Support/Steam/steamapps/common/ProjectZomboid`
-3. Fallback: log a warning, use mocks for each `vanilla_requires` entry
+2. **Steam library discovery** — the real thing, not a guess list:
+   - Steam root from the Windows registry (`HKCU\Software\Valve\Steam
+     SteamPath`, then HKLM), or the default roots on Linux (including
+     flatpak) and macOS
+   - every library in `steamapps/libraryfolders.vdf` (games live in ANY
+     library, not just the root drive)
+   - within each library, `appmanifest_108600.acf`'s `installdir` names
+     the actual folder; stock names are tried as fallback
+3. A few legacy guesses (`D:`/`E:` SteamLibrary, Program Files) for
+   machines with no readable registry/VDF
+4. Fallback: log a warning, use mocks for each `vanilla_requires` entry
+
+Every candidate is validated before winning (engine mode requires
+`projectzomboid.jar`; `vanilla_requires` requires `media/lua/shared`), so
+a leftover half-uninstalled directory never gets picked.
 
 When detection succeeds, you'll see:
 

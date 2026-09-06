@@ -99,20 +99,11 @@ public final class EngineBridge {
     public static boolean isBooted() { return booted; }
     public static String getBootError() { return bootError; }
 
-    /** Find the PZ install the same way build_runtime_jar.py does. */
+    /** Find the PZ install via the shared locator (override → env →
+     *  Steam registry/libraryfolders.vdf/appmanifest → legacy guesses).
+     *  The engine's validity bar is the game jar itself. */
     public static Path findPzInstall(String override) {
-        List<String> candidates = new ArrayList<>();
-        if (override != null && !override.isEmpty()) candidates.add(override);
-        String env = System.getenv("PZ_INSTALL_DIR");
-        if (env != null && !env.isEmpty()) candidates.add(env);
-        candidates.add("C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid");
-        candidates.add("C:/Program Files/Steam/steamapps/common/ProjectZomboid");
-        candidates.add(System.getProperty("user.home") + "/.steam/steam/steamapps/common/ProjectZomboid");
-        for (String c : candidates) {
-            Path p = Path.of(c);
-            if (Files.exists(p.resolve("projectzomboid.jar"))) return p;
-        }
-        return null;
+        return PzLocator.find(override, p -> Files.exists(p.resolve("projectzomboid.jar")));
     }
 
     /**

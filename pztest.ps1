@@ -37,7 +37,7 @@ if (-not (Test-Path $jar)) {
     exit 1
 }
 
-$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck', 'EngineBridge')
+$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck', 'EngineBridge', 'PzLocator')
 
 $needCompile = $false
 foreach ($src in $sources) {

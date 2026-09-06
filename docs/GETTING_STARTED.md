@@ -390,6 +390,17 @@ jobs:
           reporter: java-junit
 ```
 
+**Engine tests on CI.** Without a PZ install on the runner, engine-guarded
+test files contribute nothing — the run stays green but prints `ENGINE
+UNAVAILABLE`, the action emits a workflow notice, and its
+`engine-available` output is `"false"`, so the reduced coverage is visible
+instead of silent. To actually run engine tests on CI, stage the game
+(e.g. SteamCMD with a licensed account) and pass `pz-install-dir:` — the
+kit exports it as `PZ_INSTALL_DIR`. On developer machines no setup is
+needed: the kit finds PZ through the Steam registry entry,
+`libraryfolders.vdf`, and the app manifest, whatever drive the library
+lives on.
+
 ### Option 2: manual setup (pins a kit version)
 
 ```yaml
@@ -406,7 +417,8 @@ jobs:
           cd "$RUNNER_TEMP/pz-test-kit/kahlua"
           javac -cp kahlua-runtime.jar \
             TestPlatform.java KahluaTestRunner.java DualVMSim.java \
-            StubbingClassLoader.java PZTestKitLauncher.java
+            StubbingClassLoader.java PZTestKitLauncher.java \
+            ScriptCheck.java EngineBridge.java PzLocator.java
       - run: |
           chmod +x "$RUNNER_TEMP/pz-test-kit/pztest"
           "$RUNNER_TEMP/pz-test-kit/pztest" "$GITHUB_WORKSPACE" \

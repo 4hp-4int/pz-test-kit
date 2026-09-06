@@ -480,6 +480,15 @@ public class KahluaTestRunner {
         if (hiddenNoMatch > 0) {
             System.out.printf("%n(%d file(s) with no tests matching the filter — hidden)%n", hiddenNoMatch);
         }
+        // Engine-mode coverage visibility: a config that asked for the
+        // engine on a machine without PZ still exits green (engine-guarded
+        // files contribute no tests) — but that reduced coverage must be
+        // SAID, not silent. CI greps for this exact prefix.
+        if (engineOn && !EngineBridge.isBooted()) {
+            System.out.println("\nENGINE UNAVAILABLE: " + EngineBridge.getBootError());
+            System.out.println("ENGINE UNAVAILABLE: engine-guarded test files contributed no tests — coverage is reduced on this machine.");
+        }
+
         System.out.println("\n====================================================");
         if (grandSkip > 0) {
             System.out.printf("KAHLUA TOTAL: %d tests, %d passed, %d failed, %d errors, %d skipped (%dms)%n",
@@ -1505,43 +1514,17 @@ public class KahluaTestRunner {
         }
     }
 
-    /** Locate the PZ install directory. Checks, in order:
-     *  1. $PZ_INSTALL_DIR environment variable.
-     *  2. Common Steam-library paths for Windows, Linux, macOS.
-     *  Returns null if none contain media/lua/shared. */
+    /** Locate the PZ install via the shared locator (env var → Steam
+     *  registry/libraryfolders.vdf/appmanifest → legacy guesses).
+     *  vanilla_requires' validity bar is media/lua/shared. Null when
+     *  nothing valid is found. */
     private static Path resolvePZInstall() {
         String env = System.getenv("PZ_INSTALL_DIR");
-        if (env != null && !env.isEmpty()) {
-            Path p = Paths.get(env);
-            if (Files.isDirectory(p.resolve("media/lua/shared"))) return p.normalize();
+        if (env != null && !env.isEmpty() &&
+                !Files.isDirectory(Paths.get(env).resolve("media/lua/shared"))) {
             System.out.println("[PZTestKit] PZ_INSTALL_DIR=" + env + " does not contain media/lua/shared");
         }
-
-        String[] candidates;
-        String userHome = System.getProperty("user.home", "");
-        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
-            candidates = new String[] {
-                "C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid",
-                "C:/Program Files/Steam/steamapps/common/ProjectZomboid",
-                "D:/SteamLibrary/steamapps/common/ProjectZomboid",
-                "E:/SteamLibrary/steamapps/common/ProjectZomboid",
-            };
-        } else if (System.getProperty("os.name", "").toLowerCase().contains("mac")) {
-            candidates = new String[] {
-                userHome + "/Library/Application Support/Steam/steamapps/common/Project Zomboid",
-            };
-        } else {
-            candidates = new String[] {
-                userHome + "/.steam/steam/steamapps/common/ProjectZomboid",
-                userHome + "/.local/share/Steam/steamapps/common/ProjectZomboid",
-            };
-        }
-
-        for (String c : candidates) {
-            Path p = Paths.get(c);
-            if (Files.isDirectory(p.resolve("media/lua/shared"))) return p.normalize();
-        }
-        return null;
+        return PzLocator.find(null, p -> Files.isDirectory(p.resolve("media/lua/shared")));
     }
 
     /** Find the kahlua/ directory (where mocks and executor live). */
