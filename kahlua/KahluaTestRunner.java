@@ -61,6 +61,7 @@ public class KahluaTestRunner {
         String junitXmlPath   = null;
         boolean eventCoverage = false;
         String serveScene     = null;   // --serve <scene>: resident UI render loop
+        boolean bridgeOn      = false;  // --bridge: resident eval bridge (b64 line protocol)
         boolean verbose       = false;  // --verbose: stream all output live (legacy behavior)
         boolean noPrescan     = false;  // --no-prescan: disable filter file pre-skip
 
@@ -97,6 +98,7 @@ public class KahluaTestRunner {
                 if (a.equals("--serve") && i + 1 < args.length) {
                     serveScene = args[++i]; continue;
                 }
+                if (a.equals("--bridge")) { bridgeOn = true; continue; }
                 if (a.startsWith("--serve=")) {
                     serveScene = a.substring("--serve=".length()); continue;
                 }
@@ -180,6 +182,18 @@ public class KahluaTestRunner {
         // The bridge (Node) pipes browser events in and frames out.
         if (serveScene != null) {
             serveMode(modRoot, serveScene);
+            return;
+        }
+
+        // ── Bridge mode: resident VM as an eval server ──────────────────────
+        // Generic sibling of serve mode: the FULL kit environment (config,
+        // module index, mocks, translations) stays resident, and a driver
+        // process (e.g. a local designer-UI server) evals Lua chunks against
+        // it. This is how external tooling drives REAL mod code — a story
+        // designer scrubbing seeds runs the actual director, never a JS
+        // reimplementation.
+        if (bridgeOn) {
+            bridgeMode(modRoot);
             return;
         }
 
@@ -747,6 +761,64 @@ public class KahluaTestRunner {
             } catch (Exception e) {
                 System.out.println("@@ERR@@" + e.getMessage());
             }
+            System.out.flush();
+        }
+    }
+
+    /**
+     * Bridge mode — line protocol, base64 both directions so multi-line Lua
+     * chunks and multi-line results survive a newline-framed stream:
+     *
+     *   stdin:   base64(utf8(lua chunk))         one chunk per line
+     *   stdout:  @@OK@@base64(utf8(tostring(first return value)))
+     *            @@ERR@@base64(utf8(error message))
+     *
+     * Anything else on stdout is Lua print() noise — drivers must filter by
+     * prefix. "@@BRIDGE_READY@@" marks the env as built; "__quit__" ends the
+     * session. Chunks conventionally `return` a JSON string built Lua-side.
+     */
+    private static void bridgeMode(Path modRoot) throws Exception {
+        ModuleIndex index = indexModuleTree(modRoot);
+        TestPlatform platform = new TestPlatform();
+        KahluaTable  env      = platform.newEnvironment();
+        KahluaThread thread   = new KahluaThread(System.out, platform, env);
+        thread.debugOwnerThread = Thread.currentThread();
+
+        buildEnv(thread, env, modRoot, index, new ArrayList<>(), /*isServer*/ false, /*clientIdx*/ 0);
+
+        java.util.Base64.Encoder b64e = java.util.Base64.getEncoder();
+        java.util.Base64.Decoder b64d = java.util.Base64.getDecoder();
+        java.nio.charset.Charset utf8 = java.nio.charset.StandardCharsets.UTF_8;
+
+        System.out.println("@@BRIDGE_READY@@");
+        System.out.flush();
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(System.in, utf8));
+        String line;
+        int chunkNo = 0;
+        while ((line = in.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            if (line.equals("__quit__")) break;
+            chunkNo++;
+            String reply;
+            try {
+                String src = new String(b64d.decode(line), utf8);
+                LuaClosure c = LuaCompiler.loadstring(src, "bridge#" + chunkNo, env);
+                Object[] r = thread.pcall(c, new Object[0]);
+                if (r != null && r.length > 0 && Boolean.TRUE.equals(r[0])) {
+                    Object v = r.length > 1 ? r[1] : null;
+                    String out = v == null ? "" : String.valueOf(v);
+                    reply = "@@OK@@" + b64e.encodeToString(out.getBytes(utf8));
+                } else {
+                    String msg = (r != null && r.length > 1) ? String.valueOf(r[1]) : "unknown error";
+                    reply = "@@ERR@@" + b64e.encodeToString(msg.getBytes(utf8));
+                }
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? e.toString() : e.getMessage();
+                reply = "@@ERR@@" + b64e.encodeToString(msg.getBytes(utf8));
+            }
+            System.out.println(reply);
             System.out.flush();
         }
     }
@@ -1605,6 +1677,10 @@ public class KahluaTestRunner {
         System.out.println("  --event-coverage   Report which Events.* listeners fired vs. registered");
         System.out.println("  --coverage[=sub]   Report line coverage of modules (optionally scoped to");
         System.out.println("                     names/paths containing <sub>, e.g. --coverage=palette/)");
+        System.out.println("  --bridge           Resident eval bridge: build the env once, then eval");
+        System.out.println("                     base64(lua) lines from stdin, replying @@OK@@/@@ERR@@");
+        System.out.println("                     + base64(result). For external tooling (designer UIs)");
+        System.out.println("                     that must drive REAL mod code, not a reimplementation.");
         System.out.println("  -h, --help         Show this message");
         System.out.println();
         System.out.println("  testfiles        Positional args matching test_*.lua / *Tests.lua run");
