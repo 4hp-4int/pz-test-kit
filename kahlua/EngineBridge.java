@@ -174,6 +174,19 @@ public final class EngineBridge {
             workdirFolder.getClass().getMethod("set", java.io.File.class)
                 .invoke(workdirFolder, pzDir.resolve("media").toFile());
 
+            // Item display names route through the JAVA Translator
+            // (Item.getDisplayName -> ItemName_* keys); unloaded, it echoes
+            // the full type and name-derived logic sees nil. Same call the
+            // dedicated-server translation fix makes. Best-effort: a failure
+            // costs display names, not the boot.
+            try {
+                cls("zombie.core.Translator").getMethod("loadFiles").invoke(null);
+                log.println("[engine] Translator loaded");
+            } catch (Throwable t) {
+                Throwable root = t; while (root.getCause() != null) root = root.getCause();
+                log.println("[engine] Translator.loadFiles skipped: " + root);
+            }
+
             Class<?> smClass = cls("zombie.scripting.ScriptManager");
             Object sm = smClass.getField("instance").get(null);
             Class<?> loadModeClass = cls("zombie.scripting.ScriptLoadMode");

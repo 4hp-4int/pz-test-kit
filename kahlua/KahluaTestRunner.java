@@ -858,6 +858,11 @@ public class KahluaTestRunner {
                 }
                 chainItems = Boolean.TRUE.equals(cfgTable.rawget("engine_items"));
             }
+            // Never chain inside DualVMSim endpoints (server or client>0):
+            // the sim models MP transport over mock item tables — real Java
+            // items can't ride its serialization, and sim tests exist to
+            // exercise the protocol, not item fidelity.
+            if (isServer || clientIdx > 0) chainItems = false;
             EngineBridge.installIntoEnv(new TestPlatform(), thread, env, extraExpose, chainItems, System.out);
         }
 
