@@ -35,7 +35,9 @@ SOURCE = Path(r"C:\Tools\ZomboidDecompiler\ZomboidDecompiler\bin\output\source")
 
 RE_FQN = re.compile(r"^#\s*\w+\s*\(([\w.$]+)\)")
 RE_EXT = re.compile(r"^#\s*extends\s+(\w+)")
-RE_SIG = re.compile(r"^\s{2}(\w+)\(")
+# "  static getInstance(...)": without the optional prefix this drops every
+# static method and reports the class as drifted from its own source.
+RE_SIG = re.compile(r"^\s{2}(?:static\s+)?(\w+)\(")
 # Public instance/static methods at class-body indentation. Deliberately strict:
 # a loose pattern would match constructors and inner-class bodies and declare
 # real classes incomplete, which only costs us coverage.
@@ -64,7 +66,10 @@ def load_index():
             if line.startswith("  ### "):
                 section = "__inner__"
                 continue
-            if section and section.startswith("Lua-Exposed"):
+            # Both sections: a closure-pulled superclass has no annotation of
+            # its own, so its whole surface sits under "Other Public Methods".
+            if section and (section.startswith("Lua-Exposed")
+                            or section.startswith("Other Public")):
                 m = RE_SIG.match(line)
                 if m:
                     methods.add(m.group(1))

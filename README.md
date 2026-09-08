@@ -406,8 +406,8 @@ obj.streetLight           -- public Java field; reads nil, forever
 list:iterator()           -- not exposed; the scan was dead code
 ```
 
-It knows the surface from `pz-dev-tools/indexes/java-api/*.txt` (822 classes,
-17k exposed methods **with return types**, and 1213 public fields listed
+It knows the surface from `pz-dev-tools/indexes/java-api/*.txt` (840 classes,
+21.5k exposed methods **with return types**, and public fields listed
 separately — the fields are what make the silent-write bugs catchable). Return
 types are what let it chain: `IsoObject.getProperties() -> PropertyContainer`,
 so it knows what `props` is two lines later.
@@ -418,13 +418,21 @@ certain of, and it splits its checks by the evidence each one needs:
 | claim | needs | when it runs |
 |---|---|---|
 | "X **is** a public field" | index says so | always — an incomplete index makes these fewer, never wrong |
-| "X is **not** a method" | index is complete for that class | only for the 234 classes in `tools/pz_api_complete.txt` |
+| "X is **not** a method" | index verified complete for that class | the 826 classes in `tools/pz_api_complete.txt` |
 
-That second gate matters: the index is missing `IsoLivingCharacter` entirely
-and 5 of `SandboxOptions`' 55 public methods, so an ungated pass flags
-`player:getX()`. Over five real mods, ungated produced 239 findings; gated
-produces 2 — **both real bugs in shipped, tested code.** Regenerate the
-allowlist after a game update with `python tools/pz_api_verify_index.py >
+Two things make absence claims safe, and both were learned by getting them
+wrong first:
+
+- **The index must be complete for the class.** Before it was repaired it was
+  missing `IsoLivingCharacter` entirely, so `IsoPlayer`'s whole inherited
+  surface looked unknown and a pass flagged `player:getX()` 200-odd times.
+- **The receiver may hold a subclass.** `local w = player:getPrimaryHandItem()`
+  types `w` as `InventoryItem`, but the code `instanceof`-checks it and calls
+  `HandWeapon` methods. A method on any descendant is therefore plausible and
+  stays silent.
+
+Over seven real mods: **0 false positives, 7 findings, all real.** Regenerate
+the allowlist after a game update with `python tools/pz_api_verify_index.py >
 tools/pz_api_complete.txt` (needs decompiled source; the checked-in list works
 without it).
 

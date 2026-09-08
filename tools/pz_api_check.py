@@ -120,13 +120,18 @@ class Api:
         # index is missing IsoLivingCharacter entirely and 5 of SandboxOptions'
         # 55 public methods, so "not in the index" does not mean "not real".
         self.complete = set()
+        self._children = None   # built lazily by descendants()
         allow = Path(__file__).with_name("pz_api_complete.txt")
         if allow.exists():
             self.complete = {
                 ln.strip() for ln in allow.read_text(encoding="utf-8").splitlines()
                 if ln.strip() and not ln.startswith("#")
             }
-        sig = re.compile(r"^\s{2}(" + _IDENT + r")\((.*?)\)\s*->\s*(.+?)\s*$")
+        # "  static getInstance() -> SandboxOptions": the index prefixes static
+        # methods, and omitting this from the pattern silently drops EVERY
+        # static method -- which both hides real calls and makes absence claims
+        # about them wrong.
+        sig = re.compile(r"^\s{2}(?:static\s+)?(" + _IDENT + r")\((.*?)\)\s*->\s*(.+?)\s*$")
         fld = re.compile(r"^\s{2}(?:static\s+)?(?:final\s+)?[\w.$<>\[\],\s]+?\s+("
                          + _IDENT + r")\s*$")
         ext = re.compile(r"^#\s*extends\s+(" + _IDENT + r")")
@@ -148,7 +153,16 @@ class Api:
                 if line.startswith("  ### "):
                     section = "__inner__"
                     continue
-                if section and section.startswith("Lua-Exposed"):
+                # BOTH method sections count for EXISTENCE. A superclass pulled
+                # into the index by the inheritance closure carries no
+                # @UsedFromLua of its own, so all of its methods land under
+                # "Other Public Methods" -- and reading only the exposed
+                # section would report every inherited call as missing. The
+                # question an absence claim answers is "does PZ have this
+                # method at all", and answering it conservatively is the whole
+                # design.
+                if section and (section.startswith("Lua-Exposed")
+                                or section.startswith("Other Public")):
                     m = sig.match(line)
                     if m:
                         # "-> final String" / "-> abstract C": modifiers leak
@@ -159,6 +173,34 @@ class Api:
                     m = fld.match(line)
                     if m:
                         self.fields[cls].add(m.group(1))
+
+    def descendants(self, cls):
+        """Every indexed class that extends cls, transitively.
+
+        THE DOWNCAST PROBLEM. `local w = player:getPrimaryHandItem()` types w
+        as InventoryItem, but the code then instanceof-checks it and calls
+        HandWeapon methods -- getMaxDamage, getCriticalChance, isRanged. The
+        inferred type is a SUPERTYPE of the runtime type, so a method absent
+        from InventoryItem is not absent from what the variable actually holds.
+        Flagging those produced 41 false positives on VorpallySauced alone.
+        A method found on any descendant is therefore plausible and stays
+        silent. Costs us a typo that happens to name some subclass's method;
+        buys soundness, which is the trade this whole tool makes.
+        """
+        if self._children is None:
+            self._children = {}
+            for c, parent in self.extends.items():
+                if parent in self.methods:
+                    self._children.setdefault(parent, []).append(c)
+        out, stack, seen = set(), [cls], set()
+        while stack:
+            cur = stack.pop()
+            for kid in self._children.get(cur, ()):
+                if kid not in seen:
+                    seen.add(kid)
+                    out.add(kid)
+                    stack.append(kid)
+        return out
 
     def chain(self, cls):
         """cls and every superclass the index knows, nearest first."""
@@ -337,6 +379,9 @@ def check_file(path, api, findings):
             # Everywhere else we say nothing rather than guess -- this is the
             # check that produced player:getX() noise before it was gated.
             if cls not in api.complete:
+                continue
+            # The variable may hold a subclass (see Api.descendants).
+            if any(name in api.methods.get(d, ()) for d in api.descendants(cls)):
                 continue
             near = difflib.get_close_matches(name, api.all_methods(cls), 3, 0.7)
             hint = ("  Did you mean: " + ", ".join(n + "()" for n in near)) if near else ""
