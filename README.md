@@ -383,6 +383,56 @@ Skipped tests surface as `<skipped>` in JUnit XML — CI shows them as skipped, 
 
 ---
 
+## apicheck — does this Lua call methods PZ actually exposes?
+
+```bash
+pztest apicheck                    # defaults to media/lua
+pztest apicheck media/lua/client   # or specific paths
+```
+
+Needs no `pz-test.lua`, no VM and no test files — **that is the point.** It
+runs on a mod with no suite at all, which is where its target bugs live.
+
+A live pass on one mod found six bugs in two hours that 104 green tests had
+never seen. None were mock-fidelity problems: the files involved had no tests,
+so no mock was ever consulted. Every one was Lua calling a Java method or
+reading a Java field that does not exist on PZ's Lua surface — and because the
+calls sat inside `pcall`, they failed **silently** and reported success.
+
+```lua
+props:Is("streetlight")   -- invented; PropertyContainer has has(String)
+src.hydroPowered = false  -- public Java field; the write is discarded
+obj.streetLight           -- public Java field; reads nil, forever
+list:iterator()           -- not exposed; the scan was dead code
+```
+
+It knows the surface from `pz-dev-tools/indexes/java-api/*.txt` (822 classes,
+17k exposed methods **with return types**, and 1213 public fields listed
+separately — the fields are what make the silent-write bugs catchable). Return
+types are what let it chain: `IsoObject.getProperties() -> PropertyContainer`,
+so it knows what `props` is two lines later.
+
+**Precision is the product.** It only speaks about a receiver whose class it is
+certain of, and it splits its checks by the evidence each one needs:
+
+| claim | needs | when it runs |
+|---|---|---|
+| "X **is** a public field" | index says so | always — an incomplete index makes these fewer, never wrong |
+| "X is **not** a method" | index is complete for that class | only for the 234 classes in `tools/pz_api_complete.txt` |
+
+That second gate matters: the index is missing `IsoLivingCharacter` entirely
+and 5 of `SandboxOptions`' 55 public methods, so an ungated pass flags
+`player:getX()`. Over five real mods, ungated produced 239 findings; gated
+produces 2 — **both real bugs in shipped, tested code.** Regenerate the
+allowlist after a game update with `python tools/pz_api_verify_index.py >
+tools/pz_api_complete.txt` (needs decompiled source; the checked-in list works
+without it).
+
+Without the index present it prints where it looked and exits **0** — never
+fail a build over its own missing input.
+
+---
+
 ## CI integration
 
 ### GitHub Actions (composite action, recommended)

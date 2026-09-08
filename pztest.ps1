@@ -84,6 +84,26 @@ if ($Args.Count -ge 1 -and $Args[0] -eq 'scriptcheck') {
     exit $LASTEXITCODE
 }
 
+# apicheck — do these Lua files call methods PZ actually exposes?
+#
+# Same shape as scriptcheck and for the same reason: no mod config, no VM, no
+# test files, so it runs on a mod with no suite. That is the point -- the bugs
+# it targets (an invented Java method, a public Java field Kahlua cannot see, a
+# collection walked with iterator()) fail SILENTLY inside a pcall, in adapter
+# files nobody wrote a test for. See tools/pz_api_check.py.
+if ($Args.Count -ge 1 -and $Args[0] -eq 'apicheck') {
+    # NOT $Args[1..($Args.Count-1)]: with one arg that is $Args[1..0], which
+    # PowerShell evaluates as a REVERSED range and hands back 'apicheck' itself
+    # as a target.
+    $targets = if ($Args.Count -ge 2) { @($Args[1..($Args.Count - 1)] | Where-Object { $_ }) } else { @() }
+    if ($targets.Count -eq 0 -and -not (Test-Path (Join-Path (Get-Location).Path 'media/lua'))) {
+        Write-Host "[apicheck] no media/lua in $((Get-Location).Path) - nothing to check"
+        exit 0
+    }
+    & python (Join-Path $scriptDir 'tools/pz_api_check.py') @targets
+    exit $LASTEXITCODE
+}
+
 if ($Args.Count -ge 1 -and $Args[0] -eq 'init') {
     $target = (Get-Location).Path
     $configPath = Join-Path $target 'pz-test.lua'

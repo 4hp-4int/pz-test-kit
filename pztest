@@ -79,6 +79,23 @@ if [ "${1:-}" = "scriptcheck" ]; then
     exec java -cp "$CP_SC" ScriptCheck "$@"
 fi
 
+# apicheck subcommand — do these Lua files call methods PZ actually exposes?
+#
+# Same shape as scriptcheck and for the same reason: no pz-test.lua, no VM, no
+# test files, so it works on a mod with no suite. That is the point. The bugs it
+# is built for (calling an invented Java method, reading a public Java field
+# Kahlua cannot see, walking a collection with iterator()) fail SILENTLY inside
+# a pcall, and they live in adapter files nobody wrote a test for. See
+# tools/pz_api_check.py.
+if [ "${1:-}" = "apicheck" ]; then
+    shift
+    if [ $# -eq 0 ] && [ ! -d "media/lua" ]; then
+        echo "[apicheck] no media/lua in $(pwd) - nothing to check"
+        exit 0
+    fi
+    exec python "$SCRIPT_DIR/tools/pz_api_check.py" "$@"
+fi
+
 # Init subcommand — scaffolds pz-test.lua + a starter test in the current mod.
 if [ "${1:-}" = "init" ]; then
     shift
