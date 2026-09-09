@@ -383,6 +383,24 @@ Skipped tests surface as `<skipped>` in JUnit XML — CI shows them as skipped, 
 
 ---
 
+## Batch your targeted runs — the engine boots per PROCESS
+
+```bash
+pztest a.lua b.lua c.lua     # one boot
+for f in a b c; do pztest $f.lua; done   # three boots — don't
+```
+
+In engine mode (`engine = true`) the kit boots PZ's `ScriptManager` and
+parses ~1000 vanilla script files, which costs ~3s. That is paid **once per
+process, regardless of how many test files you pass**. Measured on a real
+mod with three files: **10.9s as three invocations, 4.1s as one** — the
+tests were 0.4s of it either way.
+
+So "run only the tests you're touching" and "run them in one command" are
+the same advice, and the second half is the one that gets forgotten.
+
+---
+
 ## apicheck — does this Lua call methods PZ actually exposes?
 
 ```bash
