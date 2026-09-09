@@ -52,19 +52,35 @@ Usage:  python tools/pz_api_check.py [path ...]      (default: media/lua)
 
 import difflib
 import re
+import os
 import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Where the index lives. Overridable for CI boxes that put pz-dev-tools
-# somewhere else; absent, the tool says so and exits CLEAN rather than failing
-# a build over its own missing input.
+# Where the index lives. Absent, the tool says so and exits CLEAN rather than
+# failing a build over its own missing input -- the right default, and also
+# why a wrong path here is INVISIBLE: apicheck prints "0 findings" whether
+# the code is clean or the index was never found. Read the header line, which
+# says how many classes were indexed, not the exit code.
+#
+# PZ_DEV_TOOLS wins if set; then a checkout that VENDORS the index beside
+# this repo under either name (a travel checkout carries it rather than
+# assuming a tree next door); then the author's box; then $HOME.
 # ---------------------------------------------------------------------------
-INDEX_CANDIDATES = [
-    Path(r"C:\Users\Khalen\Code\pz-dev-tools\indexes\java-api"),
-    Path.home() / "Code" / "pz-dev-tools" / "indexes" / "java-api",
-    Path(__file__).resolve().parents[2] / "pz-dev-tools" / "indexes" / "java-api",
-]
+def _index_candidates():
+    out = []
+    env = os.environ.get("PZ_DEV_TOOLS")
+    if env:
+        out.append(Path(env) / "indexes" / "java-api")
+    root = Path(__file__).resolve().parents[2]
+    for name in ("dev-tools", "pz-dev-tools"):
+        out.append(root / name / "indexes" / "java-api")
+    out.append(Path(r"C:\Users\Khalen\Code\pz-dev-tools\indexes\java-api"))
+    out.append(Path.home() / "Code" / "pz-dev-tools" / "indexes" / "java-api")
+    return out
+
+
+INDEX_CANDIDATES = _index_candidates()
 
 # ---------------------------------------------------------------------------
 # Java collections. NOT in the index (it covers zombie.* only), and Kahlua
