@@ -838,6 +838,12 @@ public class KahluaTestRunner {
         loadFile(thread, env, kahluaDir.resolve("mock_environment.lua"));
         loadFile(thread, env, kahluaDir.resolve("Assert.lua"));
         loadFile(thread, env, kahluaDir.resolve("Fixtures.lua"));
+        // Timed-action lifecycle simulator (PZTestKit.TimedActions) — runs
+        // actions through the hook dispatch PZ actually uses per context
+        // (IsoGameCharacter.java:9730-9738), so tests cannot invent an MP
+        // where complete() runs on the acting client. Born from the
+        // VorpallySauced v1.13.0 journal-study incident.
+        loadFile(thread, env, kahluaDir.resolve("TimedActionSim.lua"));
 
         // 1b. Override context functions. mock_environment defaults to client.
         if (isServer) {
