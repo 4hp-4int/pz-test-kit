@@ -973,30 +973,92 @@ public class KahluaTestRunner {
             EngineBridge.installIntoEnv(new TestPlatform(), thread, env, extraExpose, chainItems, System.out);
         }
 
-        // 7. Match PZ's runtime surface: no loadstring. LAST, so every harness
-        //    file above has already been compiled and switched to _pz_compile.
+        // 7. Match PZ's runtime surface. LAST, so every harness file above has
+        //    already been compiled and switched to _pz_compile.
         removeRemovedGlobals(env);
     }
 
+    /** Last PZ build line that shipped WITHOUT loadstring (see below). */
+    private static final int LOADSTRING_RESTORED_IN = 42021;   // GameVersion.getInt()
+
     /**
-     * Strip globals PZ's runtime does NOT have, so mod code cannot depend on
-     * one and pass here while failing in the game.
+     * Strip globals the INSTALLED PZ build does NOT have, so mod code cannot
+     * depend on one and pass here while failing in the game.
      *
-     * `loadstring` (and `loadstream`) were removed by PZ's 2026-08 security
-     * patch. Kahlua still ships them, which made this harness quietly MORE
-     * permissive than the thing it models — the exact failure mode a test kit
-     * must not have. TooltipLib shipped a `loadstring` closure that a passing
-     * suite said nothing about and that had to be torn out in v1.6.2.
+     * `loadstring` / `loadstream` have been removed and restored once each:
+     * PZ's 2026-08 security patch took them out (42.20.4), and 42.21 put them
+     * back after further investigation. Kahlua ships them either way — which is
+     * why this needs a gate at all, and why the gate has to point BOTH ways.
+     *
+     *   - Unstripped on a build that lacks them, the harness is more permissive
+     *     than the game. That shipped a real bug: TooltipLib carried a
+     *     `loadstring` closure a green suite said nothing about, torn out in
+     *     v1.6.2.
+     *   - Stripped on a build that has them, the harness is more restrictive
+     *     than the game. That is the same fidelity error wearing a different
+     *     hat: it fails code the runtime would have accepted.
+     *
+     * So gate on the installed version rather than picking a side. The version
+     * comes from the Core stub, which reads it out of the real Core.class at
+     * jar-build time (see build_runtime_jar.py) — no table to keep current.
+     *
+     * RESOLUTION LIMIT, deliberate: the baked version is major.minor, so 42.20.0
+     * (had them) and 42.20.4 (did not) are indistinguishable here and the whole
+     * 42.20 line gets stripped. That errs toward the stricter harness on builds
+     * nobody is on any more, which is the safe direction of the two.
      *
      * The harness's own infrastructure still needs a compiler (the require
      * resolver, coverage instrumentation and the config/test-file loaders all
-     * compile source at runtime), so it uses `_pz_compile` instead: same
+     * compile source at runtime), so it uses `_pz_compile` regardless: same
      * semantics, a name no one will mistake for a PZ API, and consistent with
-     * the `_pz_`-prefixed harness globals already in the env.
+     * the `_pz_`-prefixed harness globals already in the env. `PZTestKit.compile`
+     * (syntax check only) is likewise unaffected by this gate.
      */
     private static void removeRemovedGlobals(KahluaTable env) {
+        if (installedBuildHasLoadstring()) return;
         env.rawset("loadstring", null);
         env.rawset("loadstream", null);
+    }
+
+    /**
+     * The installed build's GameVersion, or null if it cannot be read.
+     * Reflective so this class still loads with no PZ install present.
+     */
+    private static Object installedGameVersion() {
+        try {
+            Class<?> core = Class.forName("zombie.core.Core");
+            return core.getMethod("getGameVersion")
+                .invoke(core.getMethod("getInstance").invoke(null));
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** "major.minor", or null when unreadable. */
+    private static String installedBuildVersion() {
+        Object version = installedGameVersion();
+        if (version == null) return null;
+        try {
+            return (String) version.getClass().getMethod("toString").invoke(version);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static boolean installedBuildHasLoadstring() {
+        Object version = installedGameVersion();
+        if (version == null) {
+            // Version unreadable: keep them stripped. An unknown build is
+            // likelier to be old than to be newer than the one we know about,
+            // and the stricter direction fails loudly instead of silently.
+            return false;
+        }
+        try {
+            int asInt = (Integer) version.getClass().getMethod("getInt").invoke(version);
+            return asInt >= LOADSTRING_RESTORED_IN;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     // ── Module index ───────────────────────────────────────────────
@@ -1133,6 +1195,16 @@ public class KahluaTestRunner {
             ? (KahluaTable) env.rawget("PZTestKit")
             : new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
         env.rawset("PZTestKit", pzTestKit);
+
+        // The build the harness is modelling, as "major.minor" (e.g. "42.21"),
+        // or nil when it cannot be determined. Read out of the real Core.class
+        // at jar-build time, so it is the INSTALLED game's version and not a
+        // number anyone maintains by hand. Tests need this for the same reason
+        // the harness does: anything PZ has added or taken away across builds
+        // (loadstring, for one) has to be asserted against the build in front of
+        // you rather than against whichever one was current when the test was
+        // written. Mods read the same value in game via getCore():getGameVersion().
+        pzTestKit.rawset("gameVersion", installedBuildVersion());
 
         final KahluaTable envRef = env;
 
