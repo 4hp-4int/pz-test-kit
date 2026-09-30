@@ -25,20 +25,29 @@ re-stamp), and a major-line jump to B43 (🛑 stop and re-validate).
 
 | Mod | Scope | Coverage | Tests | PZ build line | PZ version | Steam buildid | Date |
 |-----|-------|----------|-------|---------------|------------|---------------|------|
-| Sauce's Short Order | `palette` | 84% | 723 | Build 42 | 42.20 stable (`GameVersion(42, 20)` in decompiled Core.java) | `24449119` | 2026-08-04 |
+| Sauce's Short Order | `palette` | 85% | 601 | Build 42 | 42.21 stable (`GameVersion(42, 21, "")` at Core.java:160) | `25485521` | 2026-09-30 |
 
-> **DRIFT, 2026-09-30 — not re-stamped on purpose.** The install is now **42.21
-> stable, buildid `25485521`** (`GameVersion(42, 21, "")`, `Core.java:160`). The
-> toolchain was refreshed for it (fresh decompile, regenerated indexes,
-> `kahlua-runtime.jar` rebuilt from the 42.21 jar) and the engine-mode stub breaks
-> that patch caused are fixed — see `shared/pz-patch-log.md`. Certification stays
-> at `24449119` because **the palette suite is not green**: 587/601 + 1 error,
-> every failure in `test_palette_farming`. Those failures are NOT from 42.21 —
-> they reproduce identically against the pre-refresh runtime jar — they are drift
-> from the late-August uiview rework (real font metrics, real texture sizes) and
-> the move of the order box's tests back into `sauce-shortorder`. Re-baseline that
-> suite, then re-stamp. `RealRecipes.lua` was regenerated for this build and came
-> out byte-identical (623 recipes), so the corpus fixture needs no change.
+> **Test count went 723 → 601 without losing coverage.** The order box's unit
+> tests moved out of `uiview/tests/` and into `sauce-shortorder` (kit commit
+> `3304675`); what stayed in the kit is the genuinely cross-mod set (render
+> snapshots, palette×SIR lens, accent coherence, pack manifest). 601 is the
+> `sauce-shortorder` suite alone, which is what this scope now certifies —
+> coverage rose 84% → 85% over it.
+>
+> Certified against the 42.21 refresh: fresh decompile, regenerated
+> `pz-dev-tools` indexes, `kahlua-runtime.jar` rebuilt from the 42.21 jar, and the
+> two engine-mode stub breaks that patch caused fixed — see
+> `shared/pz-patch-log.md`. `RealRecipes.lua` was regenerated for this build and
+> came out **byte-identical** (623 recipes), so the corpus fixture is unchanged
+> 42.20 → 42.21.
+>
+> Known-red elsewhere, NOT blocking this scope and NOT caused by 42.21: 5 SIR
+> render tests in `uiview` and 1 in `PZ-TooltipLib`. Both look like real product
+> bugs that the late-August switch to real font metrics and real texture sizes
+> exposed — bottom-anchored SIR icon badges falling outside the row stencil, and a
+> TooltipLib gauge band computing narrower than the `bw > 8` threshold
+> SauceTooltips draws gauges behind. Tracked in the patch log; the tests are
+> correctly failing and should stay that way until the geometry is fixed.
 
 The palette suite includes a **real-corpus sweep** (`test_palette_recipe_corpus`): our
 resolver is run over the actual 623 B42 craftRecipes, parsed from the game scripts by

@@ -35,7 +35,12 @@ say "Installed build:  ${LIVE_BUILD:-<could not read appmanifest>}"
 
 # --- run the suite + coverage ------------------------------------------------
 hr; say "Running suite + coverage (scope: $SCOPE)..."; hr
-OUT="$(cd "$TESTDIR" && bash ../pztest --coverage="$SCOPE" 2>&1)"
+# $SCRIPT_DIR/pztest, not ../pztest: `..` only resolved to the kit back when the
+# only test dir was the kit's own uiview/. The order box's tests now live in
+# sauce-shortorder, two directories away, where ../pztest does not exist -- and
+# the failure looked exactly like a crashed suite ("no KAHLUA TOTAL line"), not
+# like a bad path.
+OUT="$(cd "$TESTDIR" && bash "$SCRIPT_DIR/pztest" --coverage="$SCOPE" 2>&1)"
 TOTAL="$(echo "$OUT" | grep -E 'KAHLUA TOTAL' | tail -1)"
 COV="$(echo "$OUT"  | grep -E '^[[:space:]]*TOTAL ' | tail -1)"
 say "${TOTAL:-<no KAHLUA TOTAL line — did the run crash?>}"

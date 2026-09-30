@@ -18,7 +18,13 @@ require "TooltipLib/Helpers"
 _G.getText = function(k, a) if a ~= nil then return k .. "|" .. tostring(a) end return k end
 _G.isServer = _G.isServer or function() return false end
 _G.isClient = _G.isClient or function() return true end
-_G.ItemTag = _G.ItemTag or { CHOP_TREE = "CHOP_TREE" }
+-- Assigned UNCONDITIONALLY, and to PZ's REAL tag string (verified in
+-- zombie/scripting/objects/ItemTag.java: CHOP_TREE = registerBase("ChopTree")).
+-- The kit ships an ItemTag "open registry" whose __index invents a token for any
+-- key, so `_G.ItemTag or {...}` left ItemTag.CHOP_TREE == "ItemTag.CHOP_TREE" and
+-- the provider's hasTag() lookup missed the fixture's tag. `or` cannot guard
+-- against a global that exists but answers wrongly.
+_G.ItemTag = { CHOP_TREE = "ChopTree" }
 local _player = { getMaintenanceMod = function() return 3 end }
 _G.getPlayer = function() return _player end
 
@@ -116,7 +122,7 @@ tests["tree_break_keys_on_chop_tree_tag"] = function()
     local p = weaponProvider()
     -- a tree-chopper: CHOP_TREE tag set → x2 durability divisor
     local axe = meleeWeapon({ getTreeDamage = function() return 35 end })
-    axe._tags["CHOP_TREE"] = true
+    axe._tags[ItemTag.CHOP_TREE] = true
     local ctx = recCtx(true, axe)
     p.callback(ctx)
     -- clc(13)*2 + maint(3) = 29  → "1 / 29"
