@@ -165,6 +165,21 @@ public final class EngineBridge {
             workdirFolder.getClass().getMethod("set", java.io.File.class)
                 .invoke(workdirFolder, pzDir.resolve("media").toFile());
 
+            // The Zomboid home dir, pointed at a scratch dir so the harness
+            // never reads the developer's real one. 42.20 and earlier took the
+            // local-mods folder from Core.getMyDocumentFolder(), which the Core
+            // stub already redirected here; 42.21 takes it from
+            // ZomboidFileSystem.getCacheDirSub("mods") instead (and mkdirs it),
+            // so the stub stopped covering it and getAllModFolders walked the
+            // REAL ~/Zomboid/mods — every mod the developer had deployed, on a
+            // machine-dependent code path. setCacheDir puts it back.
+            // Asked of the stub by reflection, like every other PZ class here,
+            // so the scratch location stays defined in exactly one place.
+            String zomboidHome = (String) cls("zombie.core.Core")
+                .getMethod("getMyDocumentFolder").invoke(null);
+            zfsClass.getMethod("setCacheDir", String.class).invoke(zfs, zomboidHome);
+            log.println("[engine] Zomboid home -> " + zomboidHome);
+
             // Item display names route through the JAVA Translator
             // (Item.getDisplayName -> ItemName_* keys); unloaded, it echoes
             // the full type and name-derived logic sees nil. Same call the

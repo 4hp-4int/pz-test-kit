@@ -19,6 +19,13 @@ public class Core {
     public static boolean debug = false;
     public static boolean IS_DEV = false;
 
+    // 42.21 added `&& !Core.tutorial` to InventoryItem.setCondition, which the
+    // item factory runs -- so every real item minted offline reads this now.
+    // false is the real default and the one tests want: during the tutorial the
+    // engine refuses condition DECREASES, and a harness that silently did the
+    // same would hide every wear/degradation bug.
+    public static boolean tutorial = false;
+
     private static final Core instance = new Core();
 
     public static Core getInstance() {
@@ -43,4 +50,39 @@ public class Core {
 
     // Translator.getLanguage asks Core which language the player picked.
     public String getOptionLanguageName() { return "EN"; }
+
+    // ZomboidFileSystem.getModVersionDirName reads this to pick which versioned
+    // directory of a mod to load (our own mods ship common/ + 42.0/), and mods
+    // read it from Lua to gate on build. It must be the version of the INSTALLED
+    // game or the harness lies about the runtime it models -- so it is not a
+    // constant here: build_runtime_jar.py reads it out of the real Core.class
+    // and bakes it into the jar next to this stub, which means it is re-derived
+    // every time the runtime jar is rebuilt for a new patch.
+    private static final String VERSION_RESOURCE = "/zombie/core/pz-game-version.txt";
+
+    private static final GameVersion gameVersion = readBakedGameVersion();
+
+    private static GameVersion readBakedGameVersion() {
+        try (java.io.InputStream in = Core.class.getResourceAsStream(VERSION_RESOURCE)) {
+            if (in != null) {
+                // parse() throws on anything unparseable rather than returning
+                // null, so a malformed bake lands in the catch below.
+                return GameVersion.parse(
+                    new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim());
+            }
+        } catch (Throwable ignored) {
+            // Fall through to the loud default below.
+        }
+        // Reached only if the jar was built without the bake step. Deliberately
+        // NOT a plausible-looking version: 42.0 makes getModVersionDirName skip
+        // every versioned mod dir, which fails visibly, where a stale-but-
+        // plausible number would quietly load the wrong manifest.
+        System.err.println("[pztest] WARNING: " + VERSION_RESOURCE + " missing from "
+            + "kahlua-runtime.jar -- reporting 42.0. Rebuild with build_runtime_jar.py.");
+        return new GameVersion(42, 0, "");
+    }
+
+    public GameVersion getGameVersion() { return gameVersion; }
+
+    public String getVersionNumber() { return gameVersion.toString(); }
 }

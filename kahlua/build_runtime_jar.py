@@ -99,6 +99,79 @@ BROAD_PACKAGES = [
 ]
 
 
+# Where the stub Core reads the installed game's version from (see stubs/zombie/
+# core/Core.java). Baked rather than hardcoded in the stub so it is re-derived on
+# every patch refresh instead of silently going stale.
+VERSION_RESOURCE = "zombie/core/pz-game-version.txt"
+
+
+def find_javap() -> str | None:
+    """javap from JAVA_HOME, then PATH. Used to read the game version."""
+    java_home = os.environ.get("JAVA_HOME")
+    if java_home:
+        for name in ("javap.exe", "javap"):
+            p = Path(java_home) / "bin" / name
+            if p.exists():
+                return str(p)
+    found = shutil.which("javap")
+    if found:
+        return found
+    # Windows installs land here and often do not export JAVA_HOME.
+    candidates = sorted(Path("C:/Program Files/Java").glob("jdk-*/bin/javap.exe"), reverse=True)
+    return str(candidates[0]) if candidates else None
+
+
+def read_game_version(pz_jar: Path) -> str | None:
+    """Read Core's GameVersion constant out of the real jar's bytecode.
+
+    Core's <clinit> builds it inline, so the two ints are bipush operands rather
+    than constant-pool entries -- there is nothing to grep for in the raw class.
+    Disassembling is the cheap way in, and anchoring on the putstatic to
+    `gameVersion` keeps it honest if TIS ever adds a second GameVersion literal.
+    """
+    javap = find_javap()
+    if not javap:
+        return None
+    try:
+        out = subprocess.run(
+            [javap, "-p", "-c", "-cp", str(pz_jar), "zombie.core.Core"],
+            capture_output=True, text=True, timeout=120,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    # The sequence is: new GameVersion / dup / push major / push minor / ldc
+    # suffix / invokespecial <init> / putstatic gameVersion. Scan line-wise from
+    # the putstatic back to its own `new` rather than regexing across the whole
+    # disassembly -- Core mints a SECOND GameVersion in getBreakModGameVersion()
+    # (42, 0, ""), and a span-matching regex happily reads that one's operands
+    # instead, which is how this first reported 42.0 on a 42.21 install.
+    lines = out.splitlines()
+    end = next(
+        (i for i, ln in enumerate(lines)
+         if "putstatic" in ln and "Field gameVersion:Lzombie/core/GameVersion;" in ln),
+        None,
+    )
+    if end is None:
+        return None
+    start = next(
+        (i for i in range(end - 1, -1, -1)
+         if "new" in lines[i] and "class zombie/core/GameVersion" in lines[i]),
+        None,
+    )
+    if start is None:
+        return None
+
+    pushes = re.findall(
+        r"\b(?:bipush|sipush)\s+(\d+)\b|\biconst_(\d+)\b",
+        "\n".join(lines[start:end]),
+    )
+    nums = [int(wide or narrow) for wide, narrow in pushes]
+    if len(nums) < 2:
+        return None
+    return f"{nums[0]}.{nums[1]}"
+
+
 def find_pz_install(override: str | None = None) -> Path | None:
     if override:
         p = Path(override)
@@ -179,6 +252,16 @@ def main():
         else:
             print(f"WARNING: {lua_file} not found in PZ install")
 
+    # The installed game's version, for the Core stub to report (see above).
+    game_version = read_game_version(pz_jar)
+    if game_version:
+        print(f"Game version: {game_version} (read from Core.class)")
+    else:
+        print("WARNING: could not read the game version from Core.class. The Core")
+        print("         stub will report 42.0, which makes ZomboidFileSystem skip")
+        print("         every versioned mod dir. Check that a JDK's javap is on")
+        print("         PATH or JAVA_HOME, then rebuild.")
+
     # Collect entries
     print("\nCollecting Kahlua classes + PZ dependencies...")
     with zipfile.ZipFile(pz_jar) as zin:
@@ -211,6 +294,9 @@ def main():
                             fp = Path(root) / f
                             arcname = str(fp.relative_to(stubs_dir)).replace(os.sep, "/")
                             zout.write(fp, arcname)
+
+            if game_version:
+                zout.writestr(VERSION_RESOURCE, game_version + "\n")
 
             # Add extracted classes
             for entry in sorted(needed):

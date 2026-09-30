@@ -27,6 +27,19 @@ re-stamp), and a major-line jump to B43 (🛑 stop and re-validate).
 |-----|-------|----------|-------|---------------|------------|---------------|------|
 | Sauce's Short Order | `palette` | 84% | 723 | Build 42 | 42.20 stable (`GameVersion(42, 20)` in decompiled Core.java) | `24449119` | 2026-08-04 |
 
+> **DRIFT, 2026-09-30 — not re-stamped on purpose.** The install is now **42.21
+> stable, buildid `25485521`** (`GameVersion(42, 21, "")`, `Core.java:160`). The
+> toolchain was refreshed for it (fresh decompile, regenerated indexes,
+> `kahlua-runtime.jar` rebuilt from the 42.21 jar) and the engine-mode stub breaks
+> that patch caused are fixed — see `shared/pz-patch-log.md`. Certification stays
+> at `24449119` because **the palette suite is not green**: 587/601 + 1 error,
+> every failure in `test_palette_farming`. Those failures are NOT from 42.21 —
+> they reproduce identically against the pre-refresh runtime jar — they are drift
+> from the late-August uiview rework (real font metrics, real texture sizes) and
+> the move of the order box's tests back into `sauce-shortorder`. Re-baseline that
+> suite, then re-stamp. `RealRecipes.lua` was regenerated for this build and came
+> out byte-identical (623 recipes), so the corpus fixture needs no change.
+
 The palette suite includes a **real-corpus sweep** (`test_palette_recipe_corpus`): our
 resolver is run over the actual 623 B42 craftRecipes, parsed from the game scripts by
 `tools/parse_recipes.py` into `uiview/.../RealRecipes.lua`. That fixture is part of the
@@ -37,9 +50,18 @@ installed game:
 python tools/parse_recipes.py > uiview/media/lua/client/UIView/RealRecipes.lua
 ```
 
-> **PZ version**: the exact `42.x.y` isn't readable from disk — read it from the
-> game's main menu and record it here. The **Steam buildid** is the authoritative
-> auto-detected fingerprint; certify.sh compares against it.
+> **PZ version**: the **Steam buildid** is the authoritative auto-detected
+> fingerprint; certify.sh compares against it. The `42.x.y` is readable from disk
+> without launching the game, two ways:
+>
+> ```bash
+> # major.minor, straight out of the jar's bytecode (what the stub bake uses)
+> javap -p -c -cp "$PZ/projectzomboid.jar" zombie.core.Core \
+>   | grep -B4 'Field gameVersion:'
+>
+> # full major.minor.patch + git revision, if the game has been run since the patch
+> grep -m1 '^version=' ~/Zomboid/console.txt      # e.g. version=42.21.0 4a0e9546ec
+> ```
 
 ## Coverage floor
 
