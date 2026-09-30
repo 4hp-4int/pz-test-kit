@@ -926,6 +926,111 @@ if getTexture == nil then
     end
 end
 
+-- ── ObjectTooltip + ISContextMenu: what the REAL ISToolTipInv needs ─────────
+-- With these two present, `vanilla_requires = { "client/ISUI/ISToolTipInv" }`
+-- loads and RUNS, so a suite can drive PZ's actual tooltip render instead of a
+-- hand-written imitation of it. That matters: the imitation in TooltipLib's
+-- dress test omitted `self:setHeight(tooltip:getHeight())` after the measure
+-- pass, and the half-empty-tooltip bug (v1.6.3) lived in exactly the gap that
+-- omission created — invisible to a green suite for four releases. The real file
+-- cannot omit its own lines.
+--
+-- ObjectTooltip is Java, so it still has to be modelled. Modelled on the
+-- decompiled zombie.ui.ObjectTooltip, and faithful in the four ways that have
+-- bitten us: `items` is NOT readable from Lua (returns nil, so framework code
+-- that wrongly reads it fails here the way it fails in game); Layout.render
+-- RETURNS top + the summed item heights; a multi-line label is ONE item spanning
+-- lines * lineSpacing; and render EXPANDS the tooltip width to fit content.
+if ISContextMenu == nil then
+    -- `instance == nil` means "no menu up", which is the path that draws. Vanilla
+    -- gates its WHOLE render body on this, so a test that wants a no-op frame
+    -- sets ISContextMenu.instance = { visibleCheck = true }.
+    ISContextMenu = { instance = nil }
+end
+
+if ObjectTooltip == nil then
+    ObjectTooltip = {}
+    function ObjectTooltip.new()
+        local t = {
+            _w = 0, _h = 0, _x = 0, _y = 0, _measure = false,
+            padLeft = 5, padRight = 5, padTop = 5, padBottom = 5,
+            texts = {}, draws = {}, _layouts = {},
+        }
+        function t.setWidth(s, w) s._w = w end
+        function t.getWidth(s) return s._w end
+        function t.setHeight(s, h) s._h = h end
+        function t.getHeight(s) return s._h end
+        function t.setX(s, x) s._x = x end
+        function t.getX(s) return s._x end
+        function t.setY(s, y) s._y = y end
+        function t.getY(s) return s._y end
+        function t.setMeasureOnly(s, b) s._measure = b end
+        function t.isMeasureOnly(s) return s._measure == true end
+        -- vanilla derives this from the tooltip font; use the real metric so a
+        -- font-size change moves row heights here the way it does in game.
+        function t.getLineSpacing() return getTextManager():getFontHeight(UIFont.Small) + 2 end
+        function t.getFont() return UIFont.Small end
+        function t.reset(s) s._layouts = {} end
+        function t.setItem() end
+        function t.setCharacter() end
+        function t.setWeightOfStack() end
+        function t.DrawText(s, font, str, x, y) s.texts[#s.texts + 1] = { str = str, x = x, y = y } end
+        function t.DrawTextRight(s, font, str, x, y) s.texts[#s.texts + 1] = { str = str, x = x, y = y, right = true } end
+        function t.DrawTextureScaledColor(s, tex, x, y, w, h, r, g, b, a)
+            s.draws[#s.draws + 1] = { tex = tex, x = x, y = y, w = w, h = h, r = r, g = g, b = b, a = a }
+        end
+        function t.beginLayout(s)
+            local L = { _items = {} }
+            function L.addItem()
+                local it = {
+                    hasValue = false, rightJustify = false, progressFraction = -1,
+                    labelWidth = 0, valueWidth = 0, valueWidthRight = 0,
+                    progressWidth = 0, height = s:getLineSpacing(),
+                }
+                function it.setLabel(i, txt, r, g, b, a) i.label = txt end
+                function it.setValue(i, v) i.value = v; i.hasValue = true; i.rightJustify = true end
+                function it.setValueRight(i, v) i.value = tostring(v); i.hasValue = true; i.rightJustify = true end
+                function it.setProgress(i, f, r, g, b, a) i.progressFraction = f; i.hasValue = true end
+                L._items[#L._items + 1] = it
+                return it
+            end
+            function L.setMinValueWidth(l, w) l._minValueWidth = w end
+            function L.setMinLabelWidth(l, w) l._minLabelWidth = w end
+            function L.render(l, x, y, ui)
+                local ls = s:getLineSpacing()
+                local widest = 0
+                for i = 1, #l._items do
+                    local it = l._items[i]
+                    local tm = getTextManager()
+                    it.labelWidth = it.label and tm:MeasureStringX(UIFont.Small, tostring(it.label)) or 0
+                    local w = it.labelWidth
+                    if it.hasValue and it.value then
+                        local vw = tm:MeasureStringX(UIFont.Small, tostring(it.value))
+                        if it.rightJustify then it.valueWidthRight = vw else it.valueWidth = vw end
+                        w = w + 20 + vw
+                    end
+                    if w > widest then widest = w end
+                    -- calcSizes counts embedded newlines: ONE item, many lines
+                    local lines = 1
+                    if it.label then
+                        for _ in string.gmatch(tostring(it.label), "\n") do lines = lines + 1 end
+                    end
+                    it.height = ls * lines
+                    y = y + it.height
+                end
+                if (x or 0) + widest + s.padRight > s:getWidth() then
+                    s:setWidth((x or 0) + widest + s.padRight)
+                end
+                return y
+            end
+            s._layouts[#s._layouts + 1] = L
+            return L
+        end
+        function t.endLayout() end
+        return t
+    end
+end
+
 -- ── expose metrics for the renderer/scenes ──────────────────────────────────
 UIView_fontMetrics = fontMetrics
 
