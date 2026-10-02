@@ -257,8 +257,15 @@ public final class EngineBridge {
             instFileField.setAccessible(true);
             FileContext ctx = new FileContext(modField, absField, nameField, instFileField, sm);
 
-            int files = 0;
-            files += parseTree(sm, parse, initMode, pzDir.resolve("media/scripts"), "pz-vanilla", ctx, log);
+            // Collect every script file BY RELATIVE PATH first, then parse.
+            // PZ resolves mod files by path: when two sources ship the same
+            // media/scripts/<path> (case-insensitive), the LATER one replaces
+            // the earlier file wholesale. Parsing both would build a
+            // combination that cannot exist in game -- GaelGunStore's
+            // ammo/9mm.txt replacing Modern Firearms' is exactly how a server
+            // lost Base.9mmDrum_cat and refused to load the world.
+            ScriptFiles collected = new ScriptFiles();
+            collected.addTree(pzDir.resolve("media/scripts"), "pz-vanilla");
             for (String spec : pendingExtraMods) {
                 List<Path> variants = resolveModSpec(pzDir, modRoot, spec);
                 if (variants.isEmpty()) {
@@ -266,22 +273,24 @@ public final class EngineBridge {
                     continue;
                 }
                 String id = null;
-                int modFiles = 0;
                 for (Path v : variants) {
                     if (id == null && Files.exists(v.resolve("mod.info"))) id = modIdOf(v);
                 }
                 if (id == null) id = modIdOf(variants.get(0).getParent());
-                for (Path v : variants) {
-                    modFiles += parseTree(sm, parse, initMode, v.resolve("media/scripts"), id, ctx, log);
-                }
+                int added = 0;
+                for (Path v : variants) added += collected.addTree(v.resolve("media/scripts"), id);
                 loadedModIds.add(id);
-                files += modFiles;
-                log.println("[engine] engine_mods: " + id + " (" + modFiles + " script files from "
+                log.println("[engine] engine_mods: " + id + " (" + added + " script files from "
                     + variants.stream().map(p -> p.getFileName().toString()).toList() + ")");
             }
             if (modRoot != null) {
-                files += parseTree(sm, parse, initMode, modRoot.resolve("media/scripts"), modIdOf(modRoot), ctx, log);
+                collected.addTree(modRoot.resolve("media/scripts"), modIdOf(modRoot));
                 loadedModIds.add(modIdOf(modRoot));
+            }
+            for (String o : collected.overrides) log.println("[engine] override: " + o);
+            int files = 0;
+            for (ScriptFiles.Entry e : collected.byPath.values()) {
+                files += parseFile(sm, parse, initMode, e.file(), e.modId(), ctx, log);
             }
             log.println("[engine] parsed " + files + " script files");
 
@@ -409,34 +418,48 @@ public final class EngineBridge {
         return modRoot.getFileName().toString();
     }
 
-    private static int parseTree(Object sm, Method parse, Object mode, Path scriptsDir,
-                                 String modId, FileContext ctx, PrintStream log) throws Exception {
-        if (!Files.isDirectory(scriptsDir)) return 0;
-        List<Path> files;
-        try (Stream<Path> walk = Files.walk(scriptsDir)) {
-            files = walk.filter(p -> p.toString().endsWith(".txt"))
-                .sorted(Comparator.comparing(p -> scriptsDir.relativize(p).toString().toLowerCase()))
-                .toList();
-        }
-        int parsed = 0;
-        for (Path f : files) {
-            String text = Files.readString(f);
-            try {
-                ctx.set(modId, f);
-                // LoadFile strips block comments BEFORE ParseScript; skip it
-                // and a /* header */ above `module Base` becomes part of the
-                // module name and every definition in the file goes missing —
-                // silently. (The same failure mode script authors hit with //
-                // comments, from the other side.)
-                text = zombie.scripting.ScriptParser.stripComments(text);
-                parse.invoke(sm, mode, text);
-                parsed++;
-            } catch (Throwable t) {
-                Throwable root = t; while (root.getCause() != null) root = root.getCause();
-                log.println("[engine] parse failed, skipping " + scriptsDir.relativize(f) + ": " + root);
+    /** media/scripts files keyed by lowercase relative path; later adds replace earlier ones. */
+    private static final class ScriptFiles {
+        record Entry(Path file, String modId) {}
+        final java.util.LinkedHashMap<String, Entry> byPath = new java.util.LinkedHashMap<>();
+        final List<String> overrides = new ArrayList<>();
+
+        int addTree(Path scriptsDir, String modId) throws java.io.IOException {
+            if (!Files.isDirectory(scriptsDir)) return 0;
+            List<Path> files;
+            try (Stream<Path> walk = Files.walk(scriptsDir)) {
+                files = walk.filter(p -> p.toString().endsWith(".txt"))
+                    .sorted(Comparator.comparing(p -> scriptsDir.relativize(p).toString().toLowerCase()))
+                    .toList();
             }
+            for (Path f : files) {
+                String key = scriptsDir.relativize(f).toString().replace('\\', '/').toLowerCase();
+                Entry prev = byPath.remove(key);
+                if (prev != null && !prev.modId().equals(modId)) {
+                    overrides.add(modId + " replaces " + prev.modId() + "'s media/scripts/" + key);
+                }
+                byPath.put(key, new Entry(f, modId));
+            }
+            return files.size();
         }
-        return parsed;
+    }
+
+    private static int parseFile(Object sm, Method parse, Object mode, Path f,
+                                 String modId, FileContext ctx, PrintStream log) {
+        try {
+            String text = Files.readString(f);
+            ctx.set(modId, f);
+            // LoadFile strips block comments BEFORE ParseScript; skip it
+            // and a /* header */ above `module Base` becomes part of the
+            // module name and every definition in the file goes missing.
+            text = zombie.scripting.ScriptParser.stripComments(text);
+            parse.invoke(sm, mode, text);
+            return 1;
+        } catch (Throwable t) {
+            Throwable root = t; while (root.getCause() != null) root = root.getCause();
+            log.println("[engine] parse failed, skipping " + f.getFileName() + " (" + modId + "): " + root);
+            return 0;
+        }
     }
 
     // ------------------------------------------------------------------

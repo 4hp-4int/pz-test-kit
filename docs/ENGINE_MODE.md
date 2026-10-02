@@ -89,6 +89,13 @@ entry's scripts are parsed after vanilla and before the mod under test.
   vanilla-faithful.
 - **B42 layout:** `common/` + the newest `42*/` folder win over a root
   `media/` (dual-build mods ship B41 content at the root).
+- **Same-path script files REPLACE, like the game.** PZ resolves mod files
+  by relative path: two sources shipping `media/scripts/ammo/9mm.txt` means
+  the later one's file wins wholesale (case-insensitive). The engine collects
+  by path before parsing and logs every `[engine] override:` — which matched a
+  live dedi's own `overrides media/scripts/...` lines one for one, including
+  the GaelGunStore -> Modern Firearms collision that deleted Base.9mmDrum_cat
+  and stopped that server loading its world.
 - **Missing entries are skipped, not fatal.** Guard suites on
   `PZEngine.modLoaded("<mod.info id>")`.
 - **Scripts only.** The mod's Lua never runs; framework behaviour is a job for
