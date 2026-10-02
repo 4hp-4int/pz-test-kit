@@ -42,6 +42,12 @@ public class KahluaTestRunner {
     // Engine mode (EngineBridge): real PZ classes, real scripts, real items.
     private static boolean engineOn = false;
     private static boolean engineForcedOff = false;
+    // --engine-mods: also parse the config's `engine_mods` (third-party mods'
+    // scripts). Opt-in PER RUN, never by config alone: packs commonly declare
+    // `module Base` and REDEFINE vanilla items (Base.Shotgun, Base.Pistol...),
+    // so loading them for a whole suite silently swaps vanilla out from under
+    // every other test. Run the files that want them with the flag.
+    private static boolean engineModsOn = false;
     private static String  coverageScope = null;
     private static boolean coverageLines = false;   // --coverage-lines: dump uncovered line ranges
 
@@ -106,6 +112,7 @@ public class KahluaTestRunner {
                 if (a.equals("--no-prescan")) { noPrescan = true; continue; }
                 if (a.equals("--engine")) { engineOn = true; continue; }
                 if (a.equals("--no-engine")) { engineOn = false; engineForcedOff = true; continue; }
+                if (a.equals("--engine-mods")) { engineOn = true; engineModsOn = true; continue; }
                 if (a.equals("--help") || a.equals("-h")) {
                     printUsage(); System.exit(0);
                 }
@@ -173,7 +180,28 @@ public class KahluaTestRunner {
             }
         }
         if (engineOn) {
-            EngineBridge.boot(null, modRoot, System.out);
+            // engine_mods: other mods whose SCRIPTS the engine parses too
+            // (real third-party items, no third-party Lua), only under
+            // --engine-mods (see engineModsOn). Regex-sniffed
+            // like `engine` above, and for a sharper reason than convenience:
+            // building ANY Kahlua env before boot touches zombie.* classes
+            // (PZMath among them) while projectzomboid.jar is not yet on the
+            // loader, so StubbingClassLoader synthesizes EMPTY ones and caches
+            // them -- every real caller then dies with NoSuchMethodError
+            // (PZMath.nextPowerOfTwo in ObjectSet.tableSize). Strings only:
+            // the block is `engine_mods = { "spec", "spec", ... }`.
+            List<String> engineMods = new ArrayList<>();
+            Path cfgPath = modRoot.resolve("pz-test.lua");
+            if (engineModsOn && Files.exists(cfgPath)) {
+                String src = Files.readString(cfgPath).replaceAll("--[^\\n]*", "");
+                var block = java.util.regex.Pattern
+                    .compile("(?s)\\bengine_mods\\s*=\\s*\\{(.*?)\\}").matcher(src);
+                if (block.find()) {
+                    var str = java.util.regex.Pattern.compile("\"([^\"]+)\"|'([^']+)'").matcher(block.group(1));
+                    while (str.find()) engineMods.add(str.group(1) != null ? str.group(1) : str.group(2));
+                }
+            }
+            EngineBridge.boot(null, modRoot, engineMods, System.out);
         }
 
         // ── Serve mode: resident VM that renders a scene + replays input ────

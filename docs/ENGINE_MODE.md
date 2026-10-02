@@ -68,6 +68,38 @@ item inside a payload arrives `nil` in the harness but whole on a live
 server — world-save layer, outside engine scope. Pin item-in-payload
 behavior on the dedi (pz-shell).
 
+## Other mods' items (`engine_mods`, run with `--engine-mods`)
+
+Interop tests want the REAL items of mods you don't own — a gun pack's
+magazines, a framework's ammo. List them in `pz-test.lua`:
+
+```lua
+engine_mods = {
+    "workshop:3722134990/GunsOfMarz",   -- <workshop item id>/<mods folder>
+    "../SomeSiblingMod",                -- or a path, relative to the mod root
+},
+```
+
+and run the files that want them with `pztest --engine-mods <files>`. Each
+entry's scripts are parsed after vanilla and before the mod under test.
+
+- **Opt-in per run, never by config alone.** Packs commonly declare
+  `module Base` and *redefine vanilla items* — loading eight gun packs swapped
+  `Base.Shotgun` out from under an unrelated VPS test. A plain `pztest` stays
+  vanilla-faithful.
+- **B42 layout:** `common/` + the newest `42*/` folder win over a root
+  `media/` (dual-build mods ship B41 content at the root).
+- **Missing entries are skipped, not fatal.** Guard suites on
+  `PZEngine.modLoaded("<mod.info id>")`.
+- **Scripts only.** The mod's Lua never runs; framework behaviour is a job for
+  a live server (pz-shell).
+- **Gotcha that shaped the implementation:** the list is regex-sniffed from
+  `pz-test.lua`, not loaded through a Kahlua env. Building ANY env before boot
+  touches `zombie.*` classes while `projectzomboid.jar` is not yet on the
+  loader, so `StubbingClassLoader` synthesizes EMPTY ones and caches them —
+  every real caller then dies with `NoSuchMethodError`
+  (`PZMath.nextPowerOfTwo` in `ObjectSet.tableSize`).
+
 ## Why this works headless
 
 The dedicated server runs the whole script/item layer with no OpenGL and no

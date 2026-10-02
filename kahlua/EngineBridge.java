@@ -111,7 +111,28 @@ public final class EngineBridge {
      * does work. Returns whether the engine is available afterwards.
      */
     public static synchronized boolean boot(String pzDirOverride, Path modRoot, PrintStream log) {
+        return boot(pzDirOverride, modRoot, List.of(), log);
+    }
+
+    /** Mod ids whose scripts were parsed (engine_mods entries + the mod under test). */
+    private static final Set<String> loadedModIds = new LinkedHashSet<>();
+    public static boolean isModLoaded(String id) { return loadedModIds.contains(id); }
+
+    /**
+     * Boot, additionally parsing the scripts of each {@code engine_mods}
+     * entry (after vanilla, before the mod under test — the order a server's
+     * mod list would load them in when the mod under test comes last).
+     * An entry is either a path (relative to the mod root, or absolute) or
+     * {@code workshop:<itemId>/<modFolder>}, resolved against the Steam
+     * Workshop dir next to the PZ install (override: PZ_WORKSHOP_DIR).
+     * Missing entries are logged and skipped, never fatal: a machine without
+     * that Workshop item still boots, and suites guard on
+     * {@code PZEngine.modLoaded(id)}.
+     */
+    public static synchronized boolean boot(String pzDirOverride, Path modRoot,
+                                            List<String> extraMods, PrintStream log) {
         if (bootAttempted) return booted;
+        pendingExtraMods = extraMods == null ? List.of() : List.copyOf(extraMods);
         bootAttempted = true;
         long t0 = System.currentTimeMillis();
 
@@ -238,8 +259,29 @@ public final class EngineBridge {
 
             int files = 0;
             files += parseTree(sm, parse, initMode, pzDir.resolve("media/scripts"), "pz-vanilla", ctx, log);
+            for (String spec : pendingExtraMods) {
+                List<Path> variants = resolveModSpec(pzDir, modRoot, spec);
+                if (variants.isEmpty()) {
+                    log.println("[engine] engine_mods: not found, skipping " + spec);
+                    continue;
+                }
+                String id = null;
+                int modFiles = 0;
+                for (Path v : variants) {
+                    if (id == null && Files.exists(v.resolve("mod.info"))) id = modIdOf(v);
+                }
+                if (id == null) id = modIdOf(variants.get(0).getParent());
+                for (Path v : variants) {
+                    modFiles += parseTree(sm, parse, initMode, v.resolve("media/scripts"), id, ctx, log);
+                }
+                loadedModIds.add(id);
+                files += modFiles;
+                log.println("[engine] engine_mods: " + id + " (" + modFiles + " script files from "
+                    + variants.stream().map(p -> p.getFileName().toString()).toList() + ")");
+            }
             if (modRoot != null) {
                 files += parseTree(sm, parse, initMode, modRoot.resolve("media/scripts"), modIdOf(modRoot), ctx, log);
+                loadedModIds.add(modIdOf(modRoot));
             }
             log.println("[engine] parsed " + files + " script files");
 
@@ -302,6 +344,56 @@ public final class EngineBridge {
             name.set(null, file.getFileName().toString());
             instFile.set(scriptManager, file.toAbsolutePath().toString());
         }
+    }
+
+    private static List<String> pendingExtraMods = List.of();
+
+    /**
+     * The directories whose media/ a mod actually loads from, B42 layout:
+     * {@code common/} plus the NEWEST {@code 42*} version folder. A folder
+     * with media/ directly (a flat or dev-layout mod) is its own single
+     * variant. Empty when nothing resolves.
+     */
+    static List<Path> resolveModSpec(Path pzDir, Path modRoot, String spec) {
+        Path dir;
+        if (spec.startsWith("workshop:")) {
+            String rest = spec.substring("workshop:".length());
+            int slash = rest.indexOf('/');
+            if (slash < 0) return List.of();
+            String env = System.getenv("PZ_WORKSHOP_DIR");
+            Path ws = env != null && !env.isBlank() ? Path.of(env)
+                // <steamapps>/common/ProjectZomboid -> <steamapps>/workshop/content/108600
+                : pzDir.getParent().getParent().resolve("workshop/content/108600");
+            dir = ws.resolve(rest.substring(0, slash)).resolve("mods").resolve(rest.substring(slash + 1));
+        } else {
+            Path p = Path.of(spec);
+            dir = p.isAbsolute() || modRoot == null ? p : modRoot.resolve(p);
+        }
+        if (!Files.isDirectory(dir)) return List.of();
+        // Versioned folders WIN over a root media/: dual-build mods ship B41
+        // content at the root next to common/ + 42/, and B42 loads only the
+        // latter (Modern Firearms, GaelGunStore parsed 0 files before this).
+        List<Path> out = new ArrayList<>();
+        if (Files.isDirectory(dir.resolve("common"))) out.add(dir.resolve("common"));
+        try (Stream<Path> kids = Files.list(dir)) {
+            kids.filter(Files::isDirectory)
+                .filter(p -> p.getFileName().toString().startsWith("42"))
+                .max(Comparator.comparing(EngineBridge::versionKey))
+                .ifPresent(out::add);
+        } catch (Exception ignored) {}
+        boolean versioned = out.stream().anyMatch(p -> !p.getFileName().toString().equals("common"));
+        if (!versioned && Files.isDirectory(dir.resolve("media"))) return List.of(dir);
+        return out;
+    }
+
+    /** "42.13" -> sortable key; non-numeric parts sort low. */
+    private static String versionKey(Path p) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : p.getFileName().toString().split("\\.")) {
+            String digits = part.replaceAll("\\D", "");
+            sb.append(String.format("%06d.", digits.isEmpty() ? 0 : Integer.parseInt(digits)));
+        }
+        return sb.toString();
     }
 
     /** Mod id from mod.info, falling back to the directory name. */
@@ -375,6 +467,11 @@ public final class EngineBridge {
         env.rawset("PZEngine", pzEngine);
         pzEngine.rawset("available", (JavaFunction) (frame, n) -> { frame.push(booted); return 1; });
         pzEngine.rawset("bootError", (JavaFunction) (frame, n) -> { frame.push(bootError); return 1; });
+        pzEngine.rawset("modLoaded", (JavaFunction) (frame, n) -> {
+            Object id = n > 0 ? frame.get(0) : null;
+            frame.push(booted && id instanceof String s && loadedModIds.contains(s));
+            return 1;
+        });
         if (!booted) return;
 
         try {
