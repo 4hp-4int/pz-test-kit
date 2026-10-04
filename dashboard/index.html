@@ -1,0 +1,940 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PZ Test Kit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  --bg: #0e1012; --panel: #15181b; --panel2: #1b1f23; --line: #272c31; --line2: #33393f;
+  --text: #d5d8db; --muted: #858c93; --dim: #5d646b;
+  --pass: #5fb36b; --fail: #e0564f; --err: #e0913c; --skip: #7d8590; --accent: #d9a441; --link: #7fb2e0;
+  --hit: rgba(95,179,107,.13); --miss: rgba(224,86,79,.17);
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, "Segoe UI", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--link); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); } .dim { color: var(--dim); }
+.pass { color: var(--pass); } .fail { color: var(--fail); } .error { color: var(--err); } .skip { color: var(--skip); }
+
+#app { display: grid; grid-template-columns: 270px 1fr; grid-template-rows: 44px 1fr; height: 100vh; }
+header { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 13px; letter-spacing: .14em; margin: 0; color: var(--accent); font-weight: 700; }
+header .env { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
+.badge { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border: 1px solid var(--line2); border-radius: 3px; color: var(--muted); white-space: nowrap; }
+.badge b { color: var(--text); font-weight: 500; }
+.badge.warn { border-color: var(--err); color: var(--err); }
+.btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 4px 10px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: #17130a; border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.1); }
+.btn.small { padding: 1px 7px; font-size: 11px; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+nav#mods { overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
+.mod { display: grid; grid-template-columns: 10px 1fr auto; gap: 2px 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; align-items: center; }
+.mod:hover { background: var(--panel2); }
+.mod.sel { background: var(--panel2); box-shadow: inset 3px 0 var(--accent); }
+.mod .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.mod .dot.pass { background: var(--pass); } .mod .dot.fail { background: var(--fail); }
+.mod .dot.run { background: var(--accent); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+.mod .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mod .stats { grid-column: 2; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.mod svg { grid-row: 1 / 3; grid-column: 3; }
+
+main { overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.modhead { padding: 12px 18px 0; border-bottom: 1px solid var(--line); background: var(--panel); }
+.modhead h2 { margin: 0; font-size: 17px; display: flex; align-items: baseline; gap: 10px; }
+.modhead h2 small { font-family: var(--mono); font-size: 11px; color: var(--dim); font-weight: 400; }
+.runbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+.runbar input[type=text], .runbar select, .toolbar input[type=text], .toolbar select { background: var(--bg); border: 1px solid var(--line2); border-radius: 3px; padding: 3px 7px; }
+.runbar label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.runbar .sep { width: 1px; height: 20px; background: var(--line2); }
+.tabs { display: flex; gap: 2px; }
+.tab { padding: 6px 14px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.tab .n { font-family: var(--mono); font-size: 11px; margin-left: 4px; }
+#view { flex: 1; overflow: auto; padding: 16px 18px 40px; }
+
+.tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 14px; min-width: 96px; }
+.tile .v { font-family: var(--mono); font-size: 20px; font-weight: 600; }
+.tile .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.notice { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 8px 12px; margin-bottom: 12px; border-radius: 3px; }
+.notice.bad { border-left-color: var(--fail); }
+.notice.good { border-left-color: var(--pass); }
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line2); border-radius: 12px; padding: 1px 9px; cursor: pointer; font-size: 12px; user-select: none; }
+.chip.on { background: var(--panel2); border-color: var(--muted); }
+
+.file { border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; background: var(--panel); }
+.file > .fh { display: flex; gap: 10px; align-items: center; padding: 6px 10px; cursor: pointer; }
+.file > .fh:hover { background: var(--panel2); }
+.file .fname { font-family: var(--mono); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file .counts { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.caret { width: 10px; color: var(--dim); }
+.case { display: grid; grid-template-columns: 16px 1fr 70px 50px; gap: 8px; padding: 3px 10px 3px 28px; border-top: 1px solid var(--line); align-items: center; cursor: pointer; }
+.case:hover { background: var(--panel2); }
+.case .nm { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case .ms { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; }
+.detail { padding: 6px 10px 10px 52px; border-top: 1px solid var(--line); background: var(--bg); }
+pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; }
+pre.box { background: var(--bg); border: 1px solid var(--line); padding: 8px 10px; border-radius: 3px; max-height: 420px; overflow: auto; }
+.detail h4 { margin: 6px 0 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 500; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; cursor: pointer; user-select: none; white-space: nowrap; }
+tr.click { cursor: pointer; } tr.click:hover td { background: var(--panel2); } tr.sel td { background: var(--panel2); }
+td.num { font-family: var(--mono); font-size: 12px; text-align: right; white-space: nowrap; }
+.bar { height: 6px; background: var(--miss); border-radius: 3px; overflow: hidden; min-width: 80px; }
+.bar > i { display: block; height: 100%; background: var(--pass); }
+
+.split { display: grid; grid-template-columns: minmax(460px, 1fr) 1.3fr; gap: 14px; align-items: start; }
+.src { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); position: sticky; top: 0; max-height: calc(100vh - 230px); display: flex; flex-direction: column; }
+.src .sh { padding: 6px 10px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+.src .body { overflow: auto; flex: 1; position: relative; }
+.ln { display: grid; grid-template-columns: 52px 1fr; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.ln .g { color: var(--dim); text-align: right; padding-right: 10px; user-select: none; border-right: 1px solid var(--line); }
+.ln .c { white-space: pre; padding-left: 10px; }
+.ln.hit { background: var(--hit); } .ln.miss { background: var(--miss); }
+.ln.hit .g { color: var(--pass); } .ln.miss .g { color: var(--fail); }
+.ln.flash { outline: 1px solid var(--accent); }
+.ln .g { cursor: pointer; } .ln .g:hover { color: var(--text); }
+.ln.counts { grid-template-columns: 78px 1fr; }
+.ln .g .cnt { float: left; font-style: normal; color: var(--link); font-size: 10px; width: 26px; text-align: left; padding-left: 4px; opacity: .8; }
+.ln.chg { box-shadow: inset 3px 0 var(--accent); } .ln.ctx { opacity: .45; } .ln.picked { outline: 1px solid var(--link); }
+.whobox { padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12px; flex-shrink: 0; }
+#feed { position: fixed; right: 14px; bottom: 14px; width: 380px; max-height: 46vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; z-index: 5; }
+#feed .ev { background: var(--panel2); border: 1px solid var(--line2); border-left: 3px solid var(--accent); border-radius: 3px; padding: 6px 9px; font-size: 12px; }
+#feed .ev.bad { border-left-color: var(--fail); } #feed .ev.good { border-left-color: var(--pass); }
+.toggle.on { border-color: var(--accent); color: var(--accent); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; }
+.card h3 { margin: 0 0 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 500; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; font-size: 12px; }
+.kv > :nth-child(odd) { color: var(--muted); }
+.kv > :nth-child(even) { font-family: var(--mono); word-break: break-all; }
+.tree { font-family: var(--mono); font-size: 12px; }
+.tree details { margin-left: 14px; } .tree summary { cursor: pointer; margin-left: -14px; }
+.tree .row { margin-left: 0; } .tree .k { color: var(--link); } .tree .s { color: #c3a86b; } .tree .n { color: #b392d6; } .tree .b { color: #d68a92; }
+.lua .kw { color: #c792ea; } .lua .str { color: #c3a86b; } .lua .com { color: var(--dim); font-style: italic; } .lua .num { color: #b392d6; }
+
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin-bottom: 14px; }
+.chart h3 { margin: 0 0 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 500; }
+.chart svg { display: block; width: 100%; }
+.legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+.log { font-family: var(--mono); font-size: 12px; line-height: 1.45; }
+.log div { white-space: pre-wrap; word-break: break-word; }
+.log .lf { color: var(--fail); } .log .lp { color: var(--pass); } .log .lh { color: var(--accent); } .log .lw { color: var(--err); }
+.empty { color: var(--muted); padding: 40px; text-align: center; }
+.spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; vertical-align: -1px; }
+@keyframes rot { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>PZ TEST KIT</h1>
+    <div class="env" id="env"></div>
+    <a class="btn" href="/workbench" style="text-decoration:none" title="Engine Workbench: the real PZ engine in the browser (craft simulator, items, scripts, object explorer, Lua console)">⚒ Workbench</a>
+    <button class="btn" id="rescan" title="Re-scan for pz-test.lua">Rescan</button>
+    <button class="btn toggle" id="watch" title="Watch every suite's Lua: on save, rerun exactly the tests whose per-test coverage touches the changed file (across mods)">◉ Watch</button>
+    <label class="muted" title="Watch reruns record per-test coverage too, so the Changes view stays measured"><input type="checkbox" id="watchmeasure" checked> measure</label>
+    <button class="btn" id="runall" title="Run every mod's suite (queued, 2 at a time)">Run all</button>
+  </header>
+  <nav id="mods"></nav>
+  <main id="main"><div class="empty">Pick a mod.</div></main>
+</div>
+<div id="feed"></div>
+<script>
+"use strict";
+// ── state ──────────────────────────────────────────────────────────────────
+const S = {
+  mods: [], env: {}, modId: null, runs: [], runId: null, report: null, prev: null,
+  tab: "tests", files: null, config: null,
+  testQuery: "", statusOn: { pass: true, fail: true, error: true, skip: true }, testSort: "name", open: new Set(), openCase: new Set(),
+  covSort: "pct", covQuery: "", covSel: null, src: null,
+  live: null,   // { runId, lines, es, meta }
+  opts: { file: "", filter: "", coverage: true, perTest: true, fidelity: true, coverageScope: "", eventCoverage: false, engine: "auto", engineMods: false },
+  fid: null, fidFilter: { absent: true, mock: true, kit: true, mod: false, vanilla: true, engine: true }, fidQuery: "", engineInv: null,
+  changesBase: "HEAD", changes: null, chgSel: null, watch: { on: false, measure: true },
+};
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const api = async (p, o) => { const r = await fetch(p, o); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status); return r.json(); };
+const fmtMs = (ms) => ms == null ? "—" : ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : Math.round(ms) + "ms";
+const pct = (v) => v == null ? "—" : (Math.round(v * 10) / 10) + "%";
+const when = (iso) => { if (!iso) return ""; const d = new Date(iso); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); };
+const runTime = (runId) => when(runId.replace(/T(\d\d)-(\d\d)-(\d\d)-(\d+)Z/, "T$1:$2:$3.$4Z"));
+const mod = () => S.mods.find((m) => m.id === S.modId);
+const failed = (t) => t ? (t.failed || 0) + (t.errors || 0) : 0;
+const isFull = (r) => !(r.opts && ((r.opts.only && r.opts.only.length) || r.opts.file || r.opts.filter));
+
+// ── boot ───────────────────────────────────────────────────────────────────
+async function loadMods(rescan) {
+  S.mods = await api("/api/mods" + (rescan ? "?rescan=1" : ""));
+  renderMods();
+}
+async function boot() {
+  try { S.opts = Object.assign(S.opts, JSON.parse(localStorage.pzdashOpts || "{}")); } catch (_) {}
+  S.env = await api("/api/env").catch(() => ({}));
+  S.watch = await api("/api/watch").catch(() => S.watch);
+  renderWatch();
+  startFeed();
+  renderEnv();
+  await loadMods();
+  const want = location.hash.slice(1) || localStorage.pzdashMod;
+  if (want && S.mods.some((m) => m.id === want)) selectMod(want);
+  setInterval(async () => {
+    if (S.mods.some((m) => m.running.length)) await loadMods();
+  }, 2500);
+}
+$("#rescan").onclick = () => loadMods(true);
+$("#runall").onclick = async () => {
+  if (!confirm("Queue a run for every mod (" + S.mods.length + ")?")) return;
+  await api("/api/run-all", { method: "POST", body: JSON.stringify(runOpts(true)) });
+  loadMods();
+};
+
+function renderEnv() {
+  const e = S.env, r = S.report;
+  const b = [];
+  if (e.steamBuildId) b.push(`<span class="badge">steam buildid <b>${esc(e.steamBuildId)}</b></span>`);
+  if (r?.gameVersion) b.push(`<span class="badge">game <b>${esc(r.gameVersion)}</b></span>`);
+  if (e.kitRev) b.push(`<span class="badge" title="${esc(e.kitRev)}">kit <b>${esc(e.kitRev.split(" ")[0])}</b>${e.kitDirty ? " +dirty" : ""}</span>`);
+  const drift = (e.certifications || []).filter((c) => e.steamBuildId && c.buildId && c.buildId !== e.steamBuildId);
+  if (drift.length) b.push(`<span class="badge warn" title="Certified buildid differs from installed — re-run certify.sh">cert drift: ${drift.map((c) => esc(c.mod)).join(", ")}</span>`);
+  $("#env").innerHTML = b.join("");
+}
+
+// ── sidebar ────────────────────────────────────────────────────────────────
+function spark(trend) {
+  const pts = trend.filter((t) => t.pass != null);
+  if (pts.length < 2) return `<svg width="54" height="22"></svg>`;
+  const W = 54, H = 22, n = pts.length;
+  const x = (i) => (i / (n - 1)) * (W - 2) + 1;
+  const covs = pts.map((t) => t.cov);
+  let path = "";
+  covs.forEach((c, i) => { if (c != null) path += (path ? "L" : "M") + x(i).toFixed(1) + "," + (H - 2 - (c / 100) * (H - 4)).toFixed(1); });
+  const bars = pts.map((t, i) => `<rect x="${(x(i) - 1).toFixed(1)}" y="${t.fail ? 2 : H - 5}" width="2" height="${t.fail ? H - 4 : 3}" fill="${t.fail ? "var(--fail)" : "var(--pass)"}" opacity=".7"/>`).join("");
+  return `<svg width="${W}" height="${H}">${bars}${path ? `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="1.2"/>` : ""}</svg>`;
+}
+function renderMods() {
+  $("#mods").innerHTML = S.mods.map((m) => {
+    const l = m.lastFull || m.last;
+    const partial = m.last && m.lastFull && m.last.runId !== m.lastFull.runId ? m.last : null;
+    let dot = "", stats = `<span class="dim">no runs yet</span>`;
+    if (m.running.length) { dot = "run"; stats = `<span class="spin"></span> ${m.running[0].state}…`; }
+    else if (l) {
+      dot = l.hasReport && !failed(l.totals) && l.exitCode === 0 ? "pass" : "fail";
+      stats = l.totals ? `${l.totals.passed}/${l.totals.tests}` + (failed(l.totals) ? ` <span class="fail">✗${failed(l.totals)}</span>` : "") + (l.coverage ? ` · ${pct(l.coverage.pct)}` : "") : `<span class="fail">exit ${l.exitCode}</span>`;
+      if (partial?.totals) stats += ` <span class="${failed(partial.totals) ? "fail" : "dim"}" title="newest partial run (${esc(partial.opts?.reason || "subset")}): ${partial.totals.passed}/${partial.totals.tests}">↻${failed(partial.totals) ? "✗" + failed(partial.totals) : "✓"}</span>`;
+    }
+    return `<div class="mod ${m.id === S.modId ? "sel" : ""}" data-id="${esc(m.id)}" title="${esc(m.root)}">
+      <span class="dot ${dot}"></span><span class="name">${esc(m.name)}</span>${spark(m.trend)}
+      <span class="stats">${stats}</span></div>`;
+  }).join("") || `<div class="empty">No pz-test.lua found.</div>`;
+  for (const el of document.querySelectorAll(".mod")) el.onclick = () => selectMod(el.dataset.id);
+  // A run for the open mod finished while we weren't streaming it: pick it up.
+  const m = mod();
+  if (m && !S.live && m.last && S.runs.length && m.last.runId !== S.runs[S.runs.length - 1].runId) refreshRuns(true);
+  if (m && !S.live && m.running.length) attachStream(m.running[0].runId);
+}
+
+// ── mod selection / run loading ────────────────────────────────────────────
+async function selectMod(id) {
+  if (S.live?.es) S.live.es.close();
+  Object.assign(S, { modId: id, runs: [], runId: null, report: null, prev: null, files: null, config: null, live: null, covSel: null, src: null, changes: null, chgSel: null, fid: null });
+  loadChanges();
+  S.open.clear(); S.openCase.clear();
+  localStorage.pzdashMod = id; location.hash = id;
+  renderMods(); renderMain();
+  api(`/api/mods/${id}/files`).then((f) => { if (S.modId === id) { S.files = f; renderRunbar(); } });
+  api(`/api/mods/${id}/config`).then((c) => { if (S.modId === id) { S.config = c; if (S.tab === "config") renderView(); } });
+  await refreshRuns(true);
+  const m = mod();
+  if (m?.running.length) attachStream(m.running[0].runId);
+}
+async function refreshRuns(loadLatest) {
+  const id = S.modId;
+  S.runs = await api(`/api/mods/${id}/runs`);
+  if (S.modId !== id) return;
+  // Default to the newest FULL run: a smart rerun of 3 tests is a bad
+  // overview. Partial runs stay one click away in the run picker / History.
+  const withReport = S.runs.filter((r) => r.hasReport);
+  const full = withReport.filter(isFull);
+  const pick = full.length ? full[full.length - 1] : withReport[withReport.length - 1];
+  if (loadLatest && pick) await loadRun(pick.runId);
+  else renderMain();
+}
+async function loadRun(runId) {
+  const id = S.modId;
+  const rep = await api(`/api/mods/${id}/runs/${runId}`);
+  if (S.modId !== id) return;
+  S.runId = runId; S.report = rep;
+  const idx = S.runs.findIndex((r) => r.runId === runId);
+  S.prev = S.runs.slice(0, idx).reverse().find((r) => r.hasReport) || null;
+  S.src = null;
+  if (S.covSel && !rep.coverage?.files.some((f) => f.path === S.covSel)) S.covSel = null;
+  for (const f of rep.files) if (f.error || f.failures || f.errors) S.open.add(f.file);
+  renderEnv(); renderMain();
+  loadFidelity();
+}
+async function loadFidelity() {
+  const id = S.modId, run = S.report?.fidelity ? S.runId : "";
+  try { S.fid = await api(`/api/mods/${id}/fidelity${run ? "?run=" + run : ""}`); } catch (_) { S.fid = null; }
+  if (S.modId !== id) return;
+  if (S.tab === "fidelity") renderView();
+  const tab = document.querySelector('.tab[data-tab="fidelity"]');
+  if (tab) tab.innerHTML = "Fidelity" + (S.fid?.counts?.absent ? `<span class="n error">${S.fid.counts.absent} unmodeled</span>` : "");
+}
+
+// ── runs ───────────────────────────────────────────────────────────────────
+function runOpts(all) {
+  const o = { ...S.opts };
+  if (all) { o.file = ""; o.filter = ""; o.coverageScope = ""; }
+  return o;
+}
+async function startRun(over) {
+  const opts = { ...runOpts(), ...over };
+  const meta = await api(`/api/mods/${S.modId}/run`, { method: "POST", body: JSON.stringify(opts) });
+  attachStream(meta.runId);
+  loadMods();
+}
+function attachStream(runId) {
+  if (S.live?.runId === runId) return;
+  if (S.live?.es) S.live.es.close();
+  const live = S.live = { runId, lines: [], es: null, meta: null, modId: S.modId };
+  S.tab = "log";
+  const es = live.es = new EventSource(`/api/stream/${runId}`);
+  es.addEventListener("state", (e) => { live.meta = JSON.parse(e.data); renderRunbar(); });
+  es.addEventListener("line", (e) => { live.lines.push(JSON.parse(e.data)); if (S.tab === "log" && S.live === live) appendLog(JSON.parse(e.data)); });
+  const finish = async (e) => {
+    es.close();
+    if (S.live !== live) return;
+    const meta = e?.data ? JSON.parse(e.data) : null;
+    S.live = null;
+    await refreshRuns(false);
+    loadChanges();
+    if (meta?.hasReport) { S.tab = failed(meta.totals) ? "tests" : S.tab === "log" ? "tests" : S.tab; await loadRun(meta.runId); }
+    else renderMain();
+    loadMods();
+  };
+  es.addEventListener("done", finish);
+  es.addEventListener("gone", finish);
+  renderMain();
+}
+async function cancelRun() { if (S.live) await api(`/api/cancel/${S.live.runId}`, { method: "POST" }); }
+
+// ── main frame ─────────────────────────────────────────────────────────────
+function renderMain() {
+  const m = mod();
+  if (!m) { $("#main").innerHTML = `<div class="empty">Pick a mod.</div>`; return; }
+  const r = S.report;
+  const nFail = r ? failed(r.totals) : 0;
+  const tabs = [
+    ["tests", "Tests", r ? `<span class="n ${nFail ? "fail" : "muted"}">${nFail ? "✗" + nFail : r.totals.tests}</span>` : ""],
+    ["coverage", "Coverage", r?.coverage ? `<span class="n muted">${pct(covTotal(r).pct)}</span>` : ""],
+    ["changes", "Changes", S.changes?.totals ? `<span class="n ${S.changes.totals.uncovered ? "fail" : "muted"}">${S.changes.totals.uncovered ? S.changes.totals.uncovered + " uncovered" : S.changes.files.length}</span>` : ""],
+    ["fidelity", "Fidelity", S.fid?.counts?.absent ? `<span class="n error">${S.fid.counts.absent} unmodeled</span>` : ""],
+    ["config", "Config & env", ""],
+    ["history", "History", `<span class="n muted">${S.runs.length}</span>`],
+    ["log", "Log", S.live ? `<span class="spin"></span>` : ""],
+  ];
+  $("#main").innerHTML = `
+    <div class="modhead">
+      <h2>${esc(m.name)} <small>${esc(m.root)}</small></h2>
+      <div class="runbar" id="runbar"></div>
+      <div class="tabs">${tabs.map(([k, l, n]) => `<div class="tab ${S.tab === k ? "on" : ""}" data-tab="${k}">${l}${n}</div>`).join("")}</div>
+    </div>
+    <div id="view"></div>`;
+  for (const t of document.querySelectorAll(".tab")) t.onclick = () => { S.tab = t.dataset.tab; renderMain(); };
+  renderRunbar(); renderView();
+}
+function renderRunbar() {
+  const el = $("#runbar"); if (!el) return;
+  const o = S.opts;
+  const files = S.files || [];
+  const runSel = S.runs.filter((r) => r.hasReport).slice().reverse();
+  el.innerHTML = `
+    <select id="o-file" title="Single test file"><option value="">all test files${files.length ? " (" + files.length + ")" : ""}</option>
+      ${files.map((f) => `<option ${f === o.file ? "selected" : ""}>${esc(f)}</option>`).join("")}</select>
+    <input type="text" id="o-filter" placeholder="--filter" value="${esc(o.filter)}" size="14">
+    <span class="sep"></span>
+    <label><input type="checkbox" id="o-cov" ${o.coverage ? "checked" : ""}> coverage</label>
+    <label title="Record which lines EACH test ran: powers who-covers, smart reruns and watch (~2% slower)"><input type="checkbox" id="o-pt" ${o.perTest ? "checked" : ""} ${o.coverage ? "" : "disabled"}> per-test</label>
+    <input type="text" id="o-scope" placeholder="scope (substr)" value="${esc(o.coverageScope)}" size="12" ${o.coverage ? "" : "disabled"}>
+    <label><input type="checkbox" id="o-ev" ${o.eventCoverage ? "checked" : ""}> events</label>
+    <label title="Record which layer (mock / vanilla / engine / kit / mod) provides each global, and count mock calls"><input type="checkbox" id="o-fid" ${o.fidelity ? "checked" : ""}> fidelity</label>
+    <label>engine <select id="o-eng">${["auto", "on", "off"].map((v) => `<option ${v === o.engine ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+    <label title="Also parse engine_mods (third-party scripts) — opt-in per run"><input type="checkbox" id="o-em" ${o.engineMods ? "checked" : ""}> engine_mods</label>
+    <span class="sep"></span>
+    ${S.live ? `<span><span class="spin"></span> ${esc(S.live.meta?.state || "starting")}…</span> <button class="btn" id="cancel">Cancel</button>`
+             : `<button class="btn primary" id="run">▶ Run</button>`}
+    <span style="flex:1"></span>
+    ${runSel.length ? `<label>run <select id="o-run">${runSel.map((r) => `<option value="${esc(r.runId)}" ${r.runId === S.runId ? "selected" : ""}>${runTime(r.runId)} — ${r.totals.passed}/${r.totals.tests}${failed(r.totals) ? " ✗" + failed(r.totals) : ""}${isFull(r) ? "" : " · partial"}${r.opts?.reason ? " (" + esc(r.opts.reason) + ")" : ""}</option>`).join("")}</select></label>` : ""}`;
+  const save = () => { localStorage.pzdashOpts = JSON.stringify(S.opts); };
+  $("#o-file").onchange = (e) => { o.file = e.target.value; save(); };
+  $("#o-filter").oninput = (e) => { o.filter = e.target.value.trim(); save(); };
+  $("#o-filter").onkeydown = (e) => { if (e.key === "Enter" && !S.live) startRun(); };
+  $("#o-cov").onchange = (e) => { o.coverage = e.target.checked; save(); renderRunbar(); };
+  $("#o-scope").oninput = (e) => { o.coverageScope = e.target.value.trim(); save(); };
+  $("#o-ev").onchange = (e) => { o.eventCoverage = e.target.checked; save(); };
+  $("#o-pt").onchange = (e) => { o.perTest = e.target.checked; save(); };
+  $("#o-fid").onchange = (e) => { o.fidelity = e.target.checked; save(); };
+  $("#o-eng").onchange = (e) => { o.engine = e.target.value; save(); };
+  $("#o-em").onchange = (e) => { o.engineMods = e.target.checked; save(); };
+  if ($("#run")) $("#run").onclick = () => startRun();
+  if ($("#cancel")) $("#cancel").onclick = cancelRun;
+  if ($("#o-run")) $("#o-run").onchange = (e) => loadRun(e.target.value);
+}
+function renderView() {
+  const v = $("#view"); if (!v) return;
+  ({ tests: viewTests, coverage: viewCoverage, changes: viewChanges, fidelity: viewFidelity, config: viewConfig, history: viewHistory, log: viewLog })[S.tab](v);
+}
+const noReport = (v) => { v.innerHTML = `<div class="empty">${S.live ? "Run in progress…" : "No runs with a report yet. Hit <b>▶ Run</b>."}</div>`; };
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+function viewTests(v) {
+  const r = S.report; if (!r) return noReport(v);
+  const t = r.totals, cov = covTotal(r);
+  let html = `<div class="tiles">
+    ${tile(t.tests, "tests")}${tile(t.passed, "passed", "pass")}${tile(t.failed, "failed", t.failed ? "fail" : "")}
+    ${tile(t.errors, "errors", t.errors ? "error" : "")}${tile(t.skipped, "skipped", "skip")}
+    ${tile(fmtMs(r.ms), "duration")}${r.coverage ? tile(pct(cov.pct), "line coverage") : ""}</div>`;
+  const meta = S.runs.find((x) => x.runId === S.runId);
+  if (meta?.args?.length) html += `<div class="muted mono" style="margin:-4px 0 10px">pztest ${esc(meta.args.filter((a, i, A) => a !== "--report-json" && A[i - 1] !== "--report-json").join(" "))} · ${runTime(S.runId)}</div>`;
+  if (r.engine?.requested && !r.engine.booted) html += `<div class="notice bad"><b>Engine unavailable:</b> ${esc(r.engine.error)} — engine-guarded files contributed no tests.</div>`;
+  if (S.prev) {
+    const now = new Set(meta?.failing || []), before = new Set(S.prev.failing || []);
+    const broke = [...now].filter((x) => !before.has(x)), fixed = [...before].filter((x) => !now.has(x));
+    const dt = t.tests - (S.prev.totals?.tests || 0);
+    if (broke.length || fixed.length || dt)
+      html += `<div class="notice ${broke.length ? "bad" : "good"}">vs ${runTime(S.prev.runId)}:
+        ${dt ? `<b>${dt > 0 ? "+" : ""}${dt}</b> tests · ` : ""}${broke.length ? `<span class="fail">${broke.length} newly failing</span>` : "no new failures"}${fixed.length ? ` · <span class="pass">${fixed.length} fixed</span>` : ""}
+        ${broke.length ? `<pre class="mono fail" style="margin-top:4px">${esc(broke.join("\n"))}</pre>` : ""}
+        ${fixed.length ? `<pre class="mono pass" style="margin-top:4px">${esc(fixed.join("\n"))}</pre>` : ""}</div>`;
+  }
+  html += `<div class="toolbar">
+    <input type="text" id="tq" placeholder="search tests / files" value="${esc(S.testQuery)}" size="28">
+    ${["fail", "error", "skip", "pass"].map((s) => `<span class="chip ${S.statusOn[s] ? "on" : ""} ${s}" data-s="${s}">${s}</span>`).join("")}
+    <label class="muted">sort <select id="tsort">${["name", "slowest"].map((s) => `<option ${S.testSort === s ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+    <button class="btn small" id="expand">expand all</button><button class="btn small" id="collapse">collapse</button></div><div id="tlist"></div>`;
+  v.innerHTML = html;
+  $("#tq").oninput = (e) => { S.testQuery = e.target.value; renderTestList(); };
+  for (const c of v.querySelectorAll(".chip")) c.onclick = () => { S.statusOn[c.dataset.s] = !S.statusOn[c.dataset.s]; c.classList.toggle("on"); renderTestList(); };
+  $("#tsort").onchange = (e) => { S.testSort = e.target.value; renderTestList(); };
+  $("#expand").onclick = () => { r.files.forEach((f) => S.open.add(f.file)); renderTestList(); };
+  $("#collapse").onclick = () => { S.open.clear(); renderTestList(); };
+  renderTestList();
+}
+const tile = (v, k, cls = "") => `<div class="tile"><div class="v ${cls}">${esc(v)}</div><div class="k">${k}</div></div>`;
+const glyph = { pass: "✓", fail: "✗", error: "!", skip: "○" };
+
+function renderTestList() {
+  const r = S.report, q = S.testQuery.toLowerCase();
+  if (S.testSort === "slowest") {
+    const all = [];
+    for (const f of r.files) for (const c of f.cases) if (S.statusOn[c.status] && (!q || (f.file + " " + c.name).toLowerCase().includes(q))) all.push([f, c]);
+    all.sort((a, b) => (b[1].ms || 0) - (a[1].ms || 0));
+    $("#tlist").innerHTML = `<div class="file">${all.slice(0, 300).map(([f, c]) => caseRow(f, c, true)).join("")}</div>`;
+  } else {
+    const bad = (f) => (f.error || f.failures || f.errors ? 0 : 1);
+    const files = r.files.slice().sort((a, b) => bad(a) - bad(b));
+    $("#tlist").innerHTML = files.map((f) => {
+      const fileHit = !q || f.file.toLowerCase().includes(q);
+      const cases = f.cases.filter((c) => S.statusOn[c.status] && (fileHit || c.name.toLowerCase().includes(q)));
+      const bad = f.error || f.failures || f.errors;
+      if (!cases.length && !(f.error && S.statusOn.error && fileHit)) return "";
+      const open = S.open.has(f.file) || (q && !fileHit);
+      return `<div class="file"><div class="fh" data-f="${esc(f.file)}">
+        <span class="caret">${open ? "▾" : "▸"}</span>
+        <span class="${f.error ? "error" : bad ? "fail" : "pass"}">${f.error ? "!" : bad ? "✗" : "✓"}</span>
+        <span class="fname" title="${esc(f.file)}">${esc(f.file)}</span>
+        <span class="counts">${f.error ? `<span class="error">file error</span>` : `${f.passed}/${f.tests}${f.failures ? ` <span class="fail">${f.failures}✗</span>` : ""}${f.errors ? ` <span class="error">${f.errors}!</span>` : ""}${f.skipped ? ` <span class="skip">${f.skipped}○</span>` : ""}`} · ${fmtMs(f.ms)}</span>
+        <button class="btn small" data-rerun-file="${esc(f.file)}" title="Run just this file">▶</button></div>
+        ${open ? (f.error ? `<div class="detail"><h4>file error</h4><pre class="error">${esc(f.error)}</pre>${f.output ? `<h4>captured output</h4><pre class="box">${esc(f.output)}</pre>` : ""}</div>` : "")
+                + cases.map((c) => caseRow(f, c)).join("")
+                + (f.output && !f.error ? `<div class="detail"><h4>file output (captured, failing file)</h4><pre class="box">${esc(f.output)}</pre></div>` : "") : ""}
+      </div>`;
+    }).join("") || `<div class="empty">Nothing matches.</div>`;
+  }
+  for (const el of document.querySelectorAll(".fh")) el.onclick = (e) => { if (e.target.closest("button")) return; S.open.has(el.dataset.f) ? S.open.delete(el.dataset.f) : S.open.add(el.dataset.f); renderTestList(); };
+  for (const el of document.querySelectorAll(".case")) el.onclick = (e) => { if (e.target.closest("button")) return; const k = el.dataset.k; S.openCase.has(k) ? S.openCase.delete(k) : S.openCase.add(k); renderTestList(); };
+  for (const b of document.querySelectorAll("[data-rerun-file]")) b.onclick = () => !S.live && startRun({ file: b.dataset.rerunFile, filter: "" });
+  for (const b of document.querySelectorAll("[data-rerun-test]")) b.onclick = () => { const [f, n] = JSON.parse(b.dataset.rerunTest); !S.live && startRun({ file: f, filter: n }); };
+}
+function caseRow(f, c, showFile) {
+  const k = f.file + "::" + c.name;
+  // Failing tests start open; a click toggles either way.
+  const bad = c.status === "fail" || c.status === "error";
+  const open = bad ? !S.openCase.has(k) : S.openCase.has(k);
+  return `<div class="case" data-k="${esc(k)}">
+    <span class="${c.status}">${glyph[c.status] || "?"}</span>
+    <span class="nm" title="${esc(c.name)}">${showFile ? `<span class="dim">${esc(f.file.split("/").pop())} :: </span>` : ""}${esc(c.name)}</span>
+    <span class="ms">${c.ms != null ? fmtMs(c.ms) : ""}</span>
+    <span style="text-align:right"><button class="btn small" data-rerun-test='${esc(JSON.stringify([f.file, c.name]))}' title="Run just this test">▶</button></span></div>
+    ${open ? `<div class="detail">${c.message ? `<h4>${c.status === "skip" ? "skip reason" : "message"}</h4><pre class="${c.status}">${esc(c.message)}</pre>` : ""}
+      ${c.output ? `<h4>output</h4><pre class="box">${esc(c.output)}</pre>` : ""}${!c.message && !c.output && !c.cov ? `<span class="dim">no output</span>` : ""}
+      ${c.cov ? testCov(c) : ""}</div>` : ""}`;
+}
+
+// What one test executed (--coverage-per-test), with jump links into Coverage.
+function testCov(c) {
+  const files = S.report.coverage?.files || [];
+  const rows = Object.entries(c.cov).map(([ix, rg]) => {
+    const n = rg.split(",").reduce((a, p) => { const [x, y] = p.split("-").map(Number); return a + ((y || x) - x + 1); }, 0);
+    return { f: files[+ix], n, first: parseInt(rg) };
+  }).filter((x) => x.f).sort((a, b) => b.n - a.n);
+  const total = rows.reduce((a, x) => a + x.n, 0);
+  return `<h4>ran ${total} line${total === 1 ? "" : "s"} in ${rows.length} file${rows.length === 1 ? "" : "s"}</h4>
+    <div class="mono" style="columns:2;font-size:12px">${rows.map((x) => `<div><a href="#" data-covjump="${esc(x.f.path)}" data-line="${x.first}">${esc(x.f.name)}</a> <span class="dim">${x.n}</span></div>`).join("")}</div>`;
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-covjump]");
+  if (!a) return;
+  e.preventDefault();
+  S.covSel = a.dataset.covjump; S.covFocus = +a.dataset.line; S.src = null; S.tab = "coverage"; renderMain();
+});
+
+// ── Changes (changed lines × coverage) ─────────────────────────────────────
+async function loadChanges() {
+  const id = S.modId;
+  try { S.changes = await api(`/api/mods/${id}/changes?base=${encodeURIComponent(S.changesBase)}`); }
+  catch (e) { S.changes = { error: String(e.message || e) }; }
+  if (S.modId !== id) return;
+  if (S.tab === "changes") renderView();
+  const tab = document.querySelector('.tab[data-tab="changes"]');
+  if (tab) { const t = S.changes.totals; tab.innerHTML = "Changes" + (t ? `<span class="n ${t.uncovered ? "fail" : "muted"}">${t.uncovered ? t.uncovered + " uncovered" : S.changes.files.length}</span>` : ""); }
+}
+function viewChanges(v) {
+  const c = S.changes;
+  const head = `<div class="toolbar"><span class="muted">changed vs</span>
+      <input type="text" id="cbase" value="${esc(S.changesBase)}" size="16" title="Any git ref: HEAD (uncommitted), HEAD~3, main, a tag, a sha">
+      ${["HEAD", "HEAD~1", "origin/main"].map((b) => `<span class="chip ${S.changesBase === b ? "on" : ""}" data-base="${b}">${b}</span>`).join("")}
+      <button class="btn small" id="crefresh">refresh</button>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="cimpact" title="Rerun every test (in any mod) whose per-test coverage touches a changed file, measuring coverage">▶ Run impacted + measure</button></div>`;
+  if (!c) { v.innerHTML = head + `<div class="empty"><span class="spin"></span></div>`; return bindChanges(v); }
+  if (c.error) { v.innerHTML = head + `<div class="notice bad">${esc(c.error)}</div>`; return bindChanges(v); }
+  const t = c.totals, measured = t.executable;
+  const verdict = !c.files.length ? `<div class="notice good">No Lua changes vs <b>${esc(c.base)}</b>.</div>`
+    : t.uncovered ? `<div class="notice bad"><b>${t.uncovered}</b> changed executable line${t.uncovered > 1 ? "s" : ""} no test runs. New code at 0% is how unpackCommands shipped broken.</div>`
+    : (t.stale || t.unmeasured) ? `<div class="notice">${t.stale + t.unmeasured} file(s) changed since their last measurement. <b>Run impacted + measure</b> to get a verdict.</div>`
+    : `<div class="notice good">Every changed executable line is run by at least one test.</div>`;
+  v.innerHTML = head + `<div class="tiles">${tile(c.files.length, "files changed")}${tile(t.changed, "lines changed")}${tile(measured, "executable")}
+      ${tile(measured ? pct((100 * t.covered) / measured) : "—", "changed covered", t.uncovered ? "fail" : measured ? "pass" : "")}${tile(t.uncovered, "uncovered", t.uncovered ? "fail" : "")}
+      ${t.stale + t.unmeasured ? tile(t.stale + t.unmeasured, "unmeasured", "error") : ""}</div>${verdict}
+    <div class="split"><div><table><thead><tr><th>file</th><th>status</th><th style="text-align:right">changed</th><th style="text-align:right">covered</th><th style="text-align:right">uncovered</th></tr></thead><tbody>
+    ${c.files.map((f) => `<tr class="click ${f.path === S.chgSel ? "sel" : ""}" data-cp="${esc(f.path)}">
+      <td class="mono">${esc(f.name)}${f.untracked ? ` <span class="dim">new</span>` : ""}</td>
+      <td>${f.isTest ? `<span class="muted">test file</span>` : f.status === "measured" ? (f.uncovered.length ? `<span class="fail">gaps</span>` : f.executable ? `<span class="pass">covered</span>` : `<span class="dim">no executable lines</span>`)
+          : f.status === "stale" ? `<span class="error" title="edited after the last run that measured it">stale</span>` : `<span class="error" title="no coverage run includes this file">unmeasured</span>`}</td>
+      <td class="num">${f.changed.length}</td><td class="num pass">${f.covered?.length || ""}</td><td class="num ${f.uncovered?.length ? "fail" : ""}">${f.uncovered?.length || ""}</td></tr>`).join("")}</tbody></table></div>
+    <div id="srcpane">${S.chgSel ? "" : `<div class="empty">Click a file: changed lines are marked on the left edge, coloured by whether a test runs them.</div>`}</div></div>`;
+  bindChanges(v);
+  if (S.chgSel) {
+    const f = c.files.find((x) => x.path === S.chgSel);
+    if (f) sourcePane($("#srcpane"), { path: f.path, name: f.name, hit: new Set(f.covered || []), miss: new Set(f.uncovered || []), changed: new Set(f.changed),
+      stats: f.status === "measured" ? `${f.covered.length}/${f.executable} changed lines covered` : f.status || "", focus: (f.uncovered?.[0] || f.changed[0]) });
+  }
+}
+function bindChanges(v) {
+  const setBase = (b) => { S.changesBase = b || "HEAD"; S.changes = null; S.chgSel = null; renderView(); loadChanges(); };
+  $("#cbase").onkeydown = (e) => { if (e.key === "Enter") setBase(e.target.value.trim()); };
+  for (const ch of v.querySelectorAll("[data-base]")) ch.onclick = () => setBase(ch.dataset.base);
+  $("#crefresh").onclick = () => setBase(S.changesBase);
+  $("#cimpact").onclick = async () => {
+    const r = await api(`/api/mods/${S.modId}/run-impacted`, { method: "POST", body: JSON.stringify({ base: S.changesBase, opts: { engine: S.opts.engine } }) });
+    const mine = r.runs.find((m) => m.modId === S.modId);
+    toast(`Impacted by ${r.changed} changed file(s): ${r.runs.map((m) => `${m.mod} ×${m.opts.only.length}`).join(", ") || "no mapped tests"}`
+      + (r.unmapped.length ? ` · ${r.unmapped.length} file(s) with no per-test data (run the suite once with per-test on)` : ""), r.runs.length ? "" : "bad");
+    if (mine) attachStream(mine.runId);
+    loadMods();
+  };
+  for (const tr of v.querySelectorAll("tr[data-cp]")) tr.onclick = () => { S.chgSel = tr.dataset.cp; S.src = null; renderView(); };
+}
+
+// ── Watch + activity feed ──────────────────────────────────────────────────
+function toast(html, cls = "", ms = 9000) {
+  const el = document.createElement("div");
+  el.className = "ev " + cls;
+  el.innerHTML = html;
+  el.onclick = () => el.remove();
+  $("#feed").prepend(el);
+  setTimeout(() => el.remove(), ms);
+}
+function renderWatch() {
+  $("#watch").classList.toggle("on", S.watch.on);
+  $("#watch").textContent = S.watch.on ? "◉ Watching" : "◉ Watch";
+  $("#watchmeasure").checked = S.watch.measure;
+}
+$("#watch").onclick = async () => { S.watch = await api("/api/watch", { method: "POST", body: JSON.stringify({ on: !S.watch.on, measure: $("#watchmeasure").checked }) }); renderWatch(); };
+$("#watchmeasure").onchange = async (e) => { S.watch = await api("/api/watch", { method: "POST", body: JSON.stringify({ on: S.watch.on, measure: e.target.checked }) }); renderWatch(); };
+function startFeed() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.replay) return;
+    if (ev.type === "change") {
+      const files = ev.files.map((f) => esc(f.split("/").pop())).join(", ");
+      toast(`<b>saved</b> ${files}<br>${ev.runs.length ? ev.runs.map((r) => `▶ ${esc(r.mod)} ×${r.tests}`).join(" · ") : `<span class="muted">no tests touch ${ev.unmapped.length ? "these files (no per-test data yet)" : "this"}</span>`}`);
+      loadMods();
+    } else if (ev.type === "done" && ev.reason) {
+      const bad = ev.totals ? ev.totals.failed + ev.totals.errors : 1;
+      toast(`<b>${esc(ev.mod)}</b> ${esc(ev.reason)}: ${ev.totals ? `${ev.totals.passed}/${ev.totals.tests}` : "exit " + ev.exitCode}${bad && ev.failing?.length ? `<pre class="mono fail" style="margin-top:3px">${esc(ev.failing.join("\n"))}</pre>` : ""}`, bad ? "bad" : "good", bad ? 30000 : 6000);
+      loadMods();
+      if (ev.modId === S.modId && !S.live) refreshRuns(true).then(loadChanges);
+    } else if (ev.type === "error") toast(esc(ev.message), "bad");
+  };
+}
+
+// ── Coverage ───────────────────────────────────────────────────────────────
+function covTotal(r) {
+  let pts = 0, hit = 0;
+  for (const f of r?.coverage?.files || []) if (!f.fallback) { pts += f.points; hit += f.hit.length; }
+  return { pts, hit, pct: pts ? (100 * hit) / pts : null };
+}
+function viewCoverage(v) {
+  const r = S.report; if (!r) return noReport(v);
+  if (!r.coverage) {
+    const lastCov = S.runs.filter((x) => x.hasReport && x.coverage).pop();
+    v.innerHTML = `<div class="empty">This run had no line coverage.<br><br><button class="btn primary" id="runcov">▶ Run with coverage</button>
+      ${lastCov ? ` <button class="btn" id="lastcov">Open ${runTime(lastCov.runId)} (${pct(lastCov.coverage.pct)})</button>` : ""}</div>`;
+    $("#runcov").onclick = () => { S.opts.coverage = true; startRun({ coverage: true }); };
+    if (lastCov) $("#lastcov").onclick = () => loadRun(lastCov.runId);
+    return;
+  }
+  const tot = covTotal(r), files = r.coverage.files;
+  const prevCov = S.prev?.coverage?.pct;
+  const q = S.covQuery.toLowerCase();
+  const rows = files.filter((f) => !q || (f.name || "").toLowerCase().includes(q)).map((f) => ({ ...f, pct: f.points ? (100 * f.hit.length) / f.points : null, missN: f.miss.length }));
+  const sorters = { name: (a, b) => (a.name || "").localeCompare(b.name || ""), pct: (a, b) => (a.pct ?? 101) - (b.pct ?? 101), missed: (a, b) => b.missN - a.missN };
+  rows.sort(sorters[S.covSort]);
+  const fell = files.filter((f) => f.fallback);
+  v.innerHTML = `<div class="tiles">${tile(pct(tot.pct), "line coverage")}${tile(tot.hit + "/" + tot.pts, "lines")}${tile(files.length - fell.length, "files")}
+      ${prevCov != null ? tile((tot.pct - prevCov >= 0 ? "+" : "") + (Math.round((tot.pct - prevCov) * 10) / 10) + "pp", "vs prev run", tot.pct >= prevCov ? "pass" : "fail") : ""}
+      ${r.coverage.scope ? tile(r.coverage.scope, "scope") : ""}</div>
+    ${fell.length ? `<div class="notice">${fell.length} file(s) fell back to uninstrumented and are not counted: <span class="mono">${esc(fell.map((f) => f.name).join(", "))}</span></div>` : ""}
+    <div class="split"><div>
+      <div class="toolbar"><input type="text" id="cq" placeholder="filter files" value="${esc(S.covQuery)}" size="24"></div>
+      <table><thead><tr><th data-s="name">file</th><th data-s="pct">coverage</th><th data-s="pct" style="text-align:right">%</th><th data-s="missed" style="text-align:right">missed</th></tr></thead>
+      <tbody>${rows.map((f) => `<tr class="click ${f.path === S.covSel ? "sel" : ""}" data-p="${esc(f.path)}">
+        <td class="mono" title="${esc(f.path)}">${esc(f.name)}${f.fallback ? ` <span class="dim">(fallback)</span>` : ""}</td>
+        <td><div class="bar"><i style="width:${f.pct ?? 0}%"></i></div></td>
+        <td class="num ${f.pct === 100 ? "pass" : f.pct < 50 ? "fail" : ""}">${f.pct == null ? "—" : Math.round(f.pct) + "%"}</td>
+        <td class="num">${f.missN || ""}</td></tr>`).join("")}</tbody></table>
+      ${r.events ? eventTable(r.events) : ""}
+    </div><div id="srcpane">${S.covSel ? "" : `<div class="empty">Click a file to see covered and missed lines.</div>`}</div></div>`;
+  $("#cq").oninput = (e) => { S.covQuery = e.target.value; const pos = e.target.selectionStart; viewCoverage(v); const i = $("#cq"); i.focus(); i.setSelectionRange(pos, pos); };
+  for (const th of v.querySelectorAll("th[data-s]")) th.onclick = () => { S.covSort = th.dataset.s; viewCoverage(v); };
+  for (const tr of v.querySelectorAll("tr[data-p]")) tr.onclick = () => { S.covSel = tr.dataset.p; S.src = null; viewCoverage(v); };
+  if (S.covSel) renderSource();
+}
+function eventTable(ev) {
+  const rows = Object.entries(ev).sort((a, b) => (a[1].fired > 0) - (b[1].fired > 0) || a[0].localeCompare(b[0]));
+  return `<h3 style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:500;margin:22px 0 6px">Event coverage</h3>
+    <table><thead><tr><th>event</th><th style="text-align:right">registered</th><th style="text-align:right">fired</th></tr></thead><tbody>
+    ${rows.map(([k, e]) => `<tr><td class="mono">${esc(k)} ${e.registered && !e.fired ? `<span class="fail">NOT FIRED</span>` : ""}</td><td class="num">${e.registered}</td><td class="num ${e.fired ? "" : "fail"}">${e.fired}</td></tr>`).join("")}</tbody></table>`;
+}
+// Per-test index of the loaded report: coverage file index -> Map(line -> [testKey]).
+function ptIndex() {
+  const r = S.report;
+  if (!r?.coverage?.perTest) return null;
+  if (S._pt && S._pt.r === r) return S._pt.idx;
+  const idx = new Map();
+  const parse = (s) => { const o = []; for (const part of s.split(",")) { const [a, b] = part.split("-").map(Number); for (let n = a; n <= (b || a); n++) o.push(n); } return o; };
+  for (const tf of r.files) for (const c of tf.cases) for (const [ix, rg] of Object.entries(c.cov || {})) {
+    let m = idx.get(+ix); if (!m) idx.set(+ix, (m = new Map()));
+    for (const ln of parse(rg)) { let a = m.get(ln); if (!a) m.set(ln, (a = [])); a.push(tf.file + "::" + c.name); }
+  }
+  S._pt = { r, idx };
+  return idx;
+}
+async function fetchSource(p) {
+  if (S.src && S.src.path === p) return S.src.text;
+  let text = null;
+  try { const r = await fetch("/api/source?path=" + encodeURIComponent(p)); if (r.ok) text = await r.text(); } catch (_) {}
+  S.src = { path: p, text };
+  return text;
+}
+async function renderSource() {
+  const pane = $("#srcpane"); if (!pane) return;
+  const files = S.report.coverage.files;
+  const fi = files.findIndex((x) => x.path === S.covSel); if (fi < 0) return;
+  const f = files[fi];
+  const idx = ptIndex();
+  await sourcePane(pane, { path: f.path, name: f.name, hit: new Set(f.hit), miss: new Set(f.miss), byLine: idx ? idx.get(fi) || new Map() : null,
+    stats: `${f.hit.length}/${f.points}`, focus: S.covFocus });
+  S.covFocus = null;
+}
+/**
+ * Source with coverage marks. o: { path, name, hit:Set, miss:Set, changed?:Set,
+ * byLine?: Map(line->[testKey]) (per-test run: gutter counts + who-covers),
+ * stats?, focus?: line to scroll to, onlyChanged? }.
+ */
+async function sourcePane(pane, o) {
+  if (!S.src || S.src.path !== o.path) pane.innerHTML = `<div class="empty"><span class="spin"></span></div>`;
+  const text = await fetchSource(o.path);
+  if (!pane.isConnected) return;
+  const missL = [...o.miss].filter((n) => !o.changed || o.changed.has(n)).sort((a, b) => a - b);
+  const ranges = []; for (let i = 0; i < missL.length;) { let j = i; while (j + 1 < missL.length && missL[j + 1] === missL[j] + 1) j++; ranges.push(missL[i] === missL[j] ? "" + missL[i] : missL[i] + "–" + missL[j]); i = j + 1; }
+  const body = text == null ? `<div class="empty">Source not readable from the dashboard (${esc(o.path)}).</div>`
+    : text.split(/\r?\n/).map((line, i) => {
+        const n = i + 1, ch = o.changed?.has(n);
+        const cls = (o.hit.has(n) ? "hit" : o.miss.has(n) ? "miss" : "") + (ch ? " chg" : "") + (o.changed && !ch ? " ctx" : "");
+        const cnt = o.byLine ? (o.byLine.get(n)?.length || "") : "";
+        return `<div class="ln ${cls}${o.byLine ? " counts" : ""}" id="L${n}" data-n="${n}"><span class="g">${o.byLine ? `<i class="cnt">${cnt}</i>` : ""}${n}</span><span class="c">${esc(line) || " "}</span></div>`;
+      }).join("");
+  pane.innerHTML = `<div class="src"><div class="sh"><span class="mono" style="flex:1">${esc(o.name)}</span>
+      ${o.stats ? `<span class="muted mono">${esc(o.stats)}</span>` : ""}
+      ${missL.length ? `<button class="btn small" id="nextmiss">next miss ↓</button>` : ""}</div>
+    ${ranges.length ? `<div class="mono muted" style="flex-shrink:0;padding:4px 10px;border-bottom:1px solid var(--line);max-height:64px;overflow:auto;white-space:normal">${o.changed ? "uncovered changes" : "uncovered"}: ${ranges.map((r) => `<a href="#" data-l="${parseInt(r)}">${r}</a>`).join(", ")}</div>` : ""}
+    <div id="who"></div>
+    <div class="body" id="srcbody">${body}</div></div>`;
+  let mi = -1;
+  // Scroll the source box only: scrollIntoView would also scroll #view (and
+  // sideways, for long lines), dragging the tables out of sight.
+  const jump = (n) => {
+    const el = pane.querySelector("#L" + n), body = pane.querySelector("#srcbody");
+    if (!el || !body) return;
+    body.scrollTop = el.offsetTop - body.offsetTop - body.clientHeight / 2;
+    el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 900);
+  };
+  if ($("#nextmiss", pane)) $("#nextmiss", pane).onclick = () => { mi = (mi + 1) % missL.length; jump(missL[mi]); };
+  for (const a of pane.querySelectorAll("a[data-l]")) a.onclick = (e) => { e.preventDefault(); jump(a.dataset.l); };
+  // Who covers this line: this run's per-test data, plus every other mod's
+  // freshest per-test run (a TooltipLib line is exercised by VPS tests too).
+  for (const g of pane.querySelectorAll(".ln .g")) g.onclick = async () => {
+    const n = +g.parentElement.dataset.n;
+    for (const el of pane.querySelectorAll(".ln.picked")) el.classList.remove("picked");
+    g.parentElement.classList.add("picked");
+    const who = $("#who", pane);
+    who.innerHTML = `<div class="whobox"><span class="spin"></span></div>`;
+    const local = o.byLine?.get(n) || [];
+    const all = await api(`/api/whocovers?path=${encodeURIComponent(o.path)}&line=${n}`).catch(() => []);
+    const groups = all.filter((x) => x.modId !== S.modId || !o.byLine);
+    if (o.byLine) groups.unshift({ modId: S.modId, mod: mod().name + " (this run)", tests: local });
+    const total = groups.reduce((a, x) => a + x.tests.length, 0);
+    who.innerHTML = `<div class="whobox"><b>line ${n}</b> · ${total ? `run by ${total} test${total > 1 ? "s" : ""}` : (o.hit.has(n) ? "hit at load time only (no test ran it)" : "no test runs this line")}
+      ${!o.byLine && !all.length ? `<span class="dim"> · per-test data needs a run with “per-test” on</span>` : ""}
+      <button class="btn small" id="whoclose" style="float:right">✕</button>
+      ${groups.filter((x) => x.tests.length).map((x) => `<div style="margin-top:6px"><span class="muted">${esc(x.mod)}</span>${x.stale ? ` <span class="error">stale</span>` : ""}
+        <button class="btn small" data-runwho="${esc(x.modId)}">▶ run ${x.tests.length}</button>
+        <div class="mono" style="max-height:120px;overflow:auto">${x.tests.map((t) => `<div>${esc(t)}</div>`).join("")}</div></div>`).join("")}</div>`;
+    $("#whoclose", who).onclick = () => { who.innerHTML = ""; g.parentElement.classList.remove("picked"); };
+    for (const b of who.querySelectorAll("[data-runwho]")) b.onclick = () => {
+      const x = groups.find((y) => y.modId === b.dataset.runwho);
+      api(`/api/mods/${x.modId}/run`, { method: "POST", body: JSON.stringify({ ...runOpts(), only: x.tests, reason: "who covers " + o.name + ":" + n }) })
+        .then((m) => { if (x.modId === S.modId) attachStream(m.runId); loadMods(); });
+    };
+  };
+  if (o.focus) jump(o.focus);
+}
+
+// ── Fidelity ───────────────────────────────────────────────────────────────
+const LAYER = {
+  engine: ["real (engine)", "pass", "Real PZ Java class / function from projectzomboid.jar"],
+  vanilla: ["real (vanilla Lua)", "pass", "Real vanilla Lua loaded via vanilla_requires"],
+  mock: ["mock", "error", "Hand-written kit mock: a green test proves the mod matches the MOCK"],
+  kit: ["kit", "muted", "Kit infrastructure (fixtures, Translator-faithful getText, timed-action sim)"],
+  mod: ["mod / test", "muted", "Defined by the mod's own modules or a test file"],
+  absent: ["UNMODELED", "fail", "Not present offline at all: any code path using it can't run in tests"],
+};
+function viewFidelity(v) {
+  const f = S.fid;
+  if (!f) { v.innerHTML = `<div class="empty"><span class="spin"></span></div>`; return; }
+  const runNote = f.runId ? `<span class="muted">from run ${runTime(f.runId)}</span>` : "";
+  let html = "";
+  if (!f.hasFidelity) html += `<div class="notice">No run with <b>fidelity</b> yet, so layers and call counts are unknown; showing the mod's PZ API surface only.
+      <button class="btn small primary" id="runfid">▶ Run with fidelity</button></div>`;
+  const c = f.counts || {};
+  html += `<div class="tiles">${tile(f.surface.length, "PZ symbols the mod uses")}
+    ${f.hasFidelity ? tile((c.engine || 0) + (c.vanilla || 0), "real", "pass") + tile(c.mock || 0, "mocked", c.mock ? "error" : "") + tile(c.absent || 0, "unmodeled", c.absent ? "fail" : "") : ""}
+    ${f.layers ? tile(f.layers.engine || 0, "engine globals") + tile(f.layers.mock || 0, "mock globals") : ""}
+    ${f.synthRuntime?.length ? tile(f.synthRuntime.length, "fidelity holes", "fail") : f.hasFidelity ? tile(0, "fidelity holes", "pass") : ""}</div>
+    <div class="muted" style="margin:-4px 0 10px">${runNote} · API universe: ${f.universe.size} names from LuaManager @LuaMethod + Lua-exposed classes + vanilla globals</div>`;
+  if (f.synthRuntime?.length) html += `<div class="notice bad"><b>Fidelity holes:</b> while tests ran, real code reached classes the harness only has as EMPTY synthesized stubs.
+    Anything they do silently didn't happen.<pre class="mono" style="margin-top:4px">${f.synthRuntime.map(([cl, file]) => esc(cl) + "   ← " + esc(file)).join("\n")}</pre></div>`;
+  html += `<div class="split" style="grid-template-columns:1.4fr 1fr"><div>
+    <div class="toolbar"><input type="text" id="fq" placeholder="filter symbols" value="${esc(S.fidQuery)}" size="20">
+      ${Object.entries(LAYER).map(([k, [label, cls]]) => `<span class="chip ${S.fidFilter[k] ? "on" : ""} ${cls}" data-fl="${k}" title="${esc(LAYER[k][2])}">${label}${c[k] ? " " + c[k] : ""}</span>`).join("")}</div>
+    <table><thead><tr><th>symbol</th><th>PZ api</th><th>provided by</th><th style="text-align:right">refs</th><th style="text-align:right">calls</th></tr></thead><tbody id="fbody"></tbody></table></div>
+    <div>${f.calls.length ? `<div class="card" style="margin-bottom:12px"><h3>What the suite actually called</h3><table>
+      ${f.calls.slice(0, 40).map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="${LAYER[x.layer]?.[1] || ""}">${LAYER[x.layer]?.[0] || esc(x.layer)}</td>
+        <td class="num">${x.calls.toLocaleString()}</td><td class="num dim" title="test files">${x.files}f</td></tr>`).join("")}</table></div>` : ""}
+      ${f.overrides?.length ? `<div class="card" style="margin-bottom:12px"><h3>Mocks replaced by a later layer</h3><table>
+        ${f.overrides.map((o) => `<tr><td class="mono">${esc(o.name)}</td><td class="dim">${esc(o.over)} →</td><td class="${LAYER[o.layer]?.[1] || ""}">${LAYER[o.layer]?.[0] || esc(o.layer)}</td></tr>`).join("")}</table></div>` : ""}
+      <div class="card" id="engcard"><h3>Engine: what runs real (kit-wide)</h3><span class="spin"></span></div></div></div>`;
+  v.innerHTML = html;
+  if ($("#runfid")) $("#runfid").onclick = () => { S.opts.fidelity = true; startRun({ fidelity: true }); };
+  $("#fq").oninput = (e) => { S.fidQuery = e.target.value; renderFidRows(); };
+  for (const ch of v.querySelectorAll("[data-fl]")) ch.onclick = () => { S.fidFilter[ch.dataset.fl] = !S.fidFilter[ch.dataset.fl]; ch.classList.toggle("on"); renderFidRows(); };
+  renderFidRows();
+  renderEngineCard();
+}
+function renderFidRows() {
+  const f = S.fid, q = S.fidQuery.toLowerCase();
+  const rows = f.surface.filter((r) => (!f.hasFidelity || S.fidFilter[r.layer] !== false) && (!q || r.name.toLowerCase().includes(q)));
+  $("#fbody").innerHTML = rows.slice(0, 500).map((r) => {
+    const L = LAYER[r.layer];
+    return `<tr title="${esc(r.files.join("\n"))}"><td class="mono">${esc(r.name)}${r.overrode ? ` <span class="dim">(over ${esc(r.overrode)})</span>` : ""}</td>
+      <td class="muted">${esc(r.api)}</td><td class="${L ? L[1] : "dim"}">${L ? L[0] : "?"}</td>
+      <td class="num">${r.refs}<span class="dim"> /${r.files.length}f</span></td><td class="num ${r.calls ? "" : "dim"}">${r.calls ? r.calls.toLocaleString() : "·"}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" class="dim">nothing matches</td></tr>`;
+}
+async function renderEngineCard() {
+  if (!S.engineInv) S.engineInv = await api("/api/engine").catch(() => null);
+  const el = $("#engcard"); if (!el || !S.engineInv) return;
+  const e = S.engineInv;
+  const since = (x) => x.pending ? `<span class="error">in progress (uncommitted)</span>` : x.since ? `<span class="dim">${esc(x.since.date)} ${esc(x.since.hash)}</span>` : "";
+  el.innerHTML = `<h3>Engine: what runs real (kit-wide)</h3>
+    <details open><summary class="muted">PZEngine API (${e.api.length})</summary><table>${e.api.map((a) => `<tr><td class="mono">PZEngine.${esc(a.name)}</td><td class="num">${since(a)}</td></tr>`).join("")}</table></details>
+    <details><summary class="muted">Real classes exposed to Lua (${e.exposed.length})</summary><table>${e.exposed.slice().sort((a, b) => (b.since?.date || "9").localeCompare(a.since?.date || "9")).map((x) => `<tr><td class="mono" title="${esc(x.name)}">${esc(x.name.split(".").pop())}</td><td class="num">${since(x)}</td></tr>`).join("")}</table></details>
+    <details><summary class="muted">Hand-written stubs (${e.stubs.length})</summary><div class="mono">${e.stubs.map(esc).join("<br>")}</div></details>
+    <details><summary class="muted">Engine / mock changelog (${e.log.length})</summary><table>${e.log.map((l) => `<tr><td class="mono dim" style="white-space:nowrap">${esc(l.date)} ${esc(l.hash)}</td><td>${esc(l.subject)}</td></tr>`).join("")}</table></details>
+    ${e.dirty.length ? `<div class="error" style="margin-top:6px;font-size:12px">uncommitted in kahlua/: ${e.dirty.map(esc).join(", ")}</div>` : ""}`;
+}
+
+// ── Config & env ───────────────────────────────────────────────────────────
+function viewConfig(v) {
+  const r = S.report, e = S.env, m = mod();
+  const vr = r?.vanillaRequires || {};
+  const vrList = r?.config?.vanilla_requires || [];
+  const certs = (e.certifications || []);
+  v.innerHTML = `<div class="cards">
+    <div class="card"><h3>Runtime (last loaded run)</h3>${r ? `<div class="kv">
+      <span>game version</span><span>${esc(r.gameVersion || "unknown")}</span>
+      <span>steam buildid</span><span>${esc(e.steamBuildId || "unknown")}</span>
+      <span>PZ install</span><span>${esc(r.pzInstall || "not found (mocks only)")}</span>
+      <span>engine</span><span>${r.engine.requested ? (r.engine.booted ? `<span class="pass">booted</span>` : `<span class="fail">unavailable</span> — ${esc(r.engine.error)}`) : "off"}</span>
+      <span>run at</span><span>${esc(when(r.startedAt))}</span>
+      <span>kit</span><span>${esc(e.kitRev || "?")}${e.kitDirty ? " (+ uncommitted)" : ""}</span></div>` : `<span class="dim">no run yet</span>`}</div>
+    <div class="card"><h3>vanilla_requires</h3>${vrList.length ? `<table>${vrList.map((x) => { const s = vr[x]; const ok = s === "ok";
+        return `<tr><td class="mono">${esc(x)}</td><td class="${ok ? "pass" : s ? "fail" : "dim"}" style="white-space:nowrap">${ok ? "real" : s ? "MOCK — " + esc(s) : "not loaded"}</td></tr>`; }).join("")}</table>`
+      : `<span class="dim">none — every vanilla class comes from mocks</span>`}</div>
+    <div class="card"><h3>Certification (CERTIFICATION.md)</h3>${certs.length ? `<table>${certs.map((c) => `<tr><td>${esc(c.mod)} <span class="dim mono">${esc(c.scope)}</span></td>
+        <td class="num">${esc(c.coverage)} · ${esc(c.tests)}</td><td class="num ${e.steamBuildId && c.buildId !== e.steamBuildId ? "fail" : "pass"}" title="certified buildid">${esc(c.buildId)}</td><td class="num dim">${esc(c.date)}</td></tr>`).join("")}</table>
+      ${certs.some((c) => e.steamBuildId && c.buildId !== e.steamBuildId) ? `<div class="fail" style="margin-top:6px">Installed buildid ${esc(e.steamBuildId)} differs — re-run certify.sh.</div>` : ""}` : `<span class="dim">no certifications</span>`}</div>
+  </div>
+  <div class="split" style="grid-template-columns:1fr 1fr">
+    <div class="card"><h3>Resolved config (as the runner loaded it)</h3><div class="tree">${r?.config ? jsonTree(r.config, 0) : `<span class="dim">${r ? "pz-test.lua returned nothing / failed to load" : "run once to see the resolved config"}</span>`}</div></div>
+    <div class="card"><h3>pz-test.lua <span class="dim mono" style="text-transform:none">${esc(m.root)}/pz-test.lua</span></h3>${S.config ? `<pre class="lua">${luaHi(S.config.raw)}</pre>` : `<span class="spin"></span>`}</div>
+  </div>`;
+}
+function jsonTree(v, d) {
+  if (v === null) return `<span class="b">nil</span>`;
+  if (typeof v === "string") return `<span class="s">"${esc(v)}"</span>`;
+  if (typeof v === "number") return `<span class="n">${v}</span>`;
+  if (typeof v === "boolean") return `<span class="b">${v}</span>`;
+  const arr = Array.isArray(v), ents = arr ? v.map((x, i) => [i + 1, x]) : Object.entries(v);
+  if (!ents.length) return arr ? "{}" : "{}";
+  const simple = ents.every(([, x]) => x === null || typeof x !== "object");
+  if (arr && simple && ents.length <= 4) return "{ " + ents.map(([, x]) => jsonTree(x, d + 1)).join(", ") + " }";
+  return `<details ${d < 2 ? "open" : ""}><summary class="dim">${arr ? `[${ents.length}]` : `{${ents.length}}`}</summary>${ents.map(([k, x]) => `<div class="row"><span class="k">${esc(arr ? "[" + k + "]" : k)}</span> = ${jsonTree(x, d + 1)}</div>`).join("")}</details>`;
+}
+function luaHi(src) {
+  src = src.replace(/\r\n?/g, "\n");
+  const kw = /^(and|break|do|else|elseif|end|false|for|function|if|in|local|nil|not|or|repeat|return|then|true|until|while)$/;
+  let out = "", i = 0;
+  while (i < src.length) {
+    const rest = src.slice(i);
+    let m;
+    if ((m = rest.match(/^--\[(=*)\[[\s\S]*?\]\1\]/)) || (m = rest.match(/^--[^\n]*/))) out += `<span class="com">${esc(m[0])}</span>`;
+    else if ((m = rest.match(/^"(?:[^"\\\n]|\\.)*"?/)) || (m = rest.match(/^'(?:[^'\\\n]|\\.)*'?/))) out += `<span class="str">${esc(m[0])}</span>`;
+    else if ((m = rest.match(/^[A-Za-z_]\w*/))) out += kw.test(m[0]) ? `<span class="kw">${m[0]}</span>` : m[0];
+    else if ((m = rest.match(/^\d+(\.\d+)?/))) out += `<span class="num">${m[0]}</span>`;
+    else { m = [rest[0]]; out += esc(rest[0]); }
+    i += m[0].length;
+  }
+  return out;
+}
+
+// ── History ────────────────────────────────────────────────────────────────
+function viewHistory(v) {
+  const runs = S.runs;
+  if (!runs.length) return noReport(v);
+  const rep = runs.filter((r) => r.totals);
+  v.innerHTML = `${rep.length > 1 ? `
+    <div class="chart"><h3>Tests per run</h3>${chartTests(rep)}<div class="legend"><span><i style="background:var(--pass)"></i>passed</span><span><i style="background:var(--fail)"></i>failed + errors</span><span><i style="background:var(--skip)"></i>skipped</span></div></div>
+    ${rep.some((r) => r.coverage) ? `<div class="chart"><h3>Line coverage % (runs with coverage)</h3>${chartCov(rep.filter((r) => r.coverage))}</div>` : ""}` : `<div class="notice">Two or more runs draw the trend charts.</div>`}
+    <table><thead><tr><th>when</th><th>args</th><th style="text-align:right">tests</th><th style="text-align:right">failed</th><th style="text-align:right">coverage</th><th style="text-align:right">time</th><th></th></tr></thead><tbody>
+    ${runs.slice().reverse().map((r) => `<tr class="${r.runId === S.runId ? "sel" : ""} ${r.hasReport ? "click" : ""}" data-r="${esc(r.runId)}">
+      <td class="mono" style="white-space:nowrap">${runTime(r.runId)}</td>
+      <td class="mono muted" style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.opts?.reason ? `<span style="color:var(--accent)">${esc(r.opts.reason)}</span> ` : ""}${r.opts?.only ? `${r.opts.only.length} selected tests` : esc((r.args || []).filter((a, i, A) => a !== "--report-json" && A[i - 1] !== "--report-json").join(" ") || "(all)")}</td>
+      <td class="num">${r.totals ? r.totals.passed + "/" + r.totals.tests : `<span class="fail">${r.cancelled ? "cancelled" : "exit " + r.exitCode}</span>`}</td>
+      <td class="num ${failed(r.totals) ? "fail" : "dim"}">${r.totals ? failed(r.totals) : ""}</td>
+      <td class="num">${r.coverage ? pct(r.coverage.pct) : ""}</td>
+      <td class="num">${fmtMs(r.wallMs)}</td>
+      <td style="white-space:nowrap;text-align:right"><button class="btn small" data-log="${esc(r.runId)}">log</button> <button class="btn small" data-del="${esc(r.runId)}" title="Delete this run">✕</button></td></tr>`).join("")}</tbody></table>`;
+  for (const tr of v.querySelectorAll("tr[data-r].click")) tr.onclick = (e) => { if (e.target.closest("button")) return; S.tab = "tests"; loadRun(tr.dataset.r); };
+  for (const b of v.querySelectorAll("[data-log]")) b.onclick = () => { S.tab = "log"; S.logRun = b.dataset.log; renderMain(); };
+  for (const b of v.querySelectorAll("[data-del]")) b.onclick = async () => { await api(`/api/mods/${S.modId}/runs/${b.dataset.del}`, { method: "DELETE" }); if (b.dataset.del === S.runId) { S.report = null; S.runId = null; } await refreshRuns(!S.report); loadMods(); };
+  for (const g of v.querySelectorAll("[data-run]")) g.onclick = () => { S.tab = "tests"; loadRun(g.dataset.run); };
+}
+function chartTests(rs) {
+  const W = 900, H = 150, P = 28, n = rs.length, max = Math.max(...rs.map((r) => r.totals.tests), 1);
+  const bw = Math.max(2, Math.min(26, (W - P - 10) / n - 3));
+  const x = (i) => P + 6 + i * ((W - P - 10) / n);
+  const y = (val) => H - 18 - (val / max) * (H - 30);
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">`;
+  for (const t of [0, .5, 1]) s += `<line x1="${P}" x2="${W}" y1="${y(max * t)}" y2="${y(max * t)}" stroke="var(--line)"/><text x="${P - 4}" y="${y(max * t) + 3}" text-anchor="end" fill="var(--dim)" font-size="10">${Math.round(max * t)}</text>`;
+  rs.forEach((r, i) => {
+    const t = r.totals, f = failed(t);
+    let base = 0;
+    const seg = (val, col) => { if (!val) return ""; const out = `<rect x="${x(i)}" y="${y(base + val)}" width="${bw}" height="${y(base) - y(base + val)}" fill="${col}"/>`; base += val; return out; };
+    s += `<g data-run="${esc(r.hasReport ? r.runId : "")}" style="cursor:pointer"><title>${runTime(r.runId)}\n${t.passed} passed, ${f} failed, ${t.skipped} skipped</title>${seg(t.passed, "var(--pass)")}${seg(f, "var(--fail)")}${seg(t.skipped, "var(--skip)")}${r.runId === S.runId ? `<rect x="${x(i)}" y="${H - 14}" width="${bw}" height="3" fill="var(--accent)"/>` : ""}</g>`;
+  });
+  return s + `</svg>`;
+}
+function chartCov(rs) {
+  const W = 900, H = 130, P = 28, n = rs.length;
+  const vals = rs.map((r) => r.coverage.pct);
+  const lo = Math.max(0, Math.floor((Math.min(...vals) - 5) / 10) * 10), hi = 100;
+  const x = (i) => P + 8 + (n === 1 ? 0 : i * ((W - P - 16) / (n - 1)));
+  const y = (v) => H - 16 - ((v - lo) / (hi - lo)) * (H - 28);
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">`;
+  for (const t of [lo, (lo + hi) / 2, hi]) s += `<line x1="${P}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/><text x="${P - 4}" y="${y(t) + 3}" text-anchor="end" fill="var(--dim)" font-size="10">${Math.round(t)}</text>`;
+  s += `<polyline fill="none" stroke="var(--accent)" stroke-width="1.6" points="${vals.map((v, i) => x(i) + "," + y(v)).join(" ")}"/>`;
+  rs.forEach((r, i) => { s += `<circle data-run="${esc(r.runId)}" cx="${x(i)}" cy="${y(vals[i])}" r="${r.runId === S.runId ? 4.5 : 3}" fill="${r.runId === S.runId ? "var(--accent)" : "var(--panel)"}" stroke="var(--accent)" style="cursor:pointer"><title>${runTime(r.runId)} — ${pct(vals[i])}${r.coverage.scope ? " (scope " + esc(r.coverage.scope) + ")" : ""}</title></circle>`; });
+  return s + `</svg>`;
+}
+
+// ── Log ────────────────────────────────────────────────────────────────────
+function logLine(l) {
+  const cls = /\bFAIL|\*\*\* |ERROR|Exception/.test(l) ? "lf" : /^KAHLUA TOTAL|^={5,}/.test(l) ? "lh" : /\[PASS\]/.test(l) ? "lp" : /WARN|MOCK|ENGINE UNAVAILABLE|MISS/.test(l) ? "lw" : "";
+  return `<div class="${cls}">${esc(l) || " "}</div>`;
+}
+function appendLog(l) {
+  const box = $("#logbox"); if (!box) return;
+  const view = $("#view"), stick = view.scrollTop + view.clientHeight >= view.scrollHeight - 30;
+  box.insertAdjacentHTML("beforeend", logLine(l));
+  if (stick) view.scrollTop = view.scrollHeight;
+}
+async function viewLog(v) {
+  if (S.live && S.live.modId === S.modId) {
+    v.innerHTML = `<div class="log" id="logbox">${S.live.lines.map(logLine).join("")}</div>`;
+    v.scrollTop = v.scrollHeight;
+    return;
+  }
+  const id = S.logRun || S.runId || S.runs[S.runs.length - 1]?.runId;
+  S.logRun = null;
+  if (!id) return noReport(v);
+  v.innerHTML = `<div class="muted" style="margin-bottom:8px">log of ${runTime(id)}</div><div class="log" id="logbox"><span class="spin"></span></div>`;
+  const txt = await fetch(`/api/mods/${S.modId}/runs/${id}/log`).then((r) => r.text());
+  if ($("#logbox")) $("#logbox").innerHTML = txt.split(/\r?\n/).map(logLine).join("");
+}
+
+boot();
+</script>
+</body>
+</html>

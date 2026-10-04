@@ -96,6 +96,14 @@ if [ "${1:-}" = "apicheck" ]; then
     exec python "$SCRIPT_DIR/tools/pz_api_check.py" "$@"
 fi
 
+# dashboard subcommand — local web UI over every suite in the monorepo: runs,
+# results, line coverage over source, resolved config, history. See
+# dashboard/server.js. Needs Node; no npm install.
+if [ "${1:-}" = "dashboard" ]; then
+    shift
+    exec node "$SCRIPT_DIR/dashboard/server.js" "$@"
+fi
+
 # Init subcommand — scaffolds pz-test.lua + a starter test in the current mod.
 if [ "${1:-}" = "init" ]; then
     shift

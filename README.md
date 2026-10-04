@@ -46,6 +46,7 @@ That test failed loudly the moment someone would have reintroduced the 4-arg for
 | **Zero-config discovery** | Drop a `pz-test.lua` at your mod root. Auto-discovers tests in `media/lua/client/<Mod>/Tests/`. |
 | **JUnit XML output** | `--junit-xml` for CI. Works with GitHub Actions Test Reporter, VS Code Test Explorer, etc. |
 | **Skip support** | `PZTestKit.skip("reason")` + `PZTestKit.skipInGame(...)` for environment-gated tests. Surfaces as `<skipped>` in JUnit, not `<failure>`. |
+| **Dashboard** | `pztest dashboard` serves a local web UI over every suite in the repo: start runs, browse failures with captured output, line coverage over the source, the resolved config and `vanilla_requires` status, and history across runs. Built on `--report-json`. |
 | **Line coverage** | `--coverage[=<substr>]` reports per-file line coverage. Source instrumentation (PZ's Kahlua has no debug hooks) with a compile-verify fallback, so it can never break the code under test. |
 | **Matches PZ's runtime surface** | `loadstring` / `loadstream` are **removed from the env**, as PZ's 2026-08 security patch removed them. Kahlua still ships them, so without this the kit would be *more permissive than the game* — green-lighting code that crashes on load. Use `PZTestKit.compile(src)` for syntax checks. |
 
@@ -159,6 +160,77 @@ interiors, and block keywords (`end`/`else`/…) aren't probed, so they're not i
 denominator. Scope instrumentation to the code you care about with
 `--coverage=<substr>` (matches require-name or path) — handy when the mod under test
 is a dependency (e.g. a UI-render harness covering `palette/`).
+
+### Dashboard and `--report-json`
+
+```bash
+pztest dashboard            # http://127.0.0.1:8760/  (pztest dashboard 9000 for another port)
+```
+
+A local web UI (Node, no `npm install`) over every directory with a `pz-test.lua`
+in the monorepo the kit lives in, plus `uiview/` and `examples/*`. Add other roots
+in `dashboard/roots.json` (a JSON array of paths). It has these tabs:
+
+- **Tests**: per-file and per-test status, timings and captured output. It also
+  lists the tests that newly fail or got fixed since the previous run, and has a
+  ▶ button to rerun one file or one test.
+- **Coverage**: per-file line coverage. Click a file to see its source with hit
+  and missed lines marked. Event coverage is shown when the run used `--event-coverage`.
+- **Config & env**: the config as the runner resolved it, whether each
+  `vanilla_requires` entry loaded the real file or fell back to a mock, engine
+  status, the game version, and the Steam buildid compared with `CERTIFICATION.md`.
+- **History**: pass/fail and coverage trends, and every past run with its log.
+
+- **Changes**: lines changed against any git ref (default `HEAD`, which means
+  uncommitted work), joined with coverage. Each changed executable line is marked
+  covered or uncovered. A file edited after its last measurement shows as
+  *stale*, never as covered. **Run impacted + measure** reruns, across every mod,
+  exactly the tests whose per-test coverage touches a changed file.
+- **Fidelity**: how real the suite's world was. Every PZ symbol the mod's Lua
+  uses (from LuaManager's `@LuaMethod` names, the Lua-exposed classes and the
+  vanilla globals) is shown with the layer that provided it in the run: real
+  engine, real vanilla Lua, mock, kit or mod. Symbols that are *unmodeled* are
+  absent offline, so code using them never runs in tests. This tab also ranks
+  the mocks the suite actually called, lists classes that were synthesized empty
+  while tests ran ("fidelity holes"), and keeps a kit-wide engine changelog
+  showing when each class and `PZEngine` function became real.
+- **Watch** (header): on save, reruns exactly the impacted tests in every mod,
+  including dependents (a TooltipLib edit reruns the SauceTooltips tests that
+  execute it). With **measure** on, those reruns record coverage, which keeps
+  the Changes view current.
+- **Who covers this line**: click any gutter line in a source view to see every
+  test, from any mod, that executed it, and ▶ run them.
+- **⚒ Workbench** (`/workbench`): the real engine in the browser through a
+  resident `--bridge` VM per mod. It has a craft simulator (real `HandcraftLogic`,
+  the CraftRecipeMonitor log, mod hooks), an item inspector, a script browser
+  with cross-links, a Java object explorer and a Lua console. All state lives in
+  the URL hash.
+  **Addons** let a mod plug its own item tools into the workbench with one
+  `WB.addon{ id, requires, panels, actions, presets }` call in
+  `<mod>/workbench/*.lua`. That folder sits outside `media/`, so it never
+  deploys. Actions appear as craft input steps (for example "add 500 kills", or
+  a ★ preset) and as buttons on a live item. Panels show on every matching item
+  before and after a craft, with changes highlighted. Forms are generated from
+  the declared params. VorpallySauced ships `workbench/vps.lua`, which drives
+  its real progression path, and `dashboard/workbench/addons/core.lua` is the
+  generic template. The ✚ Addons page lists what loaded and includes a
+  copy-paste template.
+
+Runs are queued two at a time and kept under `dashboard/.runs/` (gitignored).
+Smart reruns are merged with the newest full run per test, so a three-test
+rerun never shrinks the impact map.
+
+The dashboard reads `--report-json <path>`, which you can also use directly. It
+writes the whole run as one JSON file: totals, per-file and per-test records
+(status, message, `ms`, captured output), line coverage as hit and missed line
+sets, event coverage, the resolved config, `vanilla_requires` outcomes, engine
+state and the game version. The schema is versioned (`"schema": 1`).
+Related flags: `--coverage-per-test` (adds which lines each test ran, about 2%
+slower), `--only <file>` (runs exactly the `testFile::testName` lines listed)
+and `--fidelity` (adds the provenance layer of every global, call counts for
+mock, vanilla and engine functions, and runtime-synthesized classes, about 10%
+slower). The console
+output, including the `KAHLUA TOTAL` line, is unchanged.
 
 ---
 
@@ -585,6 +657,7 @@ pz-test-kit/
 │   ├── FIXTURES.md          # full API reference with counter/vector docs
 │   ├── VANILLA_REQUIRES.md  # when/how to load real vanilla PZ files
 │   └── PATTERNS.md          # case studies — container overrides, interceptors, etc.
+├── dashboard/               # `pztest dashboard`: server.js + index.html (web UI over --report-json)
 ├── examples/MyMod/          # runnable example mod
 ├── kahlua/
 │   ├── kahlua-runtime.jar   # 613KB self-contained Kahlua VM

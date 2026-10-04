@@ -16,3 +16,7 @@ uiview/shots/
 *.wasm
 *.bc
 *.map
+
+# dashboard run history (per-machine)
+dashboard/.runs/
+dashboard/.blueprints/
