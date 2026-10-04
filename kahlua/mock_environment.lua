@@ -357,6 +357,10 @@ CharacterStat = {
 -- ever passed straight back into a container/item method.
 local function _pz_open_registry(name)
     return setmetatable({}, {
+        -- Marker: in engine mode EngineBridge drops a marked registry and
+        -- exposes the REAL class under the same name (vanilla passes
+        -- ItemBodyLocation.X straight into Java, which wants the real type).
+        __pz_open_registry = name,
         __index = function(t, key)
             local token = name .. "." .. tostring(key)
             rawset(t, key, token)

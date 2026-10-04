@@ -40,6 +40,12 @@ function C.setup()
     local ok, e = PZEngine.loadVanilla("shared/Entity/TimedActions/ISHandcraftAction")
     if not ok then C.setupErr = "ISHandcraftAction: " .. tostring(e); error(C.setupErr) end
     C.vanillaPerform = ISHandcraftAction.performRecipe
+    -- Vanilla files that timed actions reach and that mods hook from
+    -- OnGameBoot (VPS ReloadSpeedHook wraps ISReloadWeaponAction): load
+    -- them BEFORE the boot listeners fire, as the game does. Best effort.
+    for _, f in ipairs({ "shared/Logs/ISLogSystem", "shared/TimedActions/ISReloadWeaponAction" }) do
+        pcall(PZEngine.loadVanilla, f)
+    end
     -- Mods install their performRecipe wrappers from OnGameBoot (deferred so
     -- vanilla is defined first) — fire it once, as the game does.
     local fired = 0

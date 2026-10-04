@@ -260,3 +260,115 @@ end)
 WB.register("addonPanels", function(a)
     return snapshot(itemFor(a))
 end)
+
+-- ── board actions (timed actions / client commands, see 35_actions.lua) ────
+-- Declared on an addon:
+--   boardActions = { { id, label, doc, kind = "timed" | "command",
+--       slots = { { name = "gun", label = "gun", accepts = function(item) ... end }, ... },
+--       params = { ... same as actions ... },
+--       run = function(items, p, ctx) ... end } }
+-- items[name] = the live item in that slot. ctx: player, mode ("sp" | "mp"),
+-- log(msg), runTimed(action, opts), clientCommand(module, command, args),
+-- serverRequire(name). Slot items are put in the player's inventory first.
+
+local function boardActionDef(addonId, actionId)
+    local a = WB.addons[addonId]
+    if not a then error("no addon " .. tostring(addonId)) end
+    if a.disabled then error(a.name .. " is disabled: " .. a.disabled) end
+    for _, b in ipairs(a.boardActions or {}) do if b.id == actionId then return a, b end end
+    error(a.name .. " has no board action " .. tostring(actionId))
+end
+
+WB.register("boardActions", function()
+    local out = {}
+    for _, id in ipairs(WB.addonOrder) do
+        local a = WB.addons[id]
+        if not a.disabled then
+            for _, b in ipairs(a.boardActions or {}) do
+                local slots = {}
+                for _, s in ipairs(b.slots or {}) do slots[#slots + 1] = { name = s.name, label = s.label or s.name, hint = s.hint } end
+                out[#out + 1] = { addon = a.id, addonName = a.name, id = b.id, label = b.label or b.id, doc = b.doc,
+                                  kind = b.kind or "timed", slots = slots, params = b.params or {} }
+            end
+        end
+    end
+    return { actions = out }
+end)
+
+-- Which slot an item fits: the first empty slot whose accepts() passes.
+WB.register("boardActionSlot", function(a)
+    local _, b = boardActionDef(a.addon, a.action)
+    local it = WB.deref(a.ref)
+    if not it then return { slot = nil } end
+    local taken = {}
+    for _, n in ipairs(a.taken or {}) do taken[n] = true end
+    for _, s in ipairs(b.slots or {}) do
+        if not taken[s.name] then
+            local ok, r = pcall(s.accepts or function() return true end, it)
+            if ok and r then return { slot = s.name } end
+        end
+    end
+    return { slot = nil }
+end)
+
+WB.register("boardActionRun", function(a)
+    local addon, b = boardActionDef(a.addon, a.action)
+    local p = playerFor(nil)
+    if not p then error("no player (engine unavailable?)") end
+    local inv = p:getInventory()
+    pcall(function() p:setPrimaryHandItem(nil); p:setSecondaryHandItem(nil) end)
+    inv:removeAllItems()
+    local items, before, missing = {}, {}, {}
+    for _, s in ipairs(b.slots or {}) do
+        local ref = a.slots and a.slots[s.name]
+        local it = ref and WB.deref(ref)
+        if it then items[s.name] = it; inv:AddItem(it); before[s.name] = WB.addonPanelsFor(it)
+        elseif not s.optional then missing[#missing + 1] = s.name end
+    end
+    if #missing > 0 then return { ok = false, err = "empty slot(s): " .. table.concat(missing, ", ") } end
+    local present = {}
+    for _, it in ipairs(WB.list(inv:getItems())) do present[it] = true end
+
+    local log = {}
+    local ctx = {
+        player = p, mode = a.mode or "sp", addon = addon,
+        log = function(m) log[#log + 1] = tostring(m) end,
+        runTimed = function(action, opts) opts = opts or {}; opts.mode = opts.mode or a.mode or "sp"; return WB.runTimed(action, opts) end,
+        clientCommand = function(m, c, args) return WB.clientCommand(p, m, c, args) end,
+        serverRequire = WB.serverRequire,
+    }
+    local params = normParams(b, a.params)
+    -- Record sends without forcing a context: runTimed pins its own per side.
+    local cmds = {}
+    local saved = { sendServerCommand, sendClientCommand, sendAddItemToContainer, sendRemoveItemFromContainer }
+    sendServerCommand = function(x, y, z, w)
+        if type(x) == "string" then cmds[#cmds + 1] = { module = x, command = y, args = z }
+        else cmds[#cmds + 1] = { module = y, command = z, args = w } end
+    end
+    sendClientCommand = function(_, m, c, args) cmds[#cmds + 1] = { module = m, command = c, args = args, toServer = true } end
+    sendAddItemToContainer = function() end
+    sendRemoveItemFromContainer = function() end
+    local ok, res, trace = pcall(b.run, items, params, ctx)
+    sendServerCommand, sendClientCommand, sendAddItemToContainer, sendRemoveItemFromContainer = saved[1], saved[2], saved[3], saved[4]
+
+    local slotsOut = {}
+    for name, it in pairs(items) do
+        local still = inv:contains(it) or p:getPrimaryHandItem() == it
+        local info = snapshot(it)
+        info.panelsBefore = before[name]
+        info.gone = not still or nil
+        -- Did the action change this item at all (as its panels see it)?
+        -- A server handler that refuses usually just returns: no change.
+        info.changed = (not still) or WB.json(info.panels) ~= WB.json(before[name])
+        slotsOut[name] = info
+    end
+    local created = {}
+    for _, it in ipairs(WB.list(inv:getItems())) do
+        if not present[it] then created[#created + 1] = snapshot(it) end
+    end
+    return {
+        ok = ok and not (type(res) == "table" and res.ok == false), result = ok and res or nil,
+        err = (not ok) and (tostring(res) .. (trace and ("\n" .. tostring(trace)) or "")) or nil,
+        slots = slotsOut, created = created, commands = cmds, log = log, mode = ctx.mode,
+    }
+end)

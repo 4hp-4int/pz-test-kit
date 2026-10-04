@@ -67,6 +67,12 @@ main { overflow: hidden; display: flex; min-width: 0; position: relative; }
 .bwires .w.out { stroke: #4f6f8f; } .bwires .w.soul { stroke: var(--accent); stroke-width: 2.5; } .bwires .w.used { stroke-dasharray: 5 4; }
 .bc { position: absolute; width: 210px; background: var(--panel); border: 1px solid var(--line2); border-radius: 6px; padding: 6px 9px 8px; cursor: default; box-shadow: 0 2px 8px rgba(0,0,0,.35); user-select: none; }
 .bc.recipe { width: 230px; border-color: #5a4a2a; background: #1a1712; }
+.bc.action { width: 230px; border-color: #3d5378; background: #121823; }
+.bslot { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .bslot b { color: var(--text); font-weight: 500; }
+.brng { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; } .brng select, .brng input { padding: 1px 5px; font-size: 11.5px; }
+.bmode { font-family: var(--mono); font-size: 10px; border: 1px solid var(--line2); border-radius: 3px; padding: 0 5px; cursor: pointer; color: var(--muted); }
+.bmode.mp { border-color: var(--link); color: var(--link); }
+.hk { display: grid; grid-template-columns: 56px 1fr; gap: 2px 8px; font-size: 11.5px; } .hk .sd { color: var(--dim); font-family: var(--mono); font-size: 10.5px; }
 .bc.sel { outline: 2px solid var(--link); }
 .bc.drop { outline: 2px dashed var(--accent); }
 .bc.gone { opacity: .45; } .bc.stale { border-style: dashed; }
@@ -445,6 +451,25 @@ tool("board", {
   newCard(c) { const b = this.board(); c.id = "c" + b.seq++; b.cards.push(c); return c; },
   say(msg, busy) { this.st.msg = msg || ""; this.st.busy = !!busy; const el = $("#bmsg"); if (el) el.innerHTML = (busy ? `<span class="spin"></span> ` : "") + esc(this.st.msg); },
   isStock(c) { return c.kind === "item" && (c.count || 1) > 1; },
+  // Random rolls. Boards default to seeded (varied, replayable); blueprints
+  // carry their rng. reset=true restarts the seed's sequence.
+  rng() { const b = this.board(); if (!b.rng) b.rng = { mode: "seeded", seed: 1 }; return b.rng; },
+  async applyRng(reset) {
+    const r = this.rng();
+    if (!reset && this.st.rngApplied === JSON.stringify(r) + S.mod) return;
+    let seed = r.seed;
+    if (r.mode === "random") seed = Math.floor(Math.random() * 2147483646) + 1;
+    const res = await call("setRandom", { mode: r.mode === "midpoint" ? "midpoint" : "seeded", seed }).catch(() => null);
+    this.st.rngApplied = JSON.stringify(r) + S.mod;
+    if (res && r.mode === "random") this.st.lastSeed = res.seed;
+  },
+  // Recipes and board actions are both "process" cards: inputs -> outputs.
+  isProc(c) { return c && (c.kind === "recipe" || c.kind === "action"); },
+  syncSlots(a) { a.inputs = arr(a.slotDefs).map((s) => a.slots[s.name]).filter(Boolean); },
+  async actionCatalog() {
+    if (!this.st.bact || this.st.bactMod !== S.mod) { this.st.bactMod = S.mod; this.st.bact = (await call("boardActions").catch(() => ({ actions: [] }))).actions || []; }
+    return arr(this.st.bact);
+  },
 
   async render(v) {
     this.board();
@@ -454,6 +479,9 @@ tool("board", {
         <div class="bbar"><button class="btn small" id="breplay" title="Rebuild every live object and re-run every recipe in order">↻ run all</button>
           <button class="btn small" id="bsave" title="Save this board to the library as a blueprint">save blueprint</button>
           <button class="btn small" id="bfit" title="Fit everything (f)">fit</button><button class="btn small" id="bclear">clear</button>
+          <span class="brng" title="Random rolls (ZombRand). seeded: varied, and run all replays the same rolls. random: a new seed every run all. fixed: the test kit's midpoint, every roll identical">🎲
+            <select class="inp" id="brngm"><option value="seeded">seeded</option><option value="random">random</option><option value="midpoint">fixed (kit)</option></select>
+            <input class="inp mono" id="brngs" style="width:70px" title="seed"></span>
           <span id="bexp"></span><span id="bmsg" class="muted" style="font-size:12px"></span></div>
         <div class="bworld" id="bworld"><svg class="bwires" id="bwires"></svg><div id="bcards"></div></div>
         <div class="bempty" id="bempty"></div>
@@ -463,6 +491,10 @@ tool("board", {
     $("#breplay").onclick = () => this.replay(true);
     $("#bsave").onclick = () => this.saveDialog();
     $("#bfit").onclick = () => this.fit();
+    const rng = this.rng();
+    $("#brngm").value = rng.mode; $("#brngs").value = rng.seed ?? ""; $("#brngs").disabled = rng.mode !== "seeded";
+    $("#brngm").onchange = (e) => { const r = this.rng(); r.mode = e.target.value; $("#brngs").disabled = r.mode !== "seeded"; this.save(); this.applyRng(true); };
+    $("#brngs").onchange = (e) => { const r = this.rng(); r.seed = Number(e.target.value) || 1; this.save(); this.applyRng(true); };
     $("#bclear").onclick = () => { if (!confirm("Clear the board?")) return; this.st.b = { ...this.emptyBoard(), mod: S.mod }; this.save(); this.draw(); this.inspect(); this.showExpect(); };
     this.bindCanvas();
     this.palette();
@@ -502,22 +534,28 @@ tool("board", {
   async findResults() {
     const q = this.st.palQ.trim(), el = $("#bpr");
     if (!el) return;
+    const acts = await this.actionCatalog();
+    const actRow = (a) => `<div class="li bpi" draggable="true" data-add='${esc(JSON.stringify({ kind: "action", key: a.addon + "/" + a.id }))}' title="${esc(a.doc || "")}"><span class="t">⚡ ${esc(a.label)}</span><span class="s">${esc(a.kind)}</span></div>`;
+    const bindAdd = () => { for (const li of $$("[data-add]", el)) {
+      li.onclick = () => { const a = JSON.parse(li.dataset.add); const p = this.centerWorld(); this.add(a.kind, a.key, p.x, p.y); };
+      li.ondragstart = (e) => e.dataTransfer.setData("text/wb-add", li.dataset.add);
+    } };
     if (!q) {
-      el.innerHTML = `<div class="dim" style="font-size:12px">e.g. ${["dismantle", "assemble", "smelt", "Base.Axe", "spear"].map((x) => `<a class="lnk" data-pq="${x}">${x}</a>`).join(", ")}<br><br>Or open the <a class="lnk" data-tab="lib">Library</a> for ready-made blueprints.</div>`;
+      el.innerHTML = `<div class="dim" style="font-size:12px">e.g. ${["dismantle", "assemble", "smelt", "Base.Pistol", "9mmClip"].map((x) => `<a class="lnk" data-pq="${x}">${x}</a>`).join(", ")}<br><br>Or open the <a class="lnk" data-tab="lib">Library</a> for ready-made blueprints.</div>
+        ${acts.length ? `<div class="bph">actions (timed actions + commands)</div>${acts.map(actRow).join("")}` : ""}`;
       for (const a of $$("[data-pq]", el)) a.onclick = () => { this.st.palQ = a.dataset.pq; $("#bq").value = a.dataset.pq; this.findResults(); };
       for (const a of $$("[data-tab]", el)) a.onclick = () => $(`[data-pt="lib"]`).click();
+      bindAdd();
       return;
     }
     el.innerHTML = `<span class="spin"></span>`;
     const [rec, it] = await Promise.all([call("recipes", { q, limit: 25 }).catch(() => ({})), call("items", { q, limit: 25 }).catch(() => ({}))]);
     if (this.st.palQ.trim() !== q) return;
     const row = (kind, key, label, sub) => `<div class="li bpi" draggable="true" data-add='${esc(JSON.stringify({ kind, key }))}'><span class="t">${kind === "recipe" ? "⚒ " : "◇ "}${esc(label)}</span><span class="s">${esc(sub || "")}</span></div>`;
-    el.innerHTML = `<div class="bph">recipes</div>${arr(rec.recipes).map((r) => row("recipe", r.full, r.label, r.category)).join("") || `<div class="dim" style="font-size:12px">none</div>`}
+    const qa = acts.filter((a) => (a.label + " " + a.id + " " + a.addonName).toLowerCase().includes(q.toLowerCase()));
+    el.innerHTML = `${qa.length ? `<div class="bph">actions</div>${qa.map(actRow).join("")}` : ""}<div class="bph">recipes</div>${arr(rec.recipes).map((r) => row("recipe", r.full, r.label, r.category)).join("") || `<div class="dim" style="font-size:12px">none</div>`}
       <div class="bph">items</div>${arr(it.items).map((i) => row("item", i.fullType, i.name, i.fullType)).join("") || `<div class="dim" style="font-size:12px">none</div>`}`;
-    for (const li of $$("[data-add]", el)) {
-      li.onclick = () => { const a = JSON.parse(li.dataset.add); const p = this.centerWorld(); this.add(a.kind, a.key, p.x, p.y); };
-      li.ondragstart = (e) => e.dataTransfer.setData("text/wb-add", li.dataset.add);
-    }
+    bindAdd();
   },
   async library() {
     const el = $("#bpl");
@@ -540,7 +578,7 @@ tool("board", {
             ${r ? `<span class="${r.fail ? "fail" : "pass"}" title="last run: ${r.pass}/${r.total} expectations">${r.fail ? "✗" : "✓"} ${r.pass}/${r.total}</span>` : ""}</div>
           ${bp.error ? `<div class="fail" style="font-size:11px">${esc(bp.error)}</div>` : ""}
           <div style="line-height:1.2">${arr(bp.tags).map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>
-          <details><summary style="font-size:11px">tree · ${arr(bp.cards).filter((c) => c.kind === "recipe").length} recipe(s)${arr(bp.expect).length ? " · " + bp.expect.length + " checks" : ""}</summary>
+          <details><summary style="font-size:11px">tree · ${arr(bp.cards).filter((c) => c.kind === "recipe" || c.kind === "action").length} step(s)${arr(bp.expect).length ? " · " + bp.expect.length + " checks" : ""}</summary>
             ${bp.description ? `<div class="muted" style="font-size:11px;margin:3px 0">${esc(bp.description)}</div>` : ""}<div class="tree">${esc(treeText(bp.cards))}</div></details>
           <div class="row" style="gap:4px;margin-top:3px"><button class="btn small primary" data-load title="Replace the board with this blueprint and run it">open + run</button>
             <button class="btn small" data-insert title="Add it next to what's on the board">add</button>
@@ -557,8 +595,8 @@ tool("board", {
     }
     function treeText(cards) {
       const by = new Map(arr(cards).map((c) => [c.id, c]));
-      const name = (c) => c ? (c.kind === "recipe" ? (c.label || c.recipe || "").replace(/^Base\./, "") : (c.type || "").replace(/^Base\./, "") + ((c.count || 1) > 1 ? " ×" + c.count : "") + (arr(c.steps).length ? "*" : "")) : "?";
-      return arr(cards).filter((c) => c.kind === "recipe").map((r) => `⚒ ${name(r)}\n   ← ${arr(r.inputs).map((i) => name(by.get(i))).join(", ")}${arr(r.outputs).length ? `\n   → ${r.outputs.map((i) => name(by.get(i))).join(", ")}` : ""}`).join("\n");
+      const name = (c) => c ? (c.kind === "recipe" || c.kind === "action" ? (c.label || c.recipe || c.action || "").replace(/^Base\./, "") : (c.type || "").replace(/^Base\./, "") + ((c.count || 1) > 1 ? " ×" + c.count : "") + (arr(c.steps).length ? "*" : "")) : "?";
+      return arr(cards).filter((c) => c.kind === "recipe" || c.kind === "action").map((r) => `${r.kind === "action" ? "⚡" : "⚒"} ${name(r)}${r.mode === "mp" ? " [MP]" : ""}\n   ← ${arr(r.inputs).map((i) => name(by.get(i))).join(", ")}${arr(r.outputs).length ? `\n   → ${arr(r.outputs).map((i) => name(by.get(i))).join(", ")}` : ""}`).join("\n");
     }
   },
 
@@ -568,10 +606,16 @@ tool("board", {
     const cards = b.cards.map((c) => {
       const o = { id: c.tid || c.id, kind: c.kind, x: Math.round(c.x), y: Math.round(c.y) };
       if (c.kind === "recipe") Object.assign(o, { recipe: c.recipe, label: c.label, inputs: c.inputs.map(tid), outputs: c.outputs.map(tid) });
+      else if (c.kind === "action") {
+        const slots = {}, outMap = {};
+        for (const [k, v] of Object.entries(c.slots || {})) if (v) slots[k] = tid(v);
+        for (const [k, v] of Object.entries(c.outMap || {})) outMap[k] = tid(v);
+        Object.assign(o, { addon: c.addon, action: c.action, label: c.label, slots, params: c.params || {}, mode: c.mode || "sp", outMap });
+      }
       else Object.assign(o, { type: c.type }, (c.count || 1) > 1 ? { count: c.count } : {}, arr(c.steps).length ? { steps: c.steps } : {}, c.origin ? { origin: tid(c.origin) } : {});
       return o;
     });
-    return { ...meta, cards, expect: arr(b.expect).map((e) => ({ ...e, card: e.card && tid(e.card), recipe: e.recipe && tid(e.recipe), outputsOf: e.outputsOf && tid(e.outputsOf) })) };
+    return { ...meta, rng: this.rng(), cards, expect: arr(b.expect).map((e) => ({ ...e, card: e.card && tid(e.card), recipe: e.recipe && tid(e.recipe), outputsOf: e.outputsOf && tid(e.outputsOf) })) };
   },
   async saveDialog() {
     const b = this.board();
@@ -617,6 +661,15 @@ tool("board", {
     for (const t of arr(bp.cards)) {
       const c = this.card(map.get(t.id));
       if (c.kind === "recipe") { c.inputs = arr(t.inputs).map((i) => map.get(i)).filter(Boolean); c.outputs = arr(t.outputs).map((i) => map.get(i)).filter(Boolean); c.crafted = true; }
+      if (c.kind === "action") {
+        const def = (await this.actionCatalog()).find((x) => x.addon === c.addon && x.id === c.action);
+        c.slotDefs = def ? def.slots : Object.keys(t.slots || {}).map((n) => ({ name: n, label: n }));
+        c.paramDefs = def ? def.params : []; c.doc = def && def.doc; c.akind = def ? def.kind : "timed"; c.label = c.label || (def && def.label) || c.action;
+        c.slots = {}; for (const [k, v] of Object.entries(t.slots || {})) c.slots[k] = map.get(v);
+        c.outMap = {}; for (const [k, v] of Object.entries(t.outMap || {})) c.outMap[k] = map.get(v);
+        c.outputs = Object.values(c.outMap).filter(Boolean);
+        this.syncSlots(c); c.crafted = true;
+      }
       if (c.origin) c.origin = map.get(c.origin);
     }
     const fresh = arr(bp.cards).map((t) => this.card(map.get(t.id)));
@@ -627,7 +680,7 @@ tool("board", {
     }));
     if (dx) for (const c of fresh) c.y += dx;
     b.expect = (insert ? arr(b.expect) : []).concat(arr(bp.expect).map((e) => ({ ...e, card: e.card && map.get(e.card), recipe: e.recipe && map.get(e.recipe), outputsOf: e.outputsOf && map.get(e.outputsOf) })));
-    if (!insert) b.meta = { name: bp.name, description: bp.description, tags: bp.tags, source: bp.source, id: bp.id };
+    if (!insert) { b.meta = { name: bp.name, description: bp.description, tags: bp.tags, source: bp.source, id: bp.id }; b.rng = bp.rng ? { ...bp.rng } : { mode: "seeded", seed: 1 }; }
     b.sel = null;
     this.save(); this.draw(); this.fit(); this.inspect();
     await this.replay(true);
@@ -637,7 +690,7 @@ tool("board", {
   // Columns by dependency depth: root items, recipe, its outputs, next recipe...
   layout(cards) {
     const by = new Map(cards.map((c) => [c.id, c])), depth = new Map();
-    const recipes = cards.filter((c) => c.kind === "recipe");
+    const recipes = cards.filter((c) => this.isProc(c));
     const rdepth = (r, seen = new Set()) => {
       if (depth.has(r.id)) return depth.get(r.id);
       if (seen.has(r.id)) return 1;
@@ -669,14 +722,15 @@ tool("board", {
       if (e.card) { const c = this.card(e.card), t = badges(c), n = (c && (c.snap && c.snap.name)) || (c && c.type) || "?";
         if (e.badge) { ok = t.includes(e.badge); what = `${n} has "${e.badge}"`; }
         if (e.noBadge) { ok = !t.includes(e.noBadge); what = `${n} has no "${e.noBadge}"`; }
-        if (e.uses != null) { const u = c && c.snap && c.snap.uses; ok = u === e.uses; what = `${n} has ${e.uses} uses (got ${u == null ? "?" : u})`; } }
+        if (e.uses != null) { const u = c && c.snap && c.snap.uses; ok = u === e.uses; what = `${n} has ${e.uses} uses (got ${u == null ? "?" : u})`; }
+        if (e.condition != null) { const u = c && c.snap && c.snap.condition; ok = u === e.condition; what = `${n} has condition ${e.condition} (got ${u == null ? "?" : u})`; } }
       if (e.outputsOf) { const r = this.card(e.outputsOf), outs = arr(r && r.outputs).map((id) => this.card(id));
         const n = outs.filter((c) => badges(c).includes(e.badge)).length; ok = n === e.count; what = `${e.count} output(s) of ${(r && (r.label || r.recipe)) || "?"} with "${e.badge}" (got ${n})`; }
       if (e.recipe) { const r = this.card(e.recipe); ok = !!(r && r.result && arr(r.result.commands).some((x) => x.command === e.command)); what = `${(r && (r.label || r.recipe)) || "?"} sends ${e.command}`; }
       return { ok, what, card: e.card || e.outputsOf || e.recipe };
     });
     const pass = results.filter((r) => r.ok).length, fail = results.length - pass;
-    const ran = b.cards.some((c) => c.kind === "recipe" && c.result);
+    const ran = b.cards.some((c) => this.isProc(c) && c.result);
     el.innerHTML = ran ? `<span class="bexp ${fail ? "bad" : "good"}" title="${esc(results.map((r) => (r.ok ? "✓ " : "✗ ") + r.what).join("\n"))}">${fail ? "✗" : "✓"} ${pass}/${results.length} expectations</span>`
       : `<span class="bexp" title="${esc(results.map((r) => "· " + r.what).join("\n"))}">${results.length} expectations (run to check)</span>`;
     for (const x of $$(".bc.expfail")) x.classList.remove("expfail");
@@ -693,6 +747,18 @@ tool("board", {
   },
   async add(kind, key, x, y, extra) {
     ({ x, y } = this.freshSpot(x, y));
+    if (kind === "action") {
+      const [addon, id] = key.split("/");
+      const def = (await this.actionCatalog()).find((a) => a.addon === addon && a.id === id);
+      if (!def) { this.say("unknown action " + key); return null; }
+      const params = {};
+      for (const pd of arr(def.params)) params[pd.name] = pd.default;
+      const c = this.newCard({ kind: "action", addon, action: id, label: def.label, doc: def.doc, akind: def.kind, slotDefs: def.slots, paramDefs: def.params,
+                               params, slots: {}, inputs: [], outputs: [], outMap: {}, mode: "sp", x, y });
+      this.board().sel = c.id;
+      this.save(); this.draw(); this.inspect();
+      return c;
+    }
     const c = this.newCard(kind === "recipe" ? { kind, recipe: key, x, y, inputs: [], outputs: [] } : { kind, type: key, x, y, steps: [], ...(extra || {}) });
     this.board().sel = c.id;
     this.save(); this.draw(); this.inspect();
@@ -707,6 +773,7 @@ tool("board", {
   },
   // Mint the live item and re-apply its recorded steps (root cards).
   async instance(c) {
+    await this.applyRng(false);
     try {
       const r = await call("addonPanels", { type: c.type });
       c.ref = r.ref; c.snap = r; c.stale = false; c.consumed = false; c.err = null;
@@ -736,6 +803,8 @@ tool("board", {
   // ── crafting ──
   ready(c) { return this.isStock(c) ? !c.consumed : (c.ref && !c.consumed && !c.stale); },
   async craft(r, replaying) {
+    if (!replaying) await this.applyRng(false);
+    if (r.kind === "action") return this.runAction(r, replaying);
     const ins = r.inputs.map((id) => this.card(id)).filter(Boolean);
     if (!ins.length) { this.say("Attach inputs first: drag item cards onto the recipe, or fill inputs."); return; }
     if (!replaying && ins.some((c) => !this.ready(c))) { this.say("Inputs were used up by an earlier craft: re-running the board.", true); await this.replay(false, r.id); return; }
@@ -771,15 +840,57 @@ tool("board", {
     if (!replaying) { this.board().sel = r.id; this.say(res.ok ? `✓ ${r.label || r.recipe}: ${outs.length} output${outs.length === 1 ? "" : "s"}` : `✗ ${r.label || r.recipe} refused`); }
     this.save(); this.draw(); this.inspect(); this.showExpect();
   },
+  // Board action: slot items in, "after" cards out (the same live objects,
+  // changed), plus anything the action created. Input cards dim: their state
+  // is now the after card's.
+  async runAction(a, replaying) {
+    const missing = arr(a.slotDefs).filter((s) => !a.slots[s.name]);
+    if (missing.length) { this.say(`Fill the slot${missing.length > 1 ? "s" : ""} first: ${missing.map((s) => s.label).join(", ")} (drop an item card on the action)`); return; }
+    const ins = a.inputs.map((id) => this.card(id)).filter(Boolean);
+    if (!replaying && ins.some((c) => !this.ready(c))) { this.say("Inputs were changed or used by an earlier step: re-running the board.", true); await this.replay(false, a.id); return; }
+    this.say(`${a.label} (${a.mode === "mp" ? "MP: client + server" : "SP"})…`, true);
+    const slots = {};
+    for (const [k, v] of Object.entries(a.slots)) { const c = this.card(v); if (c) slots[k] = c.ref; }
+    let res;
+    try { res = await call("boardActionRun", { addon: a.addon, action: a.action, slots, params: a.params || {}, mode: a.mode || "sp" }); }
+    catch (e) { a.result = { ok: false, err: e.message }; this.say(""); this.save(); this.draw(); this.inspect(); return; }
+    const outKey = [];
+    const place = (key, info, i) => {
+      let c = a.outMap[key] && this.card(a.outMap[key]);
+      if (!c) { const p = this.freshSpot(a.x + 300, a.y + i * 104 - 20); c = this.newCard({ kind: "item", x: p.x, y: p.y, steps: [], origin: a.id }); a.outMap[key] = c.id; }
+      Object.assign(c, { type: info.fullType, ref: info.ref, snap: info, origin: a.id, stale: false, err: null, consumed: !!info.gone, gone: !!info.gone, before: info.panelsBefore,
+                         unchanged: key.startsWith("slot:") && info.changed === false });
+      outKey.push(c.id);
+    };
+    let i = 0;
+    for (const s of arr(a.slotDefs)) {
+      const info = res.slots && res.slots[s.name];
+      const inCard = this.card(a.slots[s.name]);
+      if (!info || !inCard) continue;
+      inCard.consumed = true; inCard.changedBy = a.id;
+      place("slot:" + s.name, info, i++);
+    }
+    arr(res.created).forEach((info, k) => place("new:" + k, info, i++));
+    for (const [k, id] of Object.entries(a.outMap)) if (!outKey.includes(id)) { const c = this.card(id); if (c) { c.stale = true; c.ref = null; c.err = "not produced this time"; } }
+    a.outputs = Object.values(a.outMap).filter(Boolean);
+    const r0 = res.result || {};
+    const changedAny = Object.values(res.slots || {}).some((x) => x.changed) || arr(res.created).length > 0;
+    a.result = { ok: res.ok, err: res.err, steps: r0.steps, valid: r0.valid, commands: res.commands, log: res.log, mode: res.mode, noChange: res.ok && !changedAny,
+                 handlerCount: r0.listeners, handlerErrors: r0.errors, out: res._out };
+    a.crafted = true;
+    if (!replaying) { this.board().sel = a.id; this.say(res.ok ? `✓ ${a.label}` : `✗ ${a.label}`); }
+    this.save(); this.draw(); this.inspect(); this.showExpect();
+  },
   // Rebuild every live object: root items (+steps), then each recipe once all
   // its inputs exist, in dependency order. all=true runs every recipe.
   async replay(all, thenCraftId) {
     const b = this.board();
     this.say("running…", true);
-    for (const c of b.cards) if (c.kind === "item") { c.ref = c.origin ? null : c.ref; c.consumed = false; c.stale = false; if (c.origin) c.snap = null; }
+    await this.applyRng(true);
+    for (const c of b.cards) if (c.kind === "item") { c.ref = c.origin ? null : c.ref; c.consumed = false; c.changedBy = null; c.gone = false; c.unchanged = false; c.stale = false; if (c.origin) c.snap = null; }
     for (const c of b.cards) if (c.kind === "item" && !c.origin && !this.isStock(c)) await this.instance(c);
     this.draw();
-    const todo = b.cards.filter((c) => c.kind === "recipe" && (all || c.crafted || c.id === thenCraftId));
+    const todo = b.cards.filter((c) => this.isProc(c) && (all || c.crafted || c.id === thenCraftId));
     let progressed = true;
     while (todo.length && progressed) {
       progressed = false;
@@ -788,7 +899,8 @@ tool("board", {
         if (ins.length && ins.every((c) => this.ready(c))) { todo.splice(i--, 1); await this.craft(r, true); progressed = true; }
       }
     }
-    const fails = b.cards.filter((c) => c.kind === "recipe" && c.result && !c.result.ok).length;
+    const fails = b.cards.filter((c) => this.isProc(c) && c.result && !c.result.ok).length;
+    if (this.rng().mode === "random" && this.st.lastSeed) this.say(`(random seed ${this.st.lastSeed}: set mode to seeded + this seed to replay these rolls)`);
     this.say(todo.length ? `${todo.length} recipe(s) couldn't run (inputs missing or used twice)` : fails ? `${fails} recipe(s) refused` : "all recipes ran");
     this.save(); this.draw(); this.inspect();
     return this.showExpect();
@@ -796,7 +908,11 @@ tool("board", {
   remove(id, quiet) {
     const b = this.board();
     b.cards = b.cards.filter((c) => c.id !== id);
-    for (const c of b.cards) if (c.kind === "recipe") { c.inputs = c.inputs.filter((x) => x !== id); c.outputs = c.outputs.filter((x) => x !== id); }
+    for (const c of b.cards) if (this.isProc(c)) {
+      c.inputs = c.inputs.filter((x) => x !== id); c.outputs = c.outputs.filter((x) => x !== id);
+      if (c.slots) for (const k of Object.keys(c.slots)) if (c.slots[k] === id) delete c.slots[k];
+      if (c.outMap) for (const k of Object.keys(c.outMap)) if (c.outMap[k] === id) delete c.outMap[k];
+    }
     for (const c of b.cards) if (c.origin === id) c.origin = null;
     b.expect = arr(b.expect).filter((e) => e.card !== id && e.recipe !== id && e.outputsOf !== id);
     if (b.sel === id) b.sel = null;
@@ -811,6 +927,17 @@ tool("board", {
     const badges = (c) => arr(c.snap && c.snap.badges).map((x) => `<div class="bb ${esc(x.tone || "")}">${esc(x.text)}</div>`).join("");
     el.innerHTML = b.cards.map((c) => {
       const cls = `bc ${c.kind} ${b.sel === c.id ? "sel" : ""} ${c.consumed ? "gone" : ""} ${c.stale ? "stale" : ""}`;
+      if (c.kind === "action") {
+        const r = c.result, hooks = arr(r && r.steps), bad = hooks.filter((h) => !h.ok).length;
+        return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
+          <div class="bch">⚡ ${esc(c.label)}</div>
+          <div class="bcs">${esc(c.addon)} · ${esc(c.akind || "timed")}</div>
+          ${arr(c.slotDefs).map((s) => { const it = this.card(c.slots[s.name]); return `<div class="bslot">${esc(s.label)}: <b>${it ? esc((it.snap && it.snap.name) || it.type) : "—"}</b></div>`; }).join("")}
+          <div class="row" style="gap:4px;margin-top:5px"><button class="btn small primary" data-craft>▶ Run</button>
+            ${c.akind === "timed" ? `<span class="bmode ${c.mode === "mp" ? "mp" : ""}" data-mode title="SP: one machine runs perform then complete. MP: client runs perform only; the server runs serverStart + complete">${c.mode === "mp" ? "MP" : "SP"}</span>` : `<span class="bmode" title="client -> server command">cmd</span>`}</div>
+          ${r ? `<div class="bres ${r.noChange ? "warn" : r.ok && !bad ? "pass" : "fail"}">${r.noChange ? "◌ ran, nothing changed" : r.ok && !bad ? "✓ ran" : r.ok ? `✗ ${bad} hook${bad > 1 ? "s" : ""} threw` : "✗ failed"}${hooks.length ? ` <span class="dim">${hooks.length} hooks</span>` : ""}${arr(r.commands).length ? ` <span class="acc">· ${arr(r.commands).map((x) => esc(x.command)).join(", ")}</span>` : ""}</div>` : ""}
+        </div>`;
+      }
       if (c.kind === "recipe") {
         const r = c.result;
         return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
@@ -823,11 +950,12 @@ tool("board", {
       const name = (c.snap && c.snap.name) || c.type || "(output)";
       return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
         <div class="bch">◇ ${esc(name)}${this.isStock(c) ? ` <span class="acc">×${c.count}</span>` : ""}</div><div class="bcs">${esc(c.type || "")}${arr(c.steps).length ? ` · ${c.steps.length} step${c.steps.length === 1 ? "" : "s"}` : ""}</div>
-        ${badges(c)}${c.consumed ? `<div class="bres dim">consumed</div>` : ""}${c.stale && !c.err ? `<div class="bres warn">stale: run all</div>` : ""}${c.err ? `<div class="bres fail" title="${esc(c.err)}">${esc(c.err.length > 34 ? "error" : c.err)}</div>` : ""}
+        ${badges(c)}${c.unchanged ? `<div class="bres warn">unchanged by ${esc((this.card(c.origin) || {}).label || "the action")}</div>` : ""}${c.consumed ? `<div class="bres dim">${c.changedBy ? "→ after card holds its new state" : c.gone ? "gone (inside / used up)" : "consumed"}</div>` : ""}${c.stale && !c.err ? `<div class="bres warn">stale: run all</div>` : ""}${c.err ? `<div class="bres fail" title="${esc(c.err)}">${esc(c.err.length > 34 ? "error" : c.err)}</div>` : ""}
       </div>`;
     }).join("");
     for (const btn of $$("[data-craft]", el)) btn.onclick = (e) => { e.stopPropagation(); this.craft(this.card(btn.closest(".bc").dataset.id)); };
     for (const btn of $$("[data-fill]", el)) btn.onclick = (e) => { e.stopPropagation(); this.fill(this.card(btn.closest(".bc").dataset.id)); };
+    for (const m of $$("[data-mode]", el)) m.onclick = (e) => { e.stopPropagation(); const c = this.card(m.closest(".bc").dataset.id); c.mode = c.mode === "mp" ? "sp" : "mp"; this.save(); this.draw(); if (this.board().sel === c.id) this.inspect(); };
     this.applyView();
     this.wires();
     if (this.st.lastExpect) this.showExpect();
@@ -847,7 +975,7 @@ tool("board", {
       return `<path class="${cls}" d="M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}"/>`;
     };
     let h = "";
-    for (const r of b.cards.filter((c) => c.kind === "recipe")) {
+    for (const r of b.cards.filter((c) => this.isProc(c))) {
       const rb = box(r.id);
       if (!rb) continue;
       for (const id of r.inputs) { const c = this.card(id), cb = box(id); if (cb) h += path(cb, rb, "w in" + (soul(c) ? " soul" : "") + (c && c.consumed ? " used" : "")); }
@@ -919,7 +1047,7 @@ tool("board", {
         const el = $(`.bc[data-id="${c.id}"]`);
         if (el) { el.style.left = c.x + "px"; el.style.top = c.y + "px"; el.classList.add("dragging"); }
         self.wires();
-        for (const t of $$(".bc.recipe")) t.classList.toggle("drop", c.kind === "item" && t.dataset.id !== c.id && hit(t, last));
+        for (const t of $$(".bc.recipe, .bc.action")) t.classList.toggle("drop", c.kind === "item" && t.dataset.id !== c.id && hit(t, last));
       };
       const move = (ev) => { last = ev; if (!raf) raf = requestAnimationFrame(frame); };
       const up = (ev) => {
@@ -931,7 +1059,14 @@ tool("board", {
         for (const t of $$(".bc.drop, .bc.dragging")) t.classList.remove("drop", "dragging");
         if (pan) { if (!moved && !cardEl && b.sel) self.select(null); self.save(); if (self.pendingDraw) { self.pendingDraw = false; self.draw(); } return; }
         if (!moved) { self.select(c.id); if (self.pendingDraw) { self.pendingDraw = false; self.draw(); } return; }
-        const target = c.kind === "item" && $$(".bc.recipe").find((t) => t.dataset.id !== c.id && hit(t, ev));
+        const target = c.kind === "item" && $$(".bc.recipe, .bc.action").find((t) => t.dataset.id !== c.id && hit(t, ev));
+        if (target && self.card(target.dataset.id).kind === "action") {
+          const a = self.card(target.dataset.id);
+          c.x = ox; c.y = oy;
+          self.attachToAction(a, c);
+          self.save();
+          return;
+        }
         if (target) {
           const r = self.card(target.dataset.id);
           if (!r.inputs.includes(c.id)) r.inputs.push(c.id);
@@ -966,6 +1101,20 @@ tool("board", {
     }
   },
 
+  // Put an item card into the action slot its addon says it fits (first
+  // empty slot whose accepts() passes), else the first empty slot.
+  async attachToAction(a, c) {
+    const taken = Object.keys(a.slots).filter((k) => a.slots[k]);
+    let slot = null;
+    if (c.ref) { const r = await call("boardActionSlot", { addon: a.addon, action: a.action, ref: c.ref, taken }).catch(() => null); slot = r && r.slot; }
+    if (!slot) { const free = arr(a.slotDefs).find((s) => !a.slots[s.name]); slot = free && free.name; }
+    if (!slot) { this.say(`${a.label}: every slot is filled (change one in the inspector)`); return; }
+    a.slots[slot] = c.id; this.syncSlots(a);
+    this.say(`${(c.snap && c.snap.name) || c.type} → ${a.label} [${slot}]`);
+    this.board().sel = a.id;
+    this.save(); this.draw(); this.inspect();
+  },
+
   // ── inspector: everything about the selected card, in one place ──
   async inspect() {
     const el = $("#binsp"), b = this.board(), c = b.sel && this.card(b.sel);
@@ -982,6 +1131,7 @@ tool("board", {
       return;
     }
     if (c.kind === "recipe") return this.inspectRecipe(el, c);
+    if (c.kind === "action") return this.inspectAction(el, c);
     const name = (c.snap && c.snap.name) || c.type;
     const origin = c.origin && this.card(c.origin);
     const pinned = arr(b.expect).filter((e) => e.card === c.id);
@@ -998,9 +1148,11 @@ tool("board", {
         ${c.lastRun ? `<div class="verdict ${c.lastRun.ok ? "ok" : "bad"}" style="margin:8px 0;padding:6px 9px"><span class="mono" style="font-size:12px">${esc(c.lastRun.addon)}/${esc(c.lastRun.action)}</span> ${c.lastRun.ok ? val(c.lastRun.result) : `<pre class="fail">${esc(c.lastRun.err)}</pre>`}
           ${arr(c.lastRun.commands).length ? `<div style="font-size:11.5px">sent: ${arr(c.lastRun.commands).map((x) => `<span class="mono">${esc(x.command)}</span>`).join(", ")}</div>` : ""}</div>` : ""}
         <h3>Expect <span class="dim" style="text-transform:none">(checked after each run, saved with the blueprint)</span></h3>
-        ${pinned.map((e) => `<span class="step">${e.badge ? "has “" + esc(e.badge) + "”" : "no “" + esc(e.noBadge) + "”"}<b data-edel="${esc(JSON.stringify(e))}">✕</b></span>`).join("")}
-        <div class="pform"><select class="inp" id="ekind"><option value="badge">has badge text</option><option value="noBadge">does NOT have</option></select>
-          <input class="inp mono" id="etext" placeholder="BLOODED" value="${esc(arr(c.snap && c.snap.badges)[0] ? c.snap.badges[0].text.split(" ").pop() : "BLOODED")}" style="width:110px"><button class="btn small" id="eadd">pin</button></div>
+        ${pinned.map((e) => `<span class="step">${e.badge != null ? "has “" + esc(e.badge) + "”" : e.noBadge != null ? "no “" + esc(e.noBadge) + "”" : e.uses != null ? "uses = " + e.uses : "condition = " + e.condition}<b data-edel="${esc(JSON.stringify(e))}">✕</b></span>`).join("")}
+        <div class="pform"><select class="inp" id="ekind"><option value="badge">has badge text</option><option value="noBadge">does NOT have</option>
+            ${c.snap && c.snap.uses != null ? `<option value="uses">uses =</option>` : ""}${c.snap && c.snap.condition != null ? `<option value="condition">condition =</option>` : ""}</select>
+          <input class="inp mono" id="etext" placeholder="BLOODED" value="${esc(arr(c.snap && c.snap.badges)[0] ? c.snap.badges[0].text.split(" ").pop() : "BLOODED")}" style="width:110px"><button class="btn small" id="eadd">pin</button>
+          ${c.snap && (c.snap.uses != null || c.snap.condition != null) ? `<span class="dim" style="font-size:11px">now: ${c.snap.uses != null ? "uses " + c.snap.uses : ""}${c.snap.uses != null && c.snap.condition != null ? " · " : ""}${c.snap.condition != null ? "condition " + c.snap.condition + "/" + c.snap.conditionMax : ""}</span>` : ""}</div>
         <h3>${c.consumed ? "As it went in" : "Now"}</h3>${panelsHtml(c.consumed ? c.before : c.snap && c.snap.panels, c.consumed ? null : c.lastBefore) || `<span class="dim">no panels</span>`}
       </div>`;
     if ($("#iexp")) $("#iexp").onclick = () => openExplorer({ ref: c.ref, label: "$" + c.ref });
@@ -1008,7 +1160,21 @@ tool("board", {
     $("#idel").onclick = () => this.remove(c.id);
     $("#idup").onclick = async () => { const d = this.newCard({ kind: "item", type: c.type, count: c.count, steps: JSON.parse(JSON.stringify(arr(c.steps))), x: c.x + 24, y: c.y + 120 }); b.sel = d.id; this.draw(); if (!this.isStock(d)) await this.instance(d); this.save(); this.draw(); this.inspect(); };
     for (const x of $$("[data-sdel]", el)) x.onclick = () => { c.steps.splice(+x.dataset.sdel, 1); this.save(); this.say("step removed: ↻ run all to rebuild from scratch"); this.draw(); this.inspect(); };
-    $("#eadd").onclick = () => { const t = $("#etext").value.trim(); if (!t) return; (b.expect = arr(b.expect)).push({ card: c.id, [$("#ekind").value]: t }); this.save(); this.inspect(); this.showExpect(); };
+    // Numeric kinds prefill with the item's current value: pin what you see.
+    $("#ekind").onchange = (e) => {
+      const k = e.target.value;
+      if (k === "uses" || k === "condition") $("#etext").value = c.snap && c.snap[k] != null ? c.snap[k] : "";
+    };
+    $("#eadd").onclick = () => {
+      const k = $("#ekind").value, t = $("#etext").value.trim();
+      if (!t) return;
+      const v = k === "uses" || k === "condition" ? Number(t) : t;
+      if (typeof v === "number" && !isFinite(v)) { alert(k + " must be a number"); return; }
+      const e = { card: c.id, [k]: v };
+      if (arr(b.expect).some((x) => JSON.stringify(x) === JSON.stringify(e))) { this.say("already pinned"); return; }
+      (b.expect = arr(b.expect)).push(e);
+      this.save(); this.inspect(); this.showExpect();
+    };
     for (const x of $$("[data-edel]", el)) x.onclick = () => { const e = JSON.parse(x.dataset.edel); b.expect = arr(b.expect).filter((y) => JSON.stringify(y) !== JSON.stringify(e)); this.save(); this.inspect(); this.showExpect(); };
     if (!c.ref || c.consumed) return;
     // Actions: one picker + one form, not a wall of every action.
@@ -1049,6 +1215,33 @@ tool("board", {
         this.save(); this.draw(); this.inspect();
       };
     };
+  },
+  inspectAction(el, a) {
+    const res = a.result, items = this.board().cards.filter((c) => c.kind === "item" && !c.consumed && !c.stale);
+    const nm = (c) => esc((c.snap && c.snap.name) || c.type);
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>⚡ ${esc(a.label)}</b><div class="mono dim" style="font-size:11px">${esc(a.addon)}/${esc(a.action)} · ${esc(a.akind || "timed")}</div></div><button class="btn small" id="idel">✕</button></div>
+      <div class="ibody">
+        ${a.doc ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${esc(a.doc)}</div>` : ""}
+        <div class="row" style="gap:6px"><button class="btn primary" id="arun">▶ Run</button>
+          ${a.akind === "timed" ? `<select class="inp" id="amode"><option value="sp" ${a.mode !== "mp" ? "selected" : ""}>SP (perform + complete on one machine)</option><option value="mp" ${a.mode === "mp" ? "selected" : ""}>MP (client perform; server serverStart + complete)</option></select>` : `<span class="muted" style="font-size:12px">client → server command</span>`}</div>
+        <h3>Slots</h3>${arr(a.slotDefs).map((s) => `<div class="row" style="gap:6px;font-size:12px;margin-bottom:3px"><span style="width:70px" class="muted">${esc(s.label)}</span>
+          <select class="inp" data-slot="${esc(s.name)}" style="flex:1"><option value="">—</option>${items.map((c) => `<option value="${c.id}" ${a.slots[s.name] === c.id ? "selected" : ""}>${nm(c)}</option>`).join("")}${a.slots[s.name] && !items.some((c) => c.id === a.slots[s.name]) && this.card(a.slots[s.name]) ? `<option value="${a.slots[s.name]}" selected>${nm(this.card(a.slots[s.name]))} (used)</option>` : ""}</select></div>`).join("")}
+        <div class="muted" style="font-size:11px">or drop an item card on the action</div>
+        ${arr(a.paramDefs).length ? `<h3>Params</h3><div class="pform" id="aparams">${paramForm({ params: a.paramDefs }, a.params)}</div>` : ""}
+        ${res ? `<h3>Last run ${res.mode ? `<span class="dim" style="text-transform:none">(${res.mode === "mp" ? "MP" : "SP"})</span>` : ""}</h3>
+          <div class="verdict ${res.noChange ? "warn" : res.ok && !arr(res.steps).some((h) => !h.ok) ? "ok" : "bad"}" style="padding:6px 9px">${res.err ? `<pre class="fail">${esc(res.err)}</pre>` : res.noChange ? "<b>Ran, but nothing changed.</b> <span class='muted'>Every slot item came out exactly as it went in. A server handler that refuses usually looks like this; see the log.</span>" : res.ok ? "ran" : "failed"}
+            ${res.handlerCount != null ? `<div style="font-size:12px">server handlers run: ${res.handlerCount}${arr(res.handlerErrors).length ? ` <span class="fail">${arr(res.handlerErrors).map(esc).join("; ")}</span>` : ""}</div>` : ""}</div>
+          ${arr(res.steps).length ? `<div class="hk" style="margin-top:6px">${res.steps.map((h) => `<span class="sd">${esc(h.side)}</span><span><span class="${h.ok ? "pass" : "fail"}">${h.ok ? "✓" : "✗"}</span> <span class="mono">${esc(h.hook)}</span>${h.err ? `<div class="fail mono" style="font-size:11px">${esc(h.err)}</div>` : ""}</span>`).join("")}</div>` : ""}
+          ${arr(res.commands).length ? `<h3>Commands sent</h3>${res.commands.map((x) => `<div style="font-size:12px"><span class="mono acc">${esc(x.module)}/${esc(x.command)}</span>${x.toServer ? " <span class='dim'>(to server)</span>" : ""} ${val(x.args, 1)}</div>`).join("")}` : ""}
+          ${arr(res.log).length ? `<h3>Log</h3><pre class="box">${esc(res.log.join("\n"))}</pre>` : ""}
+          ${arr(res.out).length ? `<details><summary style="font-size:12px">print output · ${res.out.length}</summary><pre class="box">${esc(res.out.join("\n"))}</pre></details>` : ""}` : ""}
+      </div>`;
+    $("#idel").onclick = () => this.remove(a.id);
+    if ($("#amode")) $("#amode").onchange = (e) => { a.mode = e.target.value; this.save(); this.draw(); };
+    for (const sel of $$("[data-slot]", el)) sel.onchange = () => { if (sel.value) a.slots[sel.dataset.slot] = sel.value; else delete a.slots[sel.dataset.slot]; this.syncSlots(a); this.save(); this.draw(); };
+    const readP = () => { const f = $("#aparams"); if (f) { try { a.params = { ...a.params, ...readParams(f) }; } catch (e) { alert(e.message); return false; } } return true; };
+    if ($("#aparams")) $("#aparams").onchange = () => { readP(); this.save(); };
+    $("#arun").onclick = () => { if (readP()) { this.save(); this.runAction(a); } };
   },
   inspectRecipe(el, r) {
     const res = r.result, ins = r.inputs.map((id) => this.card(id)).filter(Boolean);
