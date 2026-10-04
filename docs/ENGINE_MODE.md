@@ -162,3 +162,36 @@ mocks. The engine's scope is the script/item layer; probes on a live server
   SauceTweaks `EnginePackingTests.lua` `near()`).
 - Standalone smoke: `java -cp stubs;kahlua-runtime.jar;. EngineBridge`
   from `kahlua/` — boots, mints a bulb, prints PASS/FAIL.
+
+## A real world: squares, corpses, sandbox, clock
+
+Engine mode can stand up enough of a world for mod code that lives on the
+ground. First consumer: SaucedCarts (`Tests/EngineWorld.lua` is the harness
+to copy; `EngineWorldCartTests`, `EngineCorpseCartTests`, `EngineCartLootTests`).
+
+| binding | what it gives you |
+|---|---|
+| `PZEngine.newSquare(x, y, z)` | a real `IsoGridSquare` (0..255 on x/y), registered in `ServerMap` so the engine's own `getCell():getGridSquare` finds it |
+| `PZEngine.cell()` | the real `IsoCell`. The global `getCell()` stays the kit's mock; a test swaps it in (`getCell = PZEngine.cell`) and restores |
+| `PZEngine.setServer(bool)` | flips `GameServer.server`, returns the previous value. **Run world mutations as the server**: it is the branch that skips sprite and texture work, so drops are headless. Turning it on also stands up a `UdpEngine` with zero connections, so server broadcasts reach nobody instead of NPE-ing |
+| `PZEngine.newCorpse(sq, wasZombie)` | a real `IsoDeadBody` on the square, with a `HumanVisual` and a corpse inventory. `body:becomeCorpseItem(false)` gives the real `Base.CorpseMale`, serialized as in game. Pass `wasZombie = true` for zombie corpses: vanilla only rots player corpses when `removePlayerCorpsesOnCorpseRemoval` is on |
+| `PZEngine.updateBodies()` | vanilla's rot ticker (`IsoDeadBody.updateBodies`), with any exception **returned**. Call it this way, not from Lua directly: from Lua, an exception inside came back as a silent success while aborting the loop for every later body |
+| `PZEngine.gameTime()` | the real `GameTime`. World age = `nightsSurvived * 24 + (timeOfDay - 7)`. Swap the Lua `GameTime` global for it when Lua and Java must agree (corpse death times) |
+| `PZEngine.sandboxSet(name, value)` | set a sandbox option through the engine's typed option and get back what it **kept**: out-of-range values are refused, exactly as in game. The mod under test's `media/sandbox-options.txt` is registered at boot through `CustomSandboxOptions`, so its own options are settable too |
+
+Boot now also initialises `SandboxOptions.instance` for real (the `LuaManager`
+stub has a working `RunLua`). Before this, the first engine call to touch it
+threw, and `IsoGridSquare.AddWorldInventoryItem` among others reached Lua as a
+silent `nil`.
+
+**Where it stops.** Anything that needs a skinned model or the animation
+system: the dying-character `IsoDeadBody(IsoGameCharacter)` constructor (bone
+poses), and grappling. Vanilla's grab (`pickUpCorpseItem`) turns a body into a
+zombie "reanimated for grapple", which stops partway and leaves a body without
+its container; remove it in the test or vanilla's ticker throws on it later.
+Vehicles are not built.
+
+**Vanilla corpse facts learned here** (zombie corpse, default sandbox): death
+time survives `storeInByteData` / `loadCorpseFromByteData` on its own; a body
+goes at `age >= HoursForCorpseRemoval` (216 h); at rot stage 3 every tick rolls
+`NextBool(7)` to become a skeleton, and a skeleton lasts one more stage (288 h).

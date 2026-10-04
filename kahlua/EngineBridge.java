@@ -83,6 +83,23 @@ public final class EngineBridge {
         "zombie.scripting.entity.components.crafting.CraftRecipe",
         "zombie.scripting.entity.components.crafting.InputScript",
         "zombie.scripting.entity.components.crafting.CraftRecipe$RequiredSkill",
+        "zombie.scripting.objects.CharacterTrait",
+        "zombie.util.list.PZArrayList",
+        "zombie.iso.objects.IsoDeadBody",
+        "zombie.network.id.ObjectIDType",
+        "zombie.inventory.ItemPickerJava",
+        "zombie.GameTime",
+        "zombie.SandboxOptions",
+        "zombie.SandboxOptions$IntegerSandboxOption",
+        "zombie.SandboxOptions$DoubleSandboxOption",
+        "zombie.SandboxOptions$BooleanSandboxOption",
+        "zombie.SandboxOptions$StringSandboxOption",
+        "zombie.SandboxOptions$EnumSandboxOption",
+        "zombie.iso.IsoGridSquare",
+        "zombie.iso.IsoCell",
+        "zombie.iso.IsoMovingObject",
+        "zombie.iso.IsoObject",
+        "zombie.iso.objects.IsoWorldInventoryObject",
         "zombie.inventory.ItemContainer",
         "zombie.inventory.types.Food",
         "zombie.inventory.types.DrainableComboItem",
@@ -242,8 +259,20 @@ public final class EngineBridge {
                 scratchThread.debugOwnerThread = Thread.currentThread();
                 scratchThread.pcall(definesClosure, new Object[0]);
                 cls("zombie.Lua.LuaManager").getField("env").set(null, scratchEnv);
+                cls("zombie.Lua.LuaManager").getField("scriptThread").set(null, scratchThread);
                 cls("zombie.ZomboidGlobals").getMethod("Load").invoke(null);
                 log.println("[engine] ZomboidGlobals loaded from defines.lua");
+                // SandboxOptions.instance is built in its static init (defines
+                // + the Apocalypse preset via LuaManager.RunLua). Force it now so
+                // a failure is one boot-log line, not a silent nil deep inside
+                // whichever engine call first touched it.
+                try {
+                    Class.forName("zombie.SandboxOptions", true, loader);
+                    log.println("[engine] SandboxOptions initialised (Apocalypse preset)");
+                } catch (Throwable st) {
+                    Throwable r = st; while (r.getCause() != null) r = r.getCause();
+                    log.println("[engine] SandboxOptions init FAILED: " + r);
+                }
             } catch (Throwable t) {
                 Throwable root = t; while (root.getCause() != null) root = root.getCause();
                 log.println("[engine] ZomboidGlobals load skipped: " + root);
@@ -305,6 +334,30 @@ public final class EngineBridge {
                 files += parseFile(sm, parse, initMode, e.file(), e.modId(), ctx, log);
             }
             log.println("[engine] parsed " + files + " script files");
+
+            // The mod under test's sandbox options, through the engine's own
+            // parser (CustomSandboxOptions.readFile) and registration
+            // (initInstance -> SandboxOptions.newCustomOption), as a game load
+            // does for every enabled mod. PZEngine.sandboxSet then sets values
+            // through the real typed option, min/max enforced.
+            if (modRoot != null) {
+                try {
+                    Path so = modRoot.resolve("media/sandbox-options.txt");
+                    if (Files.exists(so)) {
+                        Class<?> cso = cls("zombie.sandbox.CustomSandboxOptions");
+                        Object csoInst = cso.getField("instance").get(null);
+                        Method read = cso.getDeclaredMethod("readFile", String.class);
+                        read.setAccessible(true);
+                        read.invoke(csoInst, so.toString());
+                        Object sbo = cls("zombie.SandboxOptions").getField("instance").get(null);
+                        cso.getMethod("initInstance", cls("zombie.SandboxOptions")).invoke(csoInst, sbo);
+                        log.println("[engine] sandbox options registered from " + modRoot.relativize(so));
+                    }
+                } catch (Throwable t) {
+                    Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                    log.println("[engine] mod sandbox options skipped: " + r);
+                }
+            }
 
             // The same post-parse passes ScriptManager.Load() runs, minus the
             // Lua-, sound- and world-dictionary-coupled ones.
@@ -529,6 +582,76 @@ public final class EngineBridge {
                 log.println("[engine] could not set UIManager.defaultthread: " + t);
             }
         }
+        pzEngine.rawset("newSquare", (JavaFunction) (frame, n) -> {
+            int x = n > 0 && frame.get(0) instanceof Double d0 ? d0.intValue() : 100;
+            int y = n > 1 && frame.get(1) instanceof Double d1 ? d1.intValue() : 100;
+            int z = n > 2 && frame.get(2) instanceof Double d2 ? d2.intValue() : 0;
+            Object[] r = newSquare(x, y, z);
+            frame.push(r[0]);
+            frame.push(r[1]);
+            return 2;
+        });
+        // GameServer.server gates the engine's render-side work (sprites,
+        // textures) the harness has no GPU for -- a dedicated server takes
+        // exactly the headless branch. Flip it around world mutations.
+        pzEngine.rawset("setServer", (JavaFunction) (frame, n) -> {
+            try {
+                java.lang.reflect.Field f = cls("zombie.network.GameServer").getField("server");
+                boolean prev = f.getBoolean(null);
+                boolean on = n > 0 && Boolean.TRUE.equals(frame.get(0));
+                f.setBoolean(null, on);
+                if (on) ensureServerNetwork();
+                frame.push(prev);
+            } catch (Throwable t) { frame.push(null); }
+            return 1;
+        });
+        // The real IsoCell the harness squares live in (nil until the first
+        // newSquare). The global getCell() stays the kit's mock -- most suites
+        // are written against it -- so a test that wants the engine's own
+        // square lookup swaps it in: getCell = PZEngine.cell, then restores.
+        pzEngine.rawset("cell", (JavaFunction) (frame, n) -> { frame.push(harnessCell); return 1; });
+        // Set a sandbox option through the engine's typed option and return
+        // what the engine kept: an out-of-range value is refused and the old
+        // one stays (IntegerConfigOption.setValue). nil if no such option.
+        pzEngine.rawset("sandboxSet", (JavaFunction) (frame, n) -> {
+            try {
+                Object sbo = cls("zombie.SandboxOptions").getField("instance").get(null);
+                Object opt = sbo.getClass().getMethod("getOptionByName", String.class).invoke(sbo, (String) frame.get(0));
+                if (opt == null) { frame.push(null); return 1; }
+                Object cfg = opt.getClass().getMethod("asConfigOption").invoke(opt);
+                java.lang.reflect.Method set = cfg.getClass().getMethod("setValueFromObject", Object.class);
+                Object v = frame.get(1);
+                set.invoke(cfg, v);
+                Object got = cfg.getClass().getMethod("getValueAsObject").invoke(cfg);
+                frame.push(got instanceof Integer i ? (Object) i.doubleValue() : got);
+            } catch (Throwable t) { frame.push(null); }
+            return 1;
+        });
+        pzEngine.rawset("gameTime", (JavaFunction) (frame, n) -> {
+            try { frame.push(cls("zombie.GameTime").getField("instance").get(null)); }
+            catch (Throwable t) { frame.push(null); }
+            return 1;
+        });
+        // Vanilla's corpse rot ticker, with any exception RETURNED. Called
+        // straight from Lua, an exception inside it came back as a silent
+        // success while aborting the loop for every body after the bad one --
+        // a test then "proves" a body that was never even visited survives.
+        pzEngine.rawset("updateBodies", (JavaFunction) (frame, n) -> {
+            try { cls("zombie.iso.objects.IsoDeadBody").getMethod("updateBodies").invoke(null); frame.push(null); }
+            catch (Throwable t) {
+                Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                StringBuilder sb = new StringBuilder(r.toString());
+                for (StackTraceElement el : r.getStackTrace())
+                    if (el.getClassName().startsWith("zombie.")) { sb.append(" @ ").append(el); break; }
+                frame.push(sb.toString());
+            }
+            return 1;
+        });
+        pzEngine.rawset("newCorpse", (JavaFunction) (frame, n) -> {
+            Object[] r = newCorpse(frame.get(0), n > 1 && Boolean.TRUE.equals(frame.get(1)));
+            frame.push(r[0]); frame.push(r[1]);
+            return 2;
+        });
         pzEngine.rawset("newPlayer", (JavaFunction) (frame, n) -> {
             Object[] r = newPlayer();
             frame.push(r[0]);
@@ -740,6 +863,155 @@ public final class EngineBridge {
      * headless exactly this way: dummy sound emitter, no client-only paths).
      * Returns {player, null} or {null, "Root: message @ first zombie.* frame"}.
      */
+    /** The one headless cell every newSquare lives in (created on first use). */
+    private static Object harnessCell;
+    private static final int HARNESS_SQUARES = 256;   // one metagrid cell: squares 0..255 on x and y
+
+    private static java.lang.reflect.Field field(Class<?> c, String name) throws Exception {
+        java.lang.reflect.Field f = c.getDeclaredField(name);
+        f.setAccessible(true);
+        return f;
+    }
+
+    /**
+     * A real IsoGridSquare, registered where the engine's own lookups find it.
+     *
+     * IsoCell.getGridSquare answers from ServerMap when GameServer.server is
+     * set (IsoCell.java:3345) -- the branch a dedicated server runs, and the
+     * one the harness runs world mutations under (the render-side work in
+     * IsoWorldInventoryObject is skipped on a server, which is what makes
+     * dropping items headless-safe). So the square goes where ServerMap reads:
+     * the metagrid is given one 256x256 cell (isValidSquare), ServerMap is
+     * sized to it, and the square is set into a real IsoChunk inside a loaded
+     * ServerCell. getCell():getGridSquare(x, y, z) from mod Lua is then the
+     * game's own lookup, unchanged. Coordinates must be within 0..255.
+     */
+    public static Object[] newSquare(int x, int y, int z) {
+        if (!booted) return new Object[] { null, "engine not booted" };
+        if (x < 0 || y < 0 || x >= HARNESS_SQUARES || y >= HARNESS_SQUARES)
+            return new Object[] { null, "harness squares are 0.." + (HARNESS_SQUARES - 1) };
+        try {
+            Class<?> cellC = cls("zombie.iso.IsoCell");
+            Class<?> worldC = cls("zombie.iso.IsoWorld");
+            Object world = worldC.getField("instance").get(null);
+            Class<?> mapC = cls("zombie.network.ServerMap");
+            Object map = mapC.getField("instance").get(null);
+            Class<?> serverCellC = cls("zombie.network.ServerMap$ServerCell");
+            int serverCellsPerSide = HARNESS_SQUARES / 64;
+            if (harnessCell == null) {
+                harnessCell = cellC.getConstructor(int.class, int.class).newInstance(300, 300);
+                Object grid = worldC.getMethod("getMetaGrid").invoke(world);
+                Class<?> gridC = grid.getClass();
+                for (String f : new String[] { "minX", "minY", "maxX", "maxY" }) gridC.getField(f).setInt(grid, 0);
+                field(mapC, "grid").set(map, grid);
+                field(mapC, "width").setInt(map, serverCellsPerSide);
+                field(mapC, "height").setInt(map, serverCellsPerSide);
+                mapC.getField("cellMap").set(map, java.lang.reflect.Array.newInstance(serverCellC, serverCellsPerSide * serverCellsPerSide));
+            }
+            Object[] cellMap = (Object[]) mapC.getField("cellMap").get(map);
+            int cx = x / 64, cy = y / 64;
+            Object sc = cellMap[cy * serverCellsPerSide + cx];
+            if (sc == null) {
+                java.lang.reflect.Constructor<?> k = serverCellC.getDeclaredConstructor();
+                k.setAccessible(true);
+                sc = k.newInstance();
+                serverCellC.getField("wx").setInt(sc, cx);
+                serverCellC.getField("wy").setInt(sc, cy);
+                serverCellC.getField("isLoaded").setBoolean(sc, true);
+                cellMap[cy * serverCellsPerSide + cx] = sc;
+            }
+            Object[][] chunks = (Object[][]) serverCellC.getField("chunks").get(sc);
+            int chx = (x - cx * 64) / 8, chy = (y - cy * 64) / 8;
+            Class<?> chunkC = cls("zombie.iso.IsoChunk");
+            if (chunks[chx][chy] == null) {
+                Object chunk = chunkC.getConstructor(cellC).newInstance(harnessCell);
+                field(chunkC, "wx").setInt(chunk, x / 8);
+                field(chunkC, "wy").setInt(chunk, y / 8);
+                chunks[chx][chy] = chunk;
+            }
+            Object chunk = chunks[chx][chy];
+            Class<?> sqC = cls("zombie.iso.IsoGridSquare");
+            Object existing = chunkC.getMethod("getGridSquare", int.class, int.class, int.class).invoke(chunk, x % 8, y % 8, z);
+            if (existing != null) return new Object[] { existing, null };
+            Object sq = sqC.getMethod("getNew", cellC, cls("zombie.iso.SliceY"), int.class, int.class, int.class)
+                .invoke(null, harnessCell, null, x, y, z);
+            chunkC.getMethod("setSquare", int.class, int.class, int.class, sqC).invoke(chunk, x % 8, y % 8, z, sq);
+            return new Object[] { sq, null };
+        } catch (Throwable t) {
+            return new Object[] { null, describe(t) };
+        }
+    }
+
+    /**
+     * A server's broadcasts (INetworkPacket.sendToRelative, sendToAll, ...)
+     * iterate GameServer.udpEngine.connections. The harness is a dedicated
+     * server with nobody connected: a UdpEngine whose connection list is
+     * empty, allocated WITHOUT its constructor (which binds sockets). Every
+     * broadcast then reaches zero clients, which is the truth.
+     */
+    private static void ensureServerNetwork() {
+        try {
+            Class<?> gs = cls("zombie.network.GameServer");
+            java.lang.reflect.Field ue = gs.getField("udpEngine");
+            if (ue.get(null) != null) return;
+            Class<?> udpC = cls("zombie.core.raknet.UdpEngine");
+            java.lang.reflect.Field uf = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe");
+            uf.setAccessible(true);
+            Object unsafe = uf.get(null);
+            Object udp = unsafe.getClass().getMethod("allocateInstance", Class.class).invoke(unsafe, udpC);
+            field(udpC, "connections").set(udp, new java.util.ArrayList<>());
+            ue.set(null, udp);
+        } catch (Throwable t) {
+            System.err.println("[engine] could not stand up an empty server network: " + describe(t));
+        }
+    }
+
+    public static Object[] newCorpse(Object sq, boolean wasZombie) {
+        if (!booted || harnessCell == null) return new Object[] { null, "no harness cell (call newSquare first)" };
+        try {
+            Class<?> sqC = cls("zombie.iso.IsoGridSquare");
+            Class<?> bodyC = cls("zombie.iso.objects.IsoDeadBody");
+            Object body = bodyC.getConstructor(cls("zombie.iso.IsoCell")).newInstance(harnessCell);
+            // The save-load constructor leaves the visual unset; the dying-
+            // character constructor gives a human corpse a HumanVisual
+            // (IsoDeadBody.java:324), and save() refuses anything else.
+            Class<?> hv = cls("zombie.core.skinnedmodel.visual.HumanVisual");
+            Object visual = hv.getConstructor(cls("zombie.core.skinnedmodel.visual.IHumanVisual")).newInstance(body);
+            field(bodyC, "baseVisual").set(body, visual);
+            // A zombie's corpse, the usual cart cargo: vanilla's rot ticker
+            // ages it unconditionally, a player corpse only when
+            // removePlayerCorpsesOnCorpseRemoval is on (IsoDeadBody.updateBodies).
+            if (wasZombie) field(bodyC, "wasZombie").setBoolean(body, true);
+            // Every real corpse carries an inventory (the dying constructor
+            // hands it the character's, IsoDeadBody.java:327). Vanilla's rot
+            // ticker clears it when a body skeletonizes (updateRotting) -- a
+            // container-less corpse NPEs there and aborts updateBodies for
+            // every body after it.
+            bodyC.getMethod("setContainer", cls("zombie.inventory.ItemContainer"))
+                .invoke(body, cls("zombie.inventory.ItemContainer").getConstructor().newInstance());
+            bodyC.getMethod("setSquare", sqC).invoke(body, sq);
+            bodyC.getMethod("setCurrent", sqC).invoke(body, sq);
+            float x = ((Number) sqC.getMethod("getX").invoke(sq)).floatValue() + 0.5f;
+            float y = ((Number) sqC.getMethod("getY").invoke(sq)).floatValue() + 0.5f;
+            bodyC.getMethod("setX", float.class).invoke(body, x);
+            bodyC.getMethod("setY", float.class).invoke(body, y);
+            sqC.getMethod("addCorpse", bodyC, boolean.class).invoke(sq, body, false);
+            return new Object[] { body, null };
+        } catch (Throwable t) {
+            return new Object[] { null, describe(t) };
+        }
+    }
+
+    private static String describe(Throwable t) {
+        Throwable root = t;
+        while (root.getCause() != null) root = root.getCause();
+        String at = "";
+        for (StackTraceElement el : root.getStackTrace()) {
+            if (el.getClassName().startsWith("zombie.")) { at = " @ " + el; break; }
+        }
+        return root.getClass().getSimpleName() + ": " + root.getMessage() + at;
+    }
+
     public static Object[] newPlayer() {
         if (!booted) return new Object[] { null, "engine not booted" };
         java.lang.reflect.Field server = null;

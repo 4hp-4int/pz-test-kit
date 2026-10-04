@@ -64,6 +64,48 @@ public class LuaManager {
     // surface (env, exposer, event wiring) out of the harness.
     public static se.krka.kahlua.j2se.J2SEPlatform platform = new se.krka.kahlua.j2se.J2SEPlatform();
 
+    // Engine mode: the thread boot ran defines.lua on, and the one RunLua
+    // executes files on -- always against `env`, the same scratch env.
+    public static KahluaThread scriptThread = null;
+    public static java.util.List<String> loaded = new java.util.ArrayList<>();
+
+    /**
+     * Real-shaped RunLua: execute a Lua file into `env` and return its first
+     * result. SandboxOptions' constructor (SandboxOptions.java:269-275) runs
+     * defines.lua and the "Apocalypse" preset through this; missing, its
+     * static init threw NoSuchMethodError, and every engine path that touches
+     * SandboxOptions.instance failed -- IsoGridSquare.AddWorldInventoryItem
+     * among them, which then reached Lua as a silent nil (Kahlua retries the
+     * next overload when one throws). No-op (null) outside engine mode.
+     */
+    public static Object RunLua(String filename) { return RunLua(filename, false); }
+
+    public static Object RunLua(String filename, boolean rewriteEvents) {
+        if (env == null || scriptThread == null || filename == null) return null;
+        String key = filename.replace("\\", "/");
+        try {
+            String src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(filename)),
+                java.nio.charset.StandardCharsets.UTF_8);
+            se.krka.kahlua.vm.LuaClosure c = se.krka.kahlua.luaj.compiler.LuaCompiler.loadstring(src, key, env);
+            Object[] r = scriptThread.pcall(c, new Object[0]);
+            if (!loaded.contains(key)) loaded.add(key);
+            if (r != null && r.length >= 1 && Boolean.FALSE.equals(r[0])) {
+                System.err.println("[engine] RunLua(" + key + ") failed: " + (r.length > 1 ? r[1] : "?"));
+                return null;
+            }
+            return r != null && r.length >= 2 ? r[1] : null;
+        } catch (Exception e) {
+            System.err.println("[engine] RunLua(" + key + "): " + e);
+            return null;
+        }
+    }
+
+    public static String getSandboxCacheDir() {
+        java.io.File d = new java.io.File(System.getProperty("java.io.tmpdir"), "pztest-zomboid/Sandbox Presets");
+        d.mkdirs();
+        return d.getAbsolutePath();
+    }
+
     public static StackTraceElement[] getLuaStackStrace(Coroutine c) {
         return new StackTraceElement[0];
     }
