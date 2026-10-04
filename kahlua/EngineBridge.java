@@ -152,6 +152,39 @@ public final class EngineBridge {
         // and ISLoadBulletsInMagazine calls :getItemKey() on it.
         "zombie.scripting.objects.AmmoType",
         "zombie.scripting.objects.MoodleType",
+        // Script objects (LuaManager.java:1852, 2202, 2305-2349, 2443): the
+        // ScriptManager getAll*() lists hand these back; unexposed, Lua can
+        // hold them but not call getScriptObjectName() on them.
+        "zombie.core.skinnedmodel.runtime.RuntimeAnimationScript",
+        "zombie.iso.SpriteModel",
+        "zombie.scripting.itemConfig.ItemConfig",
+        "zombie.scripting.objects.AnimationsMesh",
+        "zombie.scripting.objects.EnergyDefinitionScript",
+        "zombie.scripting.objects.EvolvedRecipe",
+        "zombie.scripting.objects.Fixing",
+        "zombie.scripting.objects.FluidDefinitionScript",
+        "zombie.scripting.objects.FluidFilterScript",
+        "zombie.scripting.objects.GameSoundScript",
+        "zombie.scripting.objects.ItemFilterScript",
+        "zombie.scripting.objects.MannequinScript",
+        "zombie.scripting.objects.ModelScript",
+        "zombie.scripting.objects.PhysicsShapeScript",
+        "zombie.scripting.objects.SoundTimelineScript",
+        "zombie.scripting.objects.StringListScript",
+        "zombie.scripting.objects.TimedActionScript",
+        "zombie.scripting.objects.VehicleScript",
+        "zombie.scripting.objects.VehicleTemplate",
+        "zombie.scripting.objects.XuiColorsScript",
+        "zombie.scripting.objects.XuiConfigScript",
+        "zombie.scripting.objects.XuiLayoutScript",
+        "zombie.scripting.objects.XuiSkinScript",
+        "zombie.vehicles.VehicleEngineRPM",
+        // Entities (LuaManager.java:1885-1889, 1940): workstation crafts build an
+        // IsoObject entity from its script and hand HandcraftLogic its CraftBench.
+        "zombie.entity.ComponentType",
+        "zombie.entity.GameEntity",
+        "zombie.entity.GameEntityFactory",
+        "zombie.entity.components.crafting.CraftBench",
         // The collections PZ itself exposes; getInputs()/getAllItems() etc.
         // hand these back and Lua calls :size()/:get() on them.
         "java.util.ArrayList",
@@ -292,6 +325,16 @@ public final class EngineBridge {
                     new se.krka.kahlua.vm.KahluaThread(System.out, scratchPlatform, scratchEnv);
                 scratchThread.debugOwnerThread = Thread.currentThread();
                 scratchThread.pcall(definesClosure, new Object[0]);
+                // The engine reads a few Lua globals from Java through this env.
+                // CraftRecipeManager.itemGetQueuedAmount rawgets
+                // ISTimedActionQueue.queues on every test-only input check; absent,
+                // each canPerform / setManualInputsFor NPEs and reads as false.
+                // Seed an empty queue (vanilla ISTimedActionQueue.lua:7). Keep the
+                // env scratch: LuaEventManager.AddEvent registers unknown events
+                // into env.Events, which would clobber the kit's mock Events.
+                KahluaTable taq = scratchPlatform.newTable();
+                taq.rawset("queues", scratchPlatform.newTable());
+                scratchEnv.rawset("ISTimedActionQueue", taq);
                 cls("zombie.Lua.LuaManager").getField("env").set(null, scratchEnv);
                 cls("zombie.Lua.LuaManager").getField("scriptThread").set(null, scratchThread);
                 cls("zombie.ZomboidGlobals").getMethod("Load").invoke(null);
@@ -664,6 +707,42 @@ public final class EngineBridge {
         // newSquare). The global getCell() stays the kit's mock -- most suites
         // are written against it -- so a test that wants the engine's own
         // square lookup swaps it in: getCell = PZEngine.cell, then restores.
+        // SpriteConfigManager.InitScriptsPostTileDef: the game runs it after
+        // tile definitions load (ScriptManager.java:366). Without it no
+        // SpriteConfig resolves, so isMultiSquareMaster() is false and an
+        // entity built on a tile gets no CraftBench/UiConfig (master-only
+        // components). The harness loads no tiles, so the sprite-property
+        // stamping step logs a missing-sprite error per entity; the object
+        // infos it needs are registered before that check. On demand only,
+        // so ordinary suites never pay for (or log) it. Returns the count.
+        pzEngine.rawset("initSpriteConfigs", (JavaFunction) (frame, n) -> {
+            try {
+                Class<?> scm = cls("zombie.entity.components.spriteconfig.SpriteConfigManager");
+                scm.getMethod("InitScriptsPostTileDef").invoke(null);
+                // It creates any sprite it names (IsoSpriteManager.getSprite ->
+                // AddSprite), but only the tile loader sets IsoSprite.name, and
+                // SpriteConfig finds its tile BY that name. Name them after
+                // their key so a tile object resolves as the master.
+                Class<?> ism = cls("zombie.iso.sprite.IsoSpriteManager");
+                Object mgr = ism.getField("instance").get(null);
+                java.lang.reflect.Field nm = ism.getDeclaredField("namedMap");
+                nm.setAccessible(true);
+                java.lang.reflect.Field nameF = cls("zombie.iso.sprite.IsoSprite").getField("name");
+                for (Object o : ((java.util.Map<?, ?>) nm.get(mgr)).entrySet()) {
+                    java.util.Map.Entry<?, ?> en = (java.util.Map.Entry<?, ?>) o;
+                    if (en.getValue() != null && nameF.get(en.getValue()) == null) nameF.set(en.getValue(), String.valueOf(en.getKey()));
+                }
+                java.lang.reflect.Field f = scm.getDeclaredField("objectInfosList");
+                f.setAccessible(true);
+                frame.push((double) ((java.util.List<?>) f.get(null)).size());
+            } catch (Throwable t) {
+                Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                frame.push(null);
+                frame.push(String.valueOf(r));
+                return 2;
+            }
+            return 1;
+        });
         pzEngine.rawset("cell", (JavaFunction) (frame, n) -> { frame.push(harnessCell); return 1; });
         // Set a sandbox option through the engine's typed option and return
         // what the engine kept: an out-of-range value is refused and the old
