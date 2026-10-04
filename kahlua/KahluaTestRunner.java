@@ -1705,6 +1705,28 @@ public class KahluaTestRunner {
             }
         });
 
+        // Declared parameter names of a Lua function, the way PZ reads them:
+        // NetTimedAction.set (NetTimedAction.java:42-51) walks the class's
+        // new() prototype locvars[1..numParams-1] to decide what to send.
+        // `...` is not a declared parameter. nil for a non-Lua function.
+        env.rawset("_pz_closure_params", new JavaFunction() {
+            @Override
+            public int call(LuaCallFrame frame, int nArguments) {
+                Object fn = nArguments >= 1 ? frame.get(0) : null;
+                if (!(fn instanceof LuaClosure)) {
+                    frame.push(null);
+                    return 1;
+                }
+                Prototype p = ((LuaClosure) fn).prototype;
+                KahluaTable names = frame.getPlatform().newTable();
+                for (int i = 0; i < p.numParams; i++) {
+                    names.rawset(Double.valueOf(i + 1), p.locvars[i]);
+                }
+                frame.push(names);
+                return 1;
+            }
+        });
+
         // The harness's own drop-in for the removed global: same signature and
         // same return contract as loadstring (chunk, or nil + message), under a
         // name that reads as infrastructure. Everything in kahlua/*.lua that

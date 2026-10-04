@@ -28,6 +28,15 @@
         resolving `<Type>.new` as a GLOBAL, then runs serverStart() and,
         when its own timer finishes, complete().
 
+      NetTimedAction.java:42-51 — WHAT is sent is decided by the declared
+        parameter NAMES of the class's new(): for each name after self the
+        client sends action[name]; the server calls <Type>.new with those
+        values in that order. A `function(self, a, b, ...)` wrapper over
+        new() therefore sends a and b only and every later argument
+        arrives nil (SaucedCarts v2.1.21: "__lt not defined" at
+        ISUnequipAction.lua:166, maxTimeInit lost). TA.netRebuild(action)
+        replays that round trip.
+
     WHAT EACH RUNNER RETURNS — a plain report table, for Assert use:
         valid        isValid() result (start/perform still run, so a test
                      can also verify the guard itself)
@@ -94,7 +103,19 @@ function TA.shape(class)
             "Type is not a global the server can resolve (NetTimedAction.java:151)"
     end
 
+    report.netArgs = TA.netArgs(class)
+
     return report
+end
+
+--- The argument names NetTimedAction.set sends for this class: new()'s
+--- declared parameters minus self. nil when new is not a Lua function.
+function TA.netArgs(class)
+    local params = _pz_closure_params(class and class.new)
+    if not params then return nil end
+    local names = {}
+    for i = 2, #params do names[#names + 1] = params[i] end
+    return names
 end
 
 -- ---------------------------------------------------------------------------
@@ -110,6 +131,27 @@ local function inContext(client, server, fn, ...)
     _G.isClient = savedClient
     _G.isServer = savedServer
     if not ok then error(err, 0) end
+end
+
+--- Replay the MP round trip of a client-built action: collect
+--- action[name] for each netArgs name (NetTimedAction.java:42-51), then
+--- rebuild it the way the server does, `<Type>.new(<Type>, args...)`
+--- (NetTimedAction.java:148-163), under isServer() = true.
+--- @return table|nil serverAction, table sent { names, values, n }
+function TA.netRebuild(action)
+    local class = getmetatable(action)
+    local typeName = class and rawget(class, "Type")
+    assert(typeName and _G[typeName], "netRebuild: action's Type is not a global")
+    local names = TA.netArgs(class) or {}
+    local values = {}
+    for i, name in ipairs(names) do values[i] = rawget(action, name) end
+    local sent = { names = names, values = values, n = #names }
+    local serverClass = _G[typeName]
+    local rebuilt
+    inContext(false, true, function()
+        rebuilt = serverClass.new(serverClass, unpack(values, 1, sent.n))
+    end)
+    return rebuilt, sent
 end
 
 --- Wrap class.complete for a window so any dispatch of it is recorded.
