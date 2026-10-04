@@ -54,6 +54,13 @@ public class Core {
         return System.getProperty("java.io.tmpdir") + java.io.File.separator + "pztest-zomboid";
     }
 
+    // WorldDictionary (built at engine boot, as a world load builds it) asks
+    // before backing up / writing its .bin files. The harness never writes
+    // save data, so: no-save mode, which is exactly what the engine checks.
+    public boolean isNoSave() { return true; }
+    // ...and names its log after the save world. Harness world, temp home.
+    public static String gameSaveWorld = "pztest";
+
     // Translator.getLanguage asks Core which language the player picked.
     public String getOptionLanguageName() { return "EN"; }
 

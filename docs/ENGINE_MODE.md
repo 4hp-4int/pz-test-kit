@@ -177,7 +177,14 @@ to copy; `EngineWorldCartTests`, `EngineCorpseCartTests`, `EngineCartLootTests`)
 | `PZEngine.newCorpse(sq, wasZombie)` | a real `IsoDeadBody` on the square, with a `HumanVisual` and a corpse inventory. `body:becomeCorpseItem(false)` gives the real `Base.CorpseMale`, serialized as in game. Pass `wasZombie = true` for zombie corpses: vanilla only rots player corpses when `removePlayerCorpsesOnCorpseRemoval` is on |
 | `PZEngine.updateBodies()` | vanilla's rot ticker (`IsoDeadBody.updateBodies`), with any exception **returned**. Call it this way, not from Lua directly: from Lua, an exception inside came back as a silent success while aborting the loop for every later body |
 | `PZEngine.gameTime()` | the real `GameTime`. World age = `nightsSurvived * 24 + (timeOfDay - 7)`. Swap the Lua `GameTime` global for it when Lua and Java must agree (corpse death times) |
+| `PZEngine.reloadSquare(sq)` | save a square to bytes and load it into a fresh square at the same spot -- a chunk unload/reload, through vanilla's own `IsoGridSquare.save/load`. Vanilla's world-item cleanup filter runs inside that load, so this is how a test proves an item does or doesn't vanish. Returns the NEW square; items on it are new objects with the same ids. The filter's age clause is strict (`worldAge > dropTime + hours`), so advance `gameTime()` before reloading |
 | `PZEngine.sandboxSet(name, value)` | set a sandbox option through the engine's typed option and get back what it **kept**: out-of-range values are refused, exactly as in game. The mod under test's `media/sandbox-options.txt` is registered at boot through `CustomSandboxOptions`, so its own options are settable too |
+
+Boot also brackets script loading with `WorldDictionary.StartScriptLoading()` /
+`ScriptsLoaded()` and runs `WorldDictionary.init()` (new game), as a world load
+does. Without that every item had registry id -1 and a saved square loaded back
+empty. Harness squares carry the `solidfloor` property, as a floor tile gives a
+real one (engine drops like `dropHeavyItems` only land on solid floor).
 
 Boot now also initialises `SandboxOptions.instance` for real (the `LuaManager`
 stub has a working `RunLua`). Before this, the first engine call to touch it

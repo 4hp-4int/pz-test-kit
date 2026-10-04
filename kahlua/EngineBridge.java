@@ -129,6 +129,29 @@ public final class EngineBridge {
         "zombie.scripting.logic.RecipeCodeOnEat",
         "zombie.scripting.logic.ItemCodeOnCreate",
         "zombie.scripting.logic.ItemCodeOnTest",
+        // Skills, as LuaManager.java:1798-1800 exposes them: vanilla timed
+        // actions read Perks.Reloading etc. (ISInsertMagazine's start and
+        // reload XP); without them every such action dies in start().
+        "zombie.characters.skills.PerkFactory",
+        "zombie.characters.skills.PerkFactory$Perk",
+        "zombie.characters.skills.PerkFactory$Perks",
+        // Action animation names (LuaManager.java:1836): vanilla timed
+        // actions call setActionAnim(CharacterActionAnims.Reload) in start().
+        "zombie.characters.CharacterActionAnims",
+        // Moodles (LuaManager.java:1796-1797, 2271): ISReloadWeaponAction.
+        // setReloadSpeed reads getMoodleLevel(MoodleType.PANIC) in start().
+        "zombie.characters.Moodles.Moodle",
+        "zombie.characters.Moodles.Moodles",
+        // Real body locations (LuaManager.java:1959). mock_environment's
+        // string registry stands in for non-engine suites; in engine mode the
+        // real class must win, or vanilla getWornItem(ItemBodyLocation.X)
+        // gets a String ("expected argument of type ItemBodyLocation").
+        "zombie.scripting.objects.ItemBodyLocation",
+        "zombie.scripting.objects.ItemTag",   // same story (LuaManager.java:2270)
+        // Ammo (LuaManager.java:2267): magazine:getAmmoType() returns one,
+        // and ISLoadBulletsInMagazine calls :getItemKey() on it.
+        "zombie.scripting.objects.AmmoType",
+        "zombie.scripting.objects.MoodleType",
         // The collections PZ itself exposes; getInputs()/getAllItems() etc.
         // hand these back and Lua calls :size()/:get() on them.
         "java.util.ArrayList",
@@ -316,6 +339,14 @@ public final class EngineBridge {
             // combination that cannot exist in game -- GaelGunStore's
             // ammo/9mm.txt replacing Modern Firearms' is exactly how a server
             // lost Base.9mmDrum_cat and refused to load the world.
+            // ScriptManager.Load brackets script loading with
+            // WorldDictionary.StartScriptLoading() ... ScriptsLoaded(); every
+            // Item (a GameEntityScript) registers itself in between via
+            // WorldDictionary.onLoadEntity. Without the bracket each one is
+            // refused ("loaded after WorldDictionary is initialised"), no item
+            // gets a registry id, and every item saves as id -1 -- so a saved
+            // square loads back EMPTY (PZEngine.reloadSquare).
+            cls("zombie.world.WorldDictionary").getMethod("StartScriptLoading").invoke(null);
             ScriptFiles collected = new ScriptFiles();
             collected.addTree(pzDir.resolve("media/scripts"), "pz-vanilla");
             for (String spec : pendingExtraMods) {
@@ -393,6 +424,7 @@ public final class EngineBridge {
             Method resolve = smClass.getDeclaredMethod("resolveItemTypes");
             resolve.setAccessible(true);
             resolve.invoke(sm);
+            cls("zombie.world.WorldDictionary").getMethod("ScriptsLoaded").invoke(null);
 
             // The step IsoWorld.init runs right after WorldDictionary.init:
             // recipes resolve their inputs/outputs (tags -> item lists, output
@@ -401,6 +433,18 @@ public final class EngineBridge {
             // character spike (GetLongStick: canUseItem(broom) false,
             // getPossibleInputItems() empty). ScriptManager catches per-
             // collection failures itself; a throw here is logged, never fatal.
+            // WorldDictionary.init first, as IsoWorld.init orders them. Items
+            // serialize as the registry ids it assigns, so it must exist
+            // BEFORE any item is minted -- an item made earlier saves an id
+            // the dictionary does not know, and is silently dropped when its
+            // square is loaded back (PZEngine.reloadSquare).
+            try {
+                ensureWorldDictionary();
+                log.println("[engine] WorldDictionary initialised (new game)");
+            } catch (Throwable t) {
+                Throwable root = t; while (root.getCause() != null) root = root.getCause();
+                log.println("[engine] WorldDictionary init failed: " + root);
+            }
             try {
                 smClass.getMethod("PostWorldDictionaryInit").invoke(sm);
                 log.println("[engine] PostWorldDictionaryInit done (recipe inputs/outputs resolved)");
@@ -663,6 +707,18 @@ public final class EngineBridge {
             frame.push(r[0]); frame.push(r[1]);
             return 2;
         });
+        // Save a square to bytes and load it into a fresh square at the same
+        // coordinates -- what a chunk unload + reload does to it. Vanilla's
+        // own IsoGridSquare.load runs, including the world-item cleanup filter
+        // (WorldItemRemovalList / HoursForWorldItemRemoval vs
+        // isIgnoreRemoveSandbox). Returns the NEW square (the old one is
+        // detached from the chunk), or nil, err. Items on it are new objects
+        // with the same ids.
+        pzEngine.rawset("reloadSquare", (JavaFunction) (frame, n) -> {
+            Object[] r = reloadSquare(frame.get(0));
+            frame.push(r[0]); frame.push(r[1]);
+            return 2;
+        });
         pzEngine.rawset("newPlayer", (JavaFunction) (frame, n) -> {
             Object[] r = newPlayer();
             frame.push(r[0]);
@@ -761,6 +817,18 @@ public final class EngineBridge {
                     classes.add(Class.forName(name, true, loader));
                 } catch (Throwable t) {
                     log.println("[engine] cannot expose " + name + ": " + t);
+                }
+            }
+            // A kit mock registry (mock_environment's _pz_open_registry,
+            // e.g. ItemBodyLocation) must not shadow the real class: the
+            // exposer fills the EXISTING global table, so the mock's __index
+            // would keep answering with strings. Drop marked mocks first.
+            for (Class<?> c : classes) {
+                String simple = c.getSimpleName();
+                Object cur = env.rawget(simple);
+                if (cur instanceof KahluaTable kt && kt.getMetatable() != null
+                        && kt.getMetatable().rawget("__pz_open_registry") != null) {
+                    env.rawset(simple, null);
                 }
             }
             for (Class<?> c : classes) exposer.expose(c);
@@ -954,6 +1022,13 @@ public final class EngineBridge {
             Object sq = sqC.getMethod("getNew", cellC, cls("zombie.iso.SliceY"), int.class, int.class, int.class)
                 .invoke(null, harnessCell, null, x, y, z);
             chunkC.getMethod("setSquare", int.class, int.class, int.class, sqC).invoke(chunk, x % 8, y % 8, z, sq);
+            // Ground, as a real square is: a floor tile gives it the solidfloor
+            // property, and engine code asks for it (dropHeavyItems only drops
+            // onto TreatAsSolidFloor squares; items "fall" through anything else).
+            Object props = sqC.getMethod("getProperties").invoke(sq);
+            Class<?> flagC = cls("zombie.iso.SpriteDetails.IsoFlagType");
+            Object solid = flagC.getField("solidfloor").get(null);
+            props.getClass().getMethod("set", flagC).invoke(props, solid);
             return new Object[] { sq, null };
         } catch (Throwable t) {
             return new Object[] { null, describe(t) };
@@ -1015,6 +1090,48 @@ public final class EngineBridge {
             bodyC.getMethod("setY", float.class).invoke(body, y);
             sqC.getMethod("addCorpse", bodyC, boolean.class).invoke(sq, body, false);
             return new Object[] { body, null };
+        } catch (Throwable t) {
+            return new Object[] { null, describe(t) };
+        }
+    }
+
+    private static boolean worldDictionaryReady;
+
+    /**
+     * Items serialize as short registry ids; WorldDictionary maps them back on
+     * load. A game builds it at world load from the parsed scripts (and the
+     * save's WorldDictionary.bin, absent on a new game -- the harness is
+     * always a new game, in the temp Zomboid home). Built once, on demand.
+     */
+    private static void ensureWorldDictionary() throws Exception {
+        if (worldDictionaryReady) return;
+        Class<?> wd = cls("zombie.world.WorldDictionary");
+        wd.getMethod("setIsNewGame", boolean.class).invoke(null, true);
+        wd.getMethod("init").invoke(null);
+        worldDictionaryReady = true;
+    }
+
+    public static Object[] reloadSquare(Object sq) {
+        if (!booted || harnessCell == null) return new Object[] { null, "no harness cell" };
+        try {
+            ensureWorldDictionary();
+            Class<?> sqC = cls("zombie.iso.IsoGridSquare");
+            Class<?> cellC = cls("zombie.iso.IsoCell");
+            Class<?> chunkC = cls("zombie.iso.IsoChunk");
+            int x = ((Number) sqC.getMethod("getX").invoke(sq)).intValue();
+            int y = ((Number) sqC.getMethod("getY").invoke(sq)).intValue();
+            int z = ((Number) sqC.getMethod("getZ").invoke(sq)).intValue();
+            java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(4 << 20);
+            sqC.getMethod("save", java.nio.ByteBuffer.class, java.io.ObjectOutputStream.class).invoke(sq, buf, null);
+            buf.flip();
+            Object chunk = sqC.getMethod("getChunk").invoke(sq);
+            if (chunk == null) return new Object[] { null, "square has no chunk (not from newSquare?)" };
+            Object fresh = sqC.getMethod("getNew", cellC, cls("zombie.iso.SliceY"), int.class, int.class, int.class)
+                .invoke(null, harnessCell, null, x, y, z);
+            chunkC.getMethod("setSquare", int.class, int.class, int.class, sqC).invoke(chunk, x % 8, y % 8, z, fresh);
+            int worldVersion = cls("zombie.iso.IsoWorld").getField("WorldVersion").getInt(null);
+            sqC.getMethod("load", java.nio.ByteBuffer.class, int.class).invoke(fresh, buf, worldVersion);
+            return new Object[] { fresh, null };
         } catch (Throwable t) {
             return new Object[] { null, describe(t) };
         }
