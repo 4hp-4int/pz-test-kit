@@ -118,6 +118,17 @@ public final class EngineBridge {
         "zombie.entity.components.fluids.Fluid",
         "zombie.core.Color",
         "zombie.core.Colors",
+        // Vanilla recipe/item Lua hooks. In 42.21 OnCreate/OnTest names like
+        // RecipeCodeOnCreate.smeltIronOrSteelLarge resolve to static methods
+        // on these classes, which the game exposes (LuaManager.java:1960-1965).
+        // Unexposed, every vanilla hook silently no-ops offline: a smelted
+        // crucible came out full (20 uses) instead of +4.
+        "zombie.scripting.logic.RecipeCodeOnCreate",
+        "zombie.scripting.logic.RecipeCodeOnTest",
+        "zombie.scripting.logic.RecipeCodeOnCooked",
+        "zombie.scripting.logic.RecipeCodeOnEat",
+        "zombie.scripting.logic.ItemCodeOnCreate",
+        "zombie.scripting.logic.ItemCodeOnTest",
         // The collections PZ itself exposes; getInputs()/getAllItems() etc.
         // hand these back and Lua calls :size()/:get() on them.
         "java.util.ArrayList",
@@ -730,6 +741,13 @@ public final class EngineBridge {
                 lm.getField("caller").set(null, caller);
                 lm.getField("debugcaller").set(null, caller);
                 lm.getField("thread").set(null, thread);
+                // Core.debug-only engine paths hand LuaManager.debugthread to
+                // the caller; left null, flipping Core.debug (PZEngine.
+                // setCoreDebug, e.g. for CraftRecipeMonitor) turned a craft
+                // with xpAward into an NPE mid-craft, after inputs were
+                // consumed. The interactive debugger stays off headless
+                // (UIManager.showLuaDebuggerOnError is only set by GameWindow).
+                lm.getField("debugthread").set(null, thread);
                 lm.getField("functionEnv").set(null, env);
             } catch (Throwable t) {
                 log.println("[engine] could not wire LuaManager caller: " + t);
