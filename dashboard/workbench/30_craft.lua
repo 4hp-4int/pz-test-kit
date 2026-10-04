@@ -55,7 +55,65 @@ function C.setup()
     C.hooked = ISHandcraftAction.performRecipe ~= C.vanillaPerform
     C.bootListeners = fired
     C.player = p
+    C.ground(p)
     return p
+end
+
+-- Stand the craft player on a real square. Outputs too heavy to carry go
+-- through vanilla Actions.addOrDropItem, which drops them at the player's
+-- feet (character:getCurrentSquare()); with no square that is a nil index
+-- (Cast Blacksmith Anvil). Best effort: kits without newSquare skip it.
+function C.ground(p)
+    if C.square or not PZEngine.newSquare then return C.square end
+    local sq = PZEngine.newSquare(240, 240, 0)   -- harness squares are 0..255
+    if not sq then return nil end
+    p:setCurrent(sq)
+    p:setX(sq:getX() + 0.5)
+    p:setY(sq:getY() + 0.5)
+    C.square = sq
+    return sq
+end
+
+-- A plain table on the craft square: the surface an AnySurfaceCraft recipe is
+-- crafted on. No entity; the engine only checks it exists and is in range.
+function C.surface()
+    if C.surfaceObj then return C.surfaceObj end
+    local sq = C.square or C.ground(C.setup())
+    if not sq then return nil end
+    C.surfaceObj = IsoObject.new(sq, "furniture_tables_high_01_0", "Table")
+    return C.surfaceObj
+end
+
+-- A workstation: the tile object a CraftBench entity lives on, built once per
+-- entity script on the craft square. The game builds these from map data
+-- (GameEntityFactory.CreateIsoEntityFromCellLoading); here the script is
+-- known, so CreateIsoObjectEntity builds it directly. Only a multi-square
+-- MASTER tile gets CraftBench/UiConfig, and SpriteConfig finds the tile by
+-- sprite name, hence PZEngine.initSpriteConfigs (once) and the entity's own
+-- first sprite.
+function C.workstation(name, sprite)
+    C.benches = C.benches or {}
+    if C.benches[name] then return C.benches[name] end
+    if not (PZEngine.initSpriteConfigs and GameEntityFactory and ComponentType) then
+        return nil, "this kit's engine bridge cannot build entities (needs initSpriteConfigs + GameEntityFactory exposed)"
+    end
+    if C.spriteConfigs == nil then
+        local n, err = PZEngine.initSpriteConfigs()
+        C.spriteConfigs = n or false
+        if not n then return nil, "initSpriteConfigs: " .. tostring(err) end
+    end
+    local es = getScriptManager():getGameEntityScript(name)
+    if not es then return nil, "no entity script " .. tostring(name) end
+    if not sprite then return nil, "entity has no SpriteConfig sprite" end
+    local sq = C.square or C.ground(C.setup())
+    if not sq then return nil, "no harness square" end
+    local obj = IsoObject.new(sq, sprite, name)
+    GameEntityFactory.CreateIsoObjectEntity(obj, es, true)
+    local bench = obj:getComponent(ComponentType.CraftBench)
+    if not bench then return nil, "built " .. name .. " on " .. sprite .. " but it has no CraftBench (not the master tile?)" end
+    local w = { obj = obj, bench = bench, name = name, sprite = sprite }
+    C.benches[name] = w
+    return w
 end
 
 WB.register("craftReset", function()
@@ -79,6 +137,7 @@ local function itemInfo(it)
         conditionMax = try(function() return it:getConditionMax() end),
         uses = try(function() return it:getCurrentUses() end),
         class = WB.className(it),
+        onFloor = try(function() return it:getWorldItem() ~= nil end) or false,
         modData = mdCopy,
     }
 end
@@ -97,8 +156,8 @@ WB.register("craftPlan", function(a)
             local items = WB.list(try(function() return input:getPossibleInputItems() end))
             local first = items[1] and s(items[1]:getFullName())
             if first then
-                local n = math.max(1, try(function() return input:getIntAmount(first) end)
-                                    or try(function() return input:getIntAmount() end) or 1)
+                local n = WB.itemsForAmount(first, try(function() return input:getIntAmount(first) end)
+                                                  or try(function() return input:getIntAmount() end) or 1)
                 plan[#plan + 1] = { type = first, count = n, input = i - 1,
                                     keep = try(function() return input:isKeep() end) or false,
                                     alternatives = #items }
@@ -138,8 +197,9 @@ WB.register("craft", function(a)
     local inv = p:getInventory()
     inv:removeAllItems()
 
-    local initErrors, placed = {}, {}
+    local initErrors, placed, bySlot, allPinned = {}, {}, {}, #(a.items or {}) > 0
     for _, spec in ipairs(a.items or {}) do
+        if spec.input == nil then allPinned = false end
         -- spec.ref: an EXISTING live item (a previous craft's output, a board
         -- card), so chains run on the same engine objects. Otherwise mint
         -- spec.count fresh items of spec.type.
@@ -163,8 +223,20 @@ WB.register("craft", function(a)
                     initErrors[#initErrors + 1] = spec.type .. ": " .. pe
                 end
             end
+            -- An earlier output that was dropped at the player's feet: pick it
+            -- back up first, as a player would.
+            local wi = fromRef and it:getWorldItem()
+            if wi then
+                pcall(function() wi:getSquare():transmitRemoveItemFromSquare(wi) end)
+                pcall(function() it:setWorldItem(nil) end)
+            end
             inv:AddItem(it)
             placed[#placed + 1] = it
+            if spec.input ~= nil then
+                local list = bySlot[spec.input] or {}
+                bySlot[spec.input] = list
+                list[#list + 1] = it
+            end
         end
     end
     if #initErrors > 0 and a.strict then return { ok = false, err = table.concat(initErrors, "\n") } end
@@ -189,10 +261,48 @@ WB.register("craft", function(a)
         for _, it in ipairs(placed) do panelsBefore[it] = WB.addonPanelsFor(it) end
     end
 
-    local logic = HandcraftLogic.new(p, nil, nil)
+    -- a.bench = { name, sprite } (the server picks it from the recipe's tags):
+    -- craft at that workstation, as its entity window does in game.
+    local bench, benchObj, workstation
+    if type(a.bench) == "table" and a.bench.name then
+        local w, werr = C.workstation(a.bench.name, a.bench.sprite)
+        workstation = { name = a.bench.name, sprite = a.bench.sprite, ok = w ~= nil, err = werr }
+        if w then bench, benchObj = w.bench, w.obj
+        else initErrors[#initErrors + 1] = "workstation " .. a.bench.name .. ": " .. tostring(werr) end
+    end
+    -- AnySurfaceCraft (dismantle/assemble and many more): HandcraftLogic
+    -- refuses unless its isoObject is within 3 tiles
+    -- (isCharacterInRangeOfWorkbench), i.e. the table you craft on in game.
+    -- Stand at one. a.surface = false crafts with none (the game refuses).
+    if not benchObj and a.surface ~= false and (try(function() return recipe:isAnySurfaceCraft() end) or false) then
+        benchObj = C.surface()
+        if benchObj then workstation = { name = "a table", surface = true, ok = true } end
+    end
+    local logic = HandcraftLogic.new(p, bench, benchObj)
     local containers = ArrayList.new(); containers:add(inv)
     logic:setContainers(containers)
     logic:setRecipe(recipe)
+    -- Every spec pinned to an input (spec.input = 0-based index into
+    -- getInputs()): fill them manually, the way vanilla's ISHandcraftAction
+    -- does from the crafting window. Otherwise the engine auto-fills from the
+    -- inventory, and an item that fits two inputs (a hammer that is both the
+    -- tool and the thing dismantled) can land in either.
+    local manual
+    if allPinned then
+        manual = { ok = true }
+        logic:setManualSelectInputs(true)
+        logic:clearManualInputs()
+        local inputs = WB.list(recipe:getInputs())
+        for idx, list in pairs(bySlot) do
+            local al = ArrayList.new()
+            for _, it in ipairs(list) do al:add(it) end
+            local script = inputs[idx + 1]
+            if not (script and logic:setManualInputsFor(script, al)) then
+                manual.ok = false
+                initErrors[#initErrors + 1] = "input " .. idx .. ": the engine refused the manual items"
+            end
+        end
+    end
     -- a.monitor: flip Core.debug so CraftRecipeMonitor records the engine's
     -- own account. OFF by default: under Core.debug any Lua error raised
     -- during the craft goes to UIManager.debugBreakpoint, which pcalls on
@@ -277,10 +387,18 @@ WB.register("craft", function(a)
         end
     end
 
-    local canPerform = try(function() return logic:canPerformCurrentRecipe() end)
+    local canPerform = try(function() return logic:canPerformCurrentRecipe() end) or false
+    local needsStation = try(function() return recipe:requiresSpecificWorkstation() end) or false
+    local atStation = needsStation and (try(function() return logic:hasRequiredWorkstation() end) or false) or nil
+    -- The game gates the craft on canPerformCurrentRecipe (inputs, skills,
+    -- the workstation) before any action starts; performRecipe itself checks
+    -- none of it. a.enforce = refuse here as the game would.
+    local gated = a.enforce and not canPerform
     local t0 = _pz_now_ms and _pz_now_ms() or nil
     local ok, err, trace
-    if a.mode == "logic" then
+    if gated then
+        ok = true
+    elseif a.mode == "logic" then
         ok, err, trace = pcall(function() return logic:performCurrentRecipe() end)
     else
         ok, err, trace = pcall(ISHandcraftAction.performRecipe, { character = p, logic = logic })
@@ -300,6 +418,7 @@ WB.register("craft", function(a)
             info.panelsBefore = panelsBefore[it]
             info.panels = WB.addonPanelsFor(it)
             info.badges = WB.addonBadges and WB.addonBadges(it) or nil
+            info.visual = WB.addonVisual and WB.addonVisual(it) or nil
         end
         return info
     end
@@ -330,12 +449,13 @@ WB.register("craft", function(a)
                 .. "which has no thread headless. Craft again with the monitor off to see what the game does.)"
         end
     end
-    local success = ok and #outputs > 0
+    local success = ok and #outputs > 0 and not gated
     return {
         ok = success, ran = ok, err = errMsg, ms = ms,
         recipe = s(recipe:getName()), mode = a.mode or "action",
         hooked = C.hooked, canPerform = canPerform, hooks = hookLog,
-        qualified = qualified, initErrors = initErrors,
+        qualified = qualified, initErrors = initErrors, manualInputs = manual and manual.ok or false,
+        workstation = workstation, needsWorkstation = needsStation, atWorkstation = atStation, gated = gated or nil,
         consumed = consumed, kept = kept, outputs = outputs, inventory = after,
         commands = cmds, monitor = lines, why = why, monitored = a.monitor and true or false,
         logic = WB.describe(logic), player = WB.describe(p),

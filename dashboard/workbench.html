@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>PZ Engine Workbench</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script type="importmap">{ "imports": { "three": "/pzchar-vendor/three/three.module.js", "three/addons/": "/pzchar-vendor/three/addons/" } }</script>
 <style>
 :root {
   --bg: #0e1012; --panel: #15181b; --panel2: #1b1f23; --line: #272c31; --line2: #33393f;
@@ -19,7 +20,7 @@ a { color: var(--link); text-decoration: none; } a:hover { text-decoration: unde
 .muted { color: var(--muted); } .dim { color: var(--dim); }
 .pass { color: var(--pass); } .fail { color: var(--fail); } .warn { color: var(--err); } .acc { color: var(--accent); }
 
-#app { display: grid; grid-template-columns: 64px 1fr; grid-template-rows: 44px 1fr; height: 100vh; }
+#app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px 1fr; height: 100vh; }
 header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
 header h1 { font-size: 13px; letter-spacing: .14em; margin: 0; color: var(--accent); font-weight: 700; white-space: nowrap; }
 header h1 small { color: var(--muted); letter-spacing: .05em; font-weight: 400; margin-left: 6px; }
@@ -35,11 +36,6 @@ header select, .inp, textarea { background: var(--bg); border: 1px solid var(--l
 .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; vertical-align: -1px; }
 @keyframes rot { to { transform: rotate(360deg); } }
 
-nav#rail { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding-top: 6px; }
-.tool { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0; cursor: pointer; color: var(--muted); font-size: 10px; letter-spacing: .04em; border-left: 3px solid transparent; }
-.tool b { font-size: 18px; line-height: 1; font-weight: 400; font-family: var(--mono); }
-.tool:hover { color: var(--text); background: var(--panel2); }
-.tool.on { color: var(--accent); border-left-color: var(--accent); background: var(--panel2); }
 
 main { overflow: hidden; display: flex; min-width: 0; position: relative; }
 #view { flex: 1; overflow: auto; padding: 14px 18px 60px; min-width: 0; }
@@ -51,11 +47,16 @@ main { overflow: hidden; display: flex; min-width: 0; position: relative; }
 
 /* board */
 #view.bleed { padding: 0; overflow: hidden; }
-.bd { display: grid; grid-template-columns: 240px minmax(0, 1fr) 380px; height: 100%; }
+.bd { display: grid; grid-template-columns: var(--palw, 300px) minmax(0, 1fr) var(--inspw, 380px); height: 100%; }
+.bd { position: relative; min-height: 0; }
+.bd > * { min-height: 0; }   /* grid items default to min-height:auto and grow with content */
+.bsplit { position: absolute; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 5; }
+.bsplit:hover, .bsplit.on { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.bd > .bsplit.pal { left: calc(var(--palw, 300px) - 4px); } .bd > .bsplit.insp { right: calc(var(--inspw, 380px) - 4px); }
 .bpal { border-right: 1px solid var(--line); background: var(--panel); padding: 8px; overflow: auto; }
 .bpal .inp { width: 100%; }
 .bph { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin: 8px 0 3px; }
-.bpi { border-radius: 3px; border-bottom: 0; } .bpi .t { font-size: 11.5px; }
+.bpi { border-radius: 3px; border-bottom: 0; flex-wrap: wrap; row-gap: 0; } .bpi .t { font-size: 11.5px; white-space: normal; overflow-wrap: anywhere; flex: 1 1 60%; } .bpi .s { white-space: normal; overflow-wrap: anywhere; }
 .bcan { position: relative; overflow: hidden; cursor: grab; background-color: var(--bg);
   background-image: radial-gradient(circle, #252a30 1px, transparent 1.2px); }
 .bcan.panning { cursor: grabbing; }
@@ -68,6 +69,31 @@ main { overflow: hidden; display: flex; min-width: 0; position: relative; }
 .bc { position: absolute; width: 210px; background: var(--panel); border: 1px solid var(--line2); border-radius: 6px; padding: 6px 9px 8px; cursor: default; box-shadow: 0 2px 8px rgba(0,0,0,.35); user-select: none; }
 .bc.recipe { width: 230px; border-color: #5a4a2a; background: #1a1712; }
 .bc.action { width: 230px; border-color: #3d5378; background: #121823; }
+.bc.object { width: 220px; border-color: #3b4a3a; background: #121712; }
+.bc.script { width: 220px; border-color: #4a3b52; background: #17121a; }
+.bwires .wl { fill: var(--muted); font: 10px var(--mono); }
+.bwires .w.obj { stroke: #4e6a4b; stroke-dasharray: 3 3; }
+.bwires .w.keep { stroke: #5b86b8; stroke-dasharray: 2 4; stroke-width: 2.5; }
+.bwires .w.use { stroke: #b0814a; }
+.role { display: inline-block; min-width: 38px; text-align: center; font: 600 9.5px var(--mono); letter-spacing: .05em; border-radius: 3px; padding: 0 4px; margin-right: 5px; vertical-align: 1px; }
+.role.use { background: #3b2a17; color: #e3a35a; border: 1px solid #6b4a24; }
+.role.keep { background: #17263a; color: #84b4ea; border: 1px solid #2d4a6e; }
+.role.other { background: #1c1c1c; color: var(--muted); border: 1px solid var(--line2); }
+.rslot { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 17px; }
+.rslot .miss { color: var(--warn, #d9a441); }
+.rrow { border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; margin-bottom: 5px; }
+.rrow.keep { border-left: 3px solid #5b86b8; } .rrow.use { border-left: 3px solid #b0814a; } .rrow.other { border-left: 3px solid var(--line2); }
+.rrow .rl { font: 10.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0 4px; }
+.sfam { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin: 7px 0 2px; }
+.stype { display: inline-block; font-size: 11px; padding: 1px 6px; margin: 0 3px 3px 0; border: 1px solid var(--line2); border-radius: 10px; cursor: pointer; color: var(--muted); }
+.stype.on { border-color: var(--accent); color: var(--text); } .stype .n { color: var(--dim, #666); font-size: 10px; }
+.sgrp > summary { font-size: 11.5px; cursor: pointer; padding: 2px 0; } .sgrp > summary .n { color: var(--muted); font-size: 10.5px; }
+.bdock { position: absolute; left: 10px; right: 10px; bottom: 8px; z-index: 3; background: var(--panel); border: 1px solid var(--line2); border-radius: 6px; box-shadow: 0 4px 18px rgba(0,0,0,.5); }
+.bdock .dh { display: flex; gap: 6px; align-items: center; padding: 4px 8px; cursor: pointer; font-size: 12px; color: var(--muted); }
+.bdock .dbody { padding: 0 8px 8px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.bdock textarea { width: 100%; height: 86px; resize: vertical; }
+.bdock .dout { max-height: 140px; overflow: auto; font-size: 12px; }
+.bdock .dout .entry { border-bottom: 1px solid var(--line); padding: 3px 0; }
 .bslot { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .bslot b { color: var(--text); font-weight: 500; }
 .brng { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; } .brng select, .brng input { padding: 1px 5px; font-size: 11.5px; }
 .bmode { font-family: var(--mono); font-size: 10px; border: 1px solid var(--line2); border-radius: 3px; padding: 0 5px; cursor: pointer; color: var(--muted); }
@@ -81,11 +107,13 @@ main { overflow: hidden; display: flex; min-width: 0; position: relative; }
 .bb { display: inline-block; margin-top: 4px; font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line2); border-radius: 9px; padding: 0 7px; color: var(--muted); }
 .bb.accent { border-color: var(--accent); color: var(--accent); } .bb.pass { border-color: var(--pass); color: var(--pass); } .bb.fail { border-color: var(--fail); color: var(--fail); }
 .bres { font-size: 11px; margin-top: 4px; }
+.bthumb { float: right; width: 46px; height: 46px; margin: -2px -4px 0 4px; object-fit: contain; image-rendering: auto; }
+.v3d { width: 100%; height: 230px; border: 1px solid var(--line); border-radius: 4px; background: radial-gradient(circle at 50% 40%, #1d2228, #0e1012 75%); display: block; }
 .bempty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--muted); pointer-events: none; }
 .bempty button { pointer-events: auto; }
-.binsp { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
+.binsp { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .ihead { display: flex; gap: 6px; align-items: flex-start; padding: 9px 10px; border-bottom: 1px solid var(--line); }
-.ibody { overflow: auto; padding: 8px 10px 40px; flex: 1; }
+.ibody { overflow: auto; padding: 8px 10px 40px; flex: 1; min-height: 0; }
 .blib { border: 1px solid var(--line); border-radius: 4px; padding: 6px 7px; margin-bottom: 6px; background: var(--bg); }
 .blib .tree { font-family: var(--mono); font-size: 10.5px; color: var(--muted); white-space: pre-wrap; margin: 3px 0; }
 .bexp { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line2); border-radius: 3px; padding: 1px 7px; background: var(--panel); cursor: help; }
@@ -97,11 +125,6 @@ main { overflow: hidden; display: flex; min-width: 0; position: relative; }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 20; }
 .mbox { width: min(460px, 92vw); background: var(--panel); border: 1px solid var(--line2); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
 .mbox label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
-/* explorer drawer */
-#drawer { width: 0; overflow: hidden; border-left: 1px solid var(--line); background: var(--panel); transition: width .15s; display: flex; flex-direction: column; }
-#drawer.open { width: min(560px, 46vw); }
-#drawer .dh { padding: 8px 10px; border-bottom: 1px solid var(--line); display: flex; gap: 6px; align-items: center; }
-#drawer .db { overflow: auto; flex: 1; padding: 8px 10px 40px; }
 
 h2 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 h2 small { font-family: var(--mono); font-size: 11px; color: var(--dim); font-weight: 400; }
@@ -167,12 +190,8 @@ details > summary { cursor: pointer; color: var(--muted); }
     <button class="btn small" id="restart" title="Kill and re-boot this mod's VM">restart VM</button>
     <a class="btn small" href="/">← tests dashboard</a>
   </header>
-  <nav id="rail"></nav>
   <main>
     <div id="view"></div>
-    <aside id="drawer"><div class="dh"><b class="acc" style="font-size:12px;letter-spacing:.08em">OBJECT</b><span style="flex:1"></span>
-      <button class="btn small" id="dlink" title="Copy a link that re-resolves this object">link</button>
-      <button class="btn small" id="dclose">✕</button></div><div class="db" id="dbody"></div></aside>
     <div id="boot"><div class="box"><div class="row"><span class="spin"></span><b id="bootTitle">Booting engine…</b><span id="bootTime" class="muted mono"></span></div>
       <p class="muted" style="margin:6px 0">A resident Kahlua VM is starting with this mod loaded, and the real PZ engine (projectzomboid.jar) is parsing every script file. Later calls are instant.</p>
       <pre id="bootLog"></pre></div></div>
@@ -196,8 +215,7 @@ function readHash() {
   return o;
 }
 function writeHash(extra) {
-  const o = { mod: S.mod, tool: S.tool, ...(TOOLS[S.tool].hash ? TOOLS[S.tool].hash() : {}), ...(extra || {}) };
-  if (S.explore) o.x = JSON.stringify(S.explore.root ? { e: S.explore.root.expr, r: S.explore.root.ref, p: S.explore.steps } : null);
+  const o = { mod: S.mod, ...(extra || {}) };
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null && v !== "") p.set(k, v);
   history.replaceState(null, "", "#" + p.toString());
@@ -270,104 +288,89 @@ function val(v, depth = 0) {
   return `<details ${depth < 1 ? "open" : ""} style="display:inline-block;vertical-align:top"><summary class="dim">{${ks.length}}</summary><table>${ks.map((k) => `<tr><td class="k">${esc(k)}</td><td>${val(v[k], depth + 1)}</td></tr>`).join("")}</table></details>`;
 }
 document.addEventListener("click", (e) => {
+  // Any Java/table chip anywhere opens as an object card, wired from the
+  // card whose inspector it was shown in.
   const c = e.target.closest("[data-ref]");
-  if (c && !e.target.closest("button")) { openExplorer({ ref: +c.dataset.ref, label: "$" + c.dataset.ref }); e.preventDefault(); }
-  const bench = e.target.closest("[data-bench]");
-  if (bench) { e.preventDefault(); const b = JSON.parse(bench.dataset.bench); TOOLS.items.st.live = { ref: b.ref, type: b.type }; switchTool("items", { item: b.type }); return; }
-  const go = e.target.closest("[data-go]");
-  if (go) { e.preventDefault(); const g = JSON.parse(go.dataset.go); switchTool(g.tool, g); }
+  if (c && !e.target.closest("button")) {
+    e.preventDefault();
+    const B = TOOLS.board, from = c.closest("#binsp") ? B.board().sel : null;
+    B.exploreRef(+c.dataset.ref, c.textContent.trim().slice(0, 40), from);
+  }
 });
 
-// ── explorer drawer ────────────────────────────────────────────────────────
-// root = { expr } (re-resolvable, linkable) or { ref } (this VM only); steps = path.
-async function openExplorer(root, steps) {
-  S.explore = { root, steps: steps || [] };
-  $("#drawer").classList.add("open");
-  writeHash();
-  await renderExplorer();
-}
-async function renderExplorer() {
-  const ex = S.explore, body = $("#dbody");
-  if (!ex) return;
+// ── object explorer (renders into an object card's inspector) ──────────────
+// root = { expr } (re-resolvable) or { ref } (this VM only); steps = path.
+// hooks.child(step, label) opens a child object card for a sub-path.
+async function explorerInto(body, root, steps, hooks) {
   body.innerHTML = `<span class="spin"></span>`;
   let r;
-  try {
-    r = await call("resolvePath", { expr: ex.root.expr, ref: ex.root.ref, steps: ex.steps });
-  } catch (e) { body.innerHTML = `<pre class="fail">${esc(e.message)}</pre>`; return; }
-  const crumbs = [`<a data-step="0">${esc(ex.root.expr ? ex.root.expr : "$" + ex.root.ref)}</a>`]
-    .concat(ex.steps.map((s, i) => `<a data-step="${i + 1}">${esc(s.startsWith("#") || s.startsWith(".") ? s.startsWith("#") ? "[" + s.slice(1) + "]" : s : ":" + s + "()")}</a>`)).join(" ");
-  if (r.failedAt) { body.innerHTML = `<div class="crumbs">${crumbs}</div><pre class="fail" style="margin-top:8px">step ${r.failedAt} (${esc(r.step)}): ${esc(r.error)}</pre>`; bindCrumbs(); return; }
+  try { r = await call("resolvePath", { expr: root.expr, ref: root.ref, steps }); }
+  catch (e) { body.innerHTML = `<pre class="fail">${esc(e.message)}</pre>`; return null; }
+  if (r.failedAt) { body.innerHTML = `<pre class="fail">step ${r.failedAt} (${esc(r.step)}): ${esc(r.error)}</pre>`; return null; }
   const v = r.value;
-  if (!v || (!v.$java && !v.$table)) { body.innerHTML = `<div class="crumbs">${crumbs}</div><div style="margin-top:10px">${val(v)}</div>`; bindCrumbs(); return; }
+  if (!v || (!v.$java && !v.$table)) { body.innerHTML = `<div style="margin-top:6px">${val(v)}</div>`; return v; }
   const ins = await call("inspect", { ref: v.ref }).catch((e) => ({ error: e.message }));
-  if (ins.error) { body.innerHTML = `<pre class="fail">${esc(ins.error)}</pre>`; return; }
-  ex.ref = v.ref;
-  let h = `<div class="crumbs">${crumbs}</div>`;
+  if (ins.error) { body.innerHTML = `<pre class="fail">${esc(ins.error)}</pre>`; return v; }
+  const sub = (k, label) => `<a class="lnk" data-sub="${esc(k)}" title="open as a card">${label}</a>`;
+  let h = "";
   if (ins.kind === "table") {
-    h += `<h3>table · ${ins.count} entries</h3><table>${arr(ins.entries).map((e) => `<tr><td class="k"><a class="lnk" data-sub=".${esc(e.key)}">${esc(e.key)}</a></td><td>${val(e.value)}</td></tr>`).join("")}</table>`;
-    body.innerHTML = h; bindCrumbs(); bindSub(); return;
+    h += `<h3>table · ${ins.count} entries</h3><table>${arr(ins.entries).map((e) => `<tr><td class="k">${sub("." + e.key, esc(e.key))}</td><td>${val(e.value)}</td></tr>`).join("")}</table>`;
+    body.innerHTML = h; bindSubs(); return v;
   }
   const api = ins.api;
-  h += `<div style="margin:8px 0 4px"><b class="mono" style="color:var(--accent)">${esc(ins.class)}</b>${api && api.inferred ? ` <span class="badge" title="toString gave no class; matched by method set">inferred ${api.inferred}</span>` : ""}</div>
+  h += `<div style="margin:2px 0 4px"><b class="mono" style="color:var(--accent)">${esc(ins.class)}</b>${api && api.inferred ? ` <span class="badge" title="toString gave no class; matched by method set">inferred ${api.inferred}</span>` : ""}</div>
     <div class="mono muted" style="font-size:11px;overflow-wrap:anywhere">${esc(ins.str)}</div>
-    ${api ? `<div class="muted" style="font-size:11px;margin-top:3px">${api.chain.map(esc).join(" → ")}</div>` : `<div class="warn" style="font-size:11px">no API index entry — signatures unknown</div>`}`;
-  if (ins.size != null) h += `<h3>elements · ${ins.size}</h3>${arr(ins.elements).map((e, i) => `<div class="row" style="padding:1px 0"><a class="lnk" data-sub="#${i}">[${i}]</a> ${val(e)}</div>`).join("") || `<span class="dim">empty</span>`}`;
+    ${api ? `<div class="muted" style="font-size:11px;margin-top:3px">${api.chain.map(esc).join(" → ")}</div>` : `<div class="warn" style="font-size:11px">no API index entry: signatures unknown</div>`}`;
+  if (ins.size != null) h += `<h3>elements · ${ins.size}</h3>${arr(ins.elements).map((e, i) => `<div class="row" style="padding:1px 0">${sub("#" + i, "[" + i + "]")} ${val(e)}</div>`).join("") || `<span class="dim">empty</span>`}`;
   const methods = arr(ins.methods);
   const sigs = (m) => (api && api.methods[m]) || null;
-  const zero = methods.filter((m) => { const s = sigs(m); return s ? s.some((x) => x.arity === 0 && !x.static) : /^(get|is|has|can)[A-Z]/.test(m); });
+  const zero = methods.filter((m) => { const sg = sigs(m); return sg ? sg.some((x) => x.arity === 0 && !x.static) : /^(get|is|has|can)[A-Z]/.test(m); });
   const getters = zero.filter((m) => /^(get|is|has|can)[A-Z]/.test(m));
   h += `<h3>methods · ${methods.length} Lua-exposed</h3>
     <div class="row" style="margin-bottom:6px"><input class="inp" id="mq" placeholder="filter methods" style="flex:1">
       <button class="btn small" id="snap" title="Call every zero-arg getter (${getters.length}) and show the values">snapshot ${getters.length} getters</button></div>
     <div id="snapout"></div><div id="mlist"></div>`;
   body.innerHTML = h;
-  bindCrumbs(); bindSub();
+  function bindSubs() { for (const a of $$("[data-sub]", body)) a.onclick = (e) => { e.preventDefault(); hooks.child(a.dataset.sub); }; }
+  bindSubs();
   const renderMethods = (q) => {
-    $("#mlist").innerHTML = methods.filter((m) => !q || m.toLowerCase().includes(q.toLowerCase())).map((m) => {
-      const s = sigs(m);
-      const z = zero.includes(m);
-      const sigTxt = s ? s.map((x) => esc(x.sig).replace(esc(m), `<span class="n">${esc(m)}</span>`) + (x.declaredIn ? ` <span class="dim">· ${esc(x.declaredIn)}</span>` : "")).join("<br>") : `<span class="n">${esc(m)}</span><span class="dim">(?)</span>`;
+    $("#mlist", body).innerHTML = methods.filter((m) => !q || m.toLowerCase().includes(q.toLowerCase())).map((m) => {
+      const sg = sigs(m), z = zero.includes(m);
+      const sigTxt = sg ? sg.map((x) => esc(x.sig).replace(esc(m), `<span class="n">${esc(m)}</span>`) + (x.declaredIn ? ` <span class="dim">· ${esc(x.declaredIn)}</span>` : "")).join("<br>") : `<span class="n">${esc(m)}</span><span class="dim">(?)</span>`;
       return `<div class="meth" data-m="${esc(m)}"><div class="sig">${sigTxt}</div><div>${z ? `<button class="btn small" data-call="${esc(m)}" title="call with no arguments">▶</button>` : ""}
         <button class="btn small" data-args="${esc(m)}" title="call with arguments">ƒ(…)</button></div><div class="res"></div></div>`;
     }).join("");
   };
   renderMethods("");
-  $("#mq").oninput = (e) => renderMethods(e.target.value);
-  $("#mlist").onclick = async (e) => {
+  $("#mq", body).oninput = (e) => renderMethods(e.target.value);
+  $("#mlist", body).onclick = async (e) => {
     const b = e.target.closest("button");
     if (!b) return;
     const row = b.closest(".meth"), res = $(".res", row), m = row.dataset.m;
     let args = [];
     if (b.dataset.args !== undefined) {
-      const s = sigs(m), hint = s ? s.map((x) => x.sig).join("\n") : m + "(?)";
-      const raw = prompt(`Arguments for ${m} as JSON array. $N = an explored object, e.g. [1, "Base.Axe", "$12"]\n\n${hint}`, "[]");
+      const sg = sigs(m), hint = sg ? sg.map((x) => x.sig).join("\n") : m + "(?)";
+      const raw = prompt(`Arguments for ${m} as JSON array. $N = a live object, e.g. [1, "Base.Axe", "$12"]\n\n${hint}`, "[]");
       if (raw == null) return;
       try { args = JSON.parse(raw).map((a) => typeof a === "string" && /^\$\d+$/.test(a) ? { $ref: +a.slice(1) } : a); }
       catch (err) { res.innerHTML = `<span class="fail">bad JSON: ${esc(err.message)}</span>`; return; }
     }
     res.innerHTML = `<span class="spin"></span>`;
-    const r2 = await call("invoke", { ref: ex.ref, method: m, args }).catch((er) => ({ ok: false, error: er.message }));
-    res.innerHTML = r2.ok ? `→ ${val(r2.value)} <span class="dim">${r2.ms != null ? r2.ms.toFixed(2) + "ms" : ""}</span>${!args.length && (r2.value?.$java || r2.value?.$table) ? ` <a class="lnk" data-sub="${esc(m)}">open as path</a>` : ""}`
+    const r2 = await call("invoke", { ref: v.ref, method: m, args }).catch((er) => ({ ok: false, error: er.message }));
+    res.innerHTML = r2.ok ? `→ ${val(r2.value)} <span class="dim">${r2.ms != null ? r2.ms.toFixed(2) + "ms" : ""}</span>${!args.length && (r2.value?.$java || r2.value?.$table) ? ` ${sub(m, "→ card")}` : ""}`
       : `<span class="fail">${esc(r2.error)}</span>`;
-    bindSub();
+    bindSubs();
   };
-  $("#snap").onclick = async () => {
-    $("#snapout").innerHTML = `<span class="spin"></span>`;
-    const r3 = await call("getters", { ref: ex.ref, methods: getters });
+  $("#snap", body).onclick = async () => {
+    $("#snapout", body).innerHTML = `<span class="spin"></span>`;
+    const r3 = await call("getters", { ref: v.ref, methods: getters });
     const vals = r3.values || {};
-    $("#snapout").innerHTML = `<table style="margin-bottom:10px">${Object.keys(vals).sort().map((k) => `<tr><td class="k"><a class="lnk" data-sub="${esc(k)}">${esc(k)}</a></td><td>${val(vals[k])}</td></tr>`).join("")}</table>
-      ${Object.keys(r3.failed || {}).length ? `<details><summary>${Object.keys(r3.failed).length} getter(s) threw</summary><table>${Object.entries(r3.failed).map(([k, e]) => `<tr><td class="k">${esc(k)}</td><td class="fail mono" style="font-size:11px">${esc(e)}</td></tr>`).join("")}</table></details>` : ""}`;
-    bindSub();
+    $("#snapout", body).innerHTML = `<table style="margin-bottom:10px">${Object.keys(vals).sort().map((k) => `<tr><td class="k">${(vals[k] && (vals[k].$java || vals[k].$table)) ? sub(k, esc(k)) : esc(k)}</td><td>${val(vals[k])}</td></tr>`).join("")}</table>
+      ${Object.keys(r3.failed || {}).length ? `<details><summary>${Object.keys(r3.failed).length} getter(s) threw</summary><table>${Object.entries(r3.failed).map(([k, er]) => `<tr><td class="k">${esc(k)}</td><td class="fail mono" style="font-size:11px">${esc(er)}</td></tr>`).join("")}</table></details>` : ""}`;
+    bindSubs();
   };
+  return v;
 }
-function bindCrumbs() { for (const a of $$("#dbody [data-step]")) a.onclick = () => { S.explore.steps = S.explore.steps.slice(0, +a.dataset.step); writeHash(); renderExplorer(); }; }
-function bindSub() { for (const a of $$("#dbody [data-sub]")) a.onclick = (e) => { e.preventDefault(); S.explore.steps.push(a.dataset.sub); writeHash(); renderExplorer(); }; }
-$("#dclose").onclick = () => { $("#drawer").classList.remove("open"); S.explore = null; writeHash(); };
-$("#dlink").onclick = () => {
-  navigator.clipboard?.writeText(location.href);
-  $("#dlink").textContent = S.explore?.root?.expr ? "copied" : "copied (ref: this VM only)";
-  setTimeout(() => ($("#dlink").textContent = "link"), 1500);
-};
 
 // ── addons (dashboard/workbench/40_addons.lua) ─────────────────────────────
 // Addons are declared in Lua (WB.addon{...}); everything here is generated
@@ -417,6 +420,58 @@ function panelsHtml(panels, before) {
       return `<tr class="${changed ? "chg" : ""}"><td class="k">${esc(k)}</td><td>${changed && was[k] !== undefined ? `<span class="was">${esc(typeof was[k] === "object" ? JSON.stringify(was[k]) : String(was[k]))}</span>` : ""}${d[k] === undefined ? `<span class="dim">(gone)</span>` : val(d[k], 1)}</td></tr>`;
     }).join("")}</table></div>`;
   }).join("");
+}
+
+// ── 3D item view (pzchar .glb, three.js vendored by pzchar) ────────────────
+// One renderer at a time: a new view disposes the previous one.
+let V3D = null;
+async function view3d(canvas, vis) {
+  if (V3D) { V3D.stop(); V3D = null; }
+  let THREE, GLTFLoader, OrbitControls;
+  try {
+    THREE = await import("three");
+    ({ GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js"));
+    ({ OrbitControls } = await import("three/addons/controls/OrbitControls.js"));
+  } catch (e) { canvas.replaceWith(Object.assign(document.createElement("div"), { className: "dim", textContent: "3D view needs pzchar's three.js: " + e.message })); return; }
+  if (!canvas.isConnected) return;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+  renderer.setSize(w, h, false);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x2a2420, 1.6));
+  const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(2, 3, 2); scene.add(key);
+  const camera = new THREE.PerspectiveCamera(30, w / h, 0.001, 100);
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 1.6;
+  let raf = 0, alive = true;
+  const stop = () => { alive = false; cancelAnimationFrame(raf); controls.dispose(); renderer.dispose(); };
+  V3D = { stop };
+  const url = `/api/wb/${encodeURIComponent(S.mod)}/model?ref=${encodeURIComponent(vis.model)}&fmt=glb`;
+  new GLTFLoader().load(url, (gltf) => {
+    if (!alive) return;
+    const obj = gltf.scene;
+    obj.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = o.material.clone();
+      o.material.side = THREE.DoubleSide;
+      if (vis.tint) o.material.color.multiply(new THREE.Color(vis.tint));
+      if (vis.glow && o.material.emissive) { o.material.emissive = new THREE.Color(vis.glow); o.material.emissiveIntensity = 0.16; }
+    });
+    scene.add(obj);
+    const box = new THREE.Box3().setFromObject(obj), size = box.getSize(new THREE.Vector3()), centre = box.getCenter(new THREE.Vector3());
+    const r = Math.max(size.length() / 2, 1e-3), dist = r / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.15;
+    // Look at the broadest face: along the item's THINNEST axis, a little
+    // off-axis and above, so blades and flat items don't present edge-on.
+    const ax = ["x", "y", "z"].sort((a, b) => size[a] - size[b])[0];
+    const dir = new THREE.Vector3(0.25, 0.3, 0.25); dir[ax] = 1;
+    camera.position.copy(centre).add(dir.normalize().multiplyScalar(dist));
+    camera.near = dist / 100; camera.far = dist * 10; camera.updateProjectionMatrix();
+    controls.target.copy(centre); controls.update();
+    const tick = () => { if (!alive || !canvas.isConnected) { stop(); return; } controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(tick); };
+    tick();
+  }, undefined, () => { if (alive && canvas.isConnected) canvas.replaceWith(Object.assign(document.createElement("div"), { className: "dim", textContent: "no 3D model for " + vis.model })); });
 }
 
 // ── tools (pluggable: add an entry here + a dashboard/workbench/*.lua) ────
@@ -474,7 +529,7 @@ tool("board", {
   async render(v) {
     this.board();
     v.innerHTML = `<div class="bd">
-      <div class="bpal"><div class="tabs" style="margin-bottom:6px">${[["find", "Find"], ["lib", "Library"]].map(([k, l]) => `<div class="tab ${this.st.palTab === k ? "on" : ""}" data-pt="${k}">${l}</div>`).join("")}</div><div id="bpl"></div></div>
+      <div class="bpal"><div class="tabs" style="margin-bottom:6px">${[["find", "Find"], ["scripts", "Scripts"], ["lib", "Library"], ["addons", "Addons"]].map(([k, l]) => `<div class="tab ${this.st.palTab === k ? "on" : ""}" data-pt="${k}">${l}</div>`).join("")}</div><div id="bpl"></div></div>
       <div class="bcan" id="bcan">
         <div class="bbar"><button class="btn small" id="breplay" title="Rebuild every live object and re-run every recipe in order">↻ run all</button>
           <button class="btn small" id="bsave" title="Save this board to the library as a blueprint">save blueprint</button>
@@ -485,6 +540,7 @@ tool("board", {
           <span id="bexp"></span><span id="bmsg" class="muted" style="font-size:12px"></span></div>
         <div class="bworld" id="bworld"><svg class="bwires" id="bwires"></svg><div id="bcards"></div></div>
         <div class="bempty" id="bempty"></div>
+        ${this.dock()}
       </div>
       <div class="binsp" id="binsp"></div></div>`;
     for (const t of $$("[data-pt]", v)) t.onclick = () => { this.st.palTab = t.dataset.pt; for (const x of $$("[data-pt]", v)) x.classList.toggle("on", x === t); this.palette(); };
@@ -497,6 +553,8 @@ tool("board", {
     $("#brngs").onchange = (e) => { const r = this.rng(); r.seed = Number(e.target.value) || 1; this.save(); this.applyRng(true); };
     $("#bclear").onclick = () => { if (!confirm("Clear the board?")) return; this.st.b = { ...this.emptyBoard(), mod: S.mod }; this.save(); this.draw(); this.inspect(); this.showExpect(); };
     this.bindCanvas();
+    this.bindSplits(v);
+    this.bindDock();
     this.palette();
     this.draw();
     this.inspect();
@@ -524,6 +582,8 @@ tool("board", {
   // ── palette: find + library ──
   async palette() {
     if (this.st.palTab === "lib") return this.library();
+    if (this.st.palTab === "addons") return this.addonsPalette();
+    if (this.st.palTab === "scripts") return this.scriptsPalette();
     const el = $("#bpl");
     if (!el) return;
     el.innerHTML = `<input class="inp" id="bq" placeholder="find items / recipes" value="${esc(this.st.palQ)}" style="width:100%">
@@ -549,12 +609,15 @@ tool("board", {
       return;
     }
     el.innerHTML = `<span class="spin"></span>`;
-    const [rec, it] = await Promise.all([call("recipes", { q, limit: 25 }).catch(() => ({})), call("items", { q, limit: 25 }).catch(() => ({}))]);
+    const [rec, it, fx, ev] = await Promise.all([call("recipes", { q, limit: 25 }).catch(() => ({})), call("items", { q, limit: 25 }).catch(() => ({})),
+      call("fixing", { q }).catch(() => ({})), call("evolved", { q }).catch(() => ({}))]);
     if (this.st.palQ.trim() !== q) return;
     const row = (kind, key, label, sub) => `<div class="li bpi" draggable="true" data-add='${esc(JSON.stringify({ kind, key }))}'><span class="t">${kind === "recipe" ? "⚒ " : "◇ "}${esc(label)}</span><span class="s">${esc(sub || "")}</span></div>`;
     const qa = acts.filter((a) => (a.label + " " + a.id + " " + a.addonName).toLowerCase().includes(q.toLowerCase()));
     el.innerHTML = `${qa.length ? `<div class="bph">actions</div>${qa.map(actRow).join("")}` : ""}<div class="bph">recipes</div>${arr(rec.recipes).map((r) => row("recipe", r.full, r.label, r.category)).join("") || `<div class="dim" style="font-size:12px">none</div>`}
-      <div class="bph">items</div>${arr(it.items).map((i) => row("item", i.fullType, i.name, i.fullType)).join("") || `<div class="dim" style="font-size:12px">none</div>`}`;
+      <div class="bph">items</div>${arr(it.items).map((i) => row("item", i.fullType, i.name, i.fullType)).join("") || `<div class="dim" style="font-size:12px">none</div>`}
+      ${arr(fx.fixing).length + arr(ev.evolved).length ? `<div class="bph">scripts</div>${arr(fx.fixing).slice(0, 15).map((f) => `<div class="li bpi" draggable="true" data-add='${esc(JSON.stringify({ kind: "script", key: "fixing:" + f.name }))}'><span class="t">≡ ${esc(f.name)}</span><span class="s">fixing</span></div>`).join("")}
+        ${arr(ev.evolved).slice(0, 15).map((e) => `<div class="li bpi" draggable="true" data-add='${esc(JSON.stringify({ kind: "script", key: "evolved:" + e.name }))}'><span class="t">≡ ${esc(e.name)}</span><span class="s">evolved</span></div>`).join("")}` : ""}`;
     bindAdd();
   },
   async library() {
@@ -600,12 +663,238 @@ tool("board", {
     }
   },
 
+  // ── palette: script browser (family -> type -> group -> entry) ──
+  async scriptTypes() {
+    if (!this.st.scrTypes) this.st.scrTypes = arr((await call("scriptTypes").catch(() => ({}))).types);
+    return this.st.scrTypes;
+  },
+  async scriptsPalette() {
+    const el = $("#bpl");
+    if (!el) return;
+    const st = this.st;
+    el.innerHTML = `<span class="spin"></span>`;
+    const types = await this.scriptTypes();
+    if (!types.length) { el.innerHTML = `<div class="dim" style="font-size:12px">no script catalog (engine unavailable in this mod context?)</div>`; return; }
+    st.scrType = st.scrType || "craftRecipes";
+    const fams = [];
+    for (const t of types) { let f = fams.find((x) => x.name === t.family); if (!f) fams.push(f = { name: t.family, types: [] }); f.types.push(t); }
+    el.innerHTML = `${fams.map((f) => `<div class="sfam">${esc(f.name)}</div>${f.types.filter((t) => t.count).map((t) => `<span class="stype ${st.scrType === t.id ? "on" : ""}" data-st="${t.id}">${esc(t.label)} <span class="n">${t.count}</span></span>`).join("")}`).join("")}
+      <input class="inp" id="bsq" placeholder="filter ${esc((types.find((t) => t.id === st.scrType) || {}).label || "")}" value="${esc(st.scrQ || "")}" style="width:100%;margin-top:8px">
+      <div class="muted" style="font-size:11px;margin:4px 0 6px">click or drag onto the board</div><div id="bsl"></div>`;
+    for (const t of $$("[data-st]", el)) t.onclick = () => { st.scrType = t.dataset.st; st.scrQ = ""; this.scriptsPalette(); };
+    $("#bsq").oninput = debounce((e) => { st.scrQ = e.target.value; this.scriptList(); }, 200);
+    this.scriptList();
+  },
+  async scriptList() {
+    const el = $("#bsl"), st = this.st;
+    if (!el) return;
+    const type = st.scrType, q = (st.scrQ || "").trim();
+    el.innerHTML = `<span class="spin"></span>`;
+    const r = await call("scriptList", { type, q }).catch((e) => ({ error: e.message }));
+    if (st.scrType !== type || (st.scrQ || "").trim() !== q || !$("#bsl")) return;
+    if (r.error) { el.innerHTML = `<pre class="fail">${esc(r.error)}</pre>`; return; }
+    // Items and craft recipes drop as their working cards; everything else as a script card.
+    const kindOf = (e) => type === "items" ? { kind: "item", key: e.full } : type === "craftRecipes" ? { kind: "recipe", key: e.full } : { kind: "script", key: type + ":" + e.full };
+    const icon = type === "items" ? "◇" : type === "craftRecipes" ? "⚒" : "≡";
+    const groups = arr(r.groups), open = q || groups.length <= 3;
+    st.scrOpen = st.scrOpen || {};
+    el.innerHTML = (r.fromDisk ? `<div class="muted" style="font-size:11px;margin-bottom:4px">The headless engine doesn't load these, so they're listed from the script files, grouped by file.</div>` : "") + groups.map((g) => `<details class="sgrp" data-g="${esc(g.group)}" ${open || st.scrOpen[type + "|" + g.group] ? "open" : ""}><summary>${esc(g.group)} <span class="n">${g.entries.length}</span></summary>
+        ${g.entries.slice(0, 300).map((e) => `<div class="li bpi" draggable="true" data-add='${esc(JSON.stringify(kindOf(e)))}' title="${esc(e.full)}"><span class="t">${icon} ${esc(e.label || e.name)}</span><span class="s">${esc(e.label ? e.name : e.full.replace(/^Base\./, ""))}</span></div>`).join("")}
+        ${g.entries.length > 300 ? `<div class="dim" style="font-size:11px">…${g.entries.length - 300} more: filter to narrow</div>` : ""}</details>`).join("")
+      || `<div class="dim" style="font-size:12px">none</div>`;
+    for (const d of $$("details[data-g]", el)) d.ontoggle = () => { st.scrOpen[type + "|" + d.dataset.g] = d.open; };
+    for (const li of $$("[data-add]", el)) {
+      li.onclick = () => { const a = JSON.parse(li.dataset.add); const p = this.centerWorld(); this.add(a.kind, a.key, p.x, p.y); };
+      li.ondragstart = (e) => e.dataTransfer.setData("text/wb-add", li.dataset.add);
+    }
+  },
+
+  async addonsPalette() {
+    const el = $("#bpl");
+    if (!el) return;
+    el.innerHTML = `<span class="spin"></span>`;
+    const r = await addonsFor("");
+    el.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">One <span class="mono">WB.addon{...}</span> per file in <span class="mono">&lt;mod&gt;/workbench/</span>. Edit, then <b>reload tools</b>.</div>
+      ${arr(r.loadErrors).map((e) => `<div class="fail" style="font-size:11.5px">${esc(e.file)}: ${esc(e.error)}</div>`).join("")}
+      ${arr(r.addons).map((a) => `<div class="blib"><b style="font-size:12px">${esc(a.name)}</b> <span class="dim mono" style="font-size:10.5px">${esc(a.id)}</span>
+        ${a.disabled ? `<div class="fail" style="font-size:11px">${esc(a.disabled)}</div>` : ""}
+        <div class="dim mono" style="font-size:10.5px">${esc(a.file || "")}</div>
+        <details><summary style="font-size:11px">${arr(a.actions).length} actions · ${arr(a.panels).length} panels · ${arr(a.presets).length} presets</summary>
+          ${arr(a.actions).map((x) => `<div style="font-size:11.5px"><span class="mono">${esc(x.id)}</span> <span class="muted">${esc(x.doc || x.label)}</span></div>`).join("")}</details></div>`).join("")}
+      <details class="blib"><summary style="font-size:11.5px">Template: <span class="mono">&lt;mod&gt;/workbench/mymod.lua</span></summary><pre class="box" style="font-size:10.5px">${esc(ADDON_TEMPLATE)}</pre></details>`;
+  },
+
+  // ── object cards (Explore, on the canvas) ──
+  // { kind:"object", label, expr | rootRef | from(cardId), steps, ref, cls }
+  // from = an item card (its live ref) or a parent object card (its resolved
+  // ref); expr re-resolves anywhere; rootRef lives only as long as the VM.
+  exploreRef(ref, label, fromId) {
+    const from = fromId && this.card(fromId);
+    const p = from ? this.freshSpot(from.x + 260, from.y + 40) : this.centerWorld();
+    const c = this.newCard({ kind: "object", label: label || "$" + ref, rootRef: ref, steps: [], x: p.x, y: p.y, linkFrom: from ? from.id : null });
+    this.board().sel = c.id;
+    this.save(); this.draw(); this.inspect();
+    return c;
+  },
+  exploreCard(fromId, step, label) {
+    const from = this.card(fromId);
+    const p = this.freshSpot(from.x + 260, from.y + (from.kind === "object" ? 30 : 0));
+    const c = this.newCard({ kind: "object", label: label || (step ? stepLabel(step) : (from.snap && from.snap.name) || from.type || "object"),
+                             from: fromId, steps: step ? [step] : [], x: p.x, y: p.y });
+    this.board().sel = c.id;
+    this.save(); this.draw(); this.inspect();
+    return c;
+    function stepLabel(st) { return st.startsWith("#") ? "[" + st.slice(1) + "]" : st.startsWith(".") ? st.slice(1) : ":" + st + "()"; }
+  },
+  exploreExpr(expr) {
+    const p = this.centerWorld();
+    const c = this.newCard({ kind: "object", label: expr.length > 40 ? expr.slice(0, 38) + "…" : expr, expr, steps: [], x: p.x, y: p.y });
+    this.board().sel = c.id;
+    this.save(); this.draw(); this.inspect();
+  },
+  // The root this object card resolves from (resolving a parent first).
+  async objectRoot(o) {
+    if (o.expr) return { expr: o.expr };
+    if (o.from) {
+      const f = this.card(o.from);
+      if (!f) return o.rootRef ? { ref: o.rootRef } : null;
+      if (f.kind === "object") { const v = await this.resolveObject(f); return v && v.ref ? { ref: v.ref } : null; }
+      return f.ref ? { ref: f.ref } : null;
+    }
+    return o.rootRef ? { ref: o.rootRef } : null;
+  },
+  async resolveObject(o) {
+    const root = await this.objectRoot(o);
+    if (!root) return null;
+    const r = await call("resolvePath", { expr: root.expr, ref: root.ref, steps: o.steps }).catch(() => null);
+    const v = r && !r.failedAt ? r.value : null;
+    if (v && v.$java) { o.cls = short(v.class); o.str = String(v.str || "").slice(0, 60); }
+    if (v && v.$table) { o.cls = "table"; o.str = v.count + " entries"; }
+    o.ref = v && v.ref;
+    return v;
+  },
+  async inspectObject(el, o) {
+    const from = o.from && this.card(o.from);
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>◎ ${esc(o.label)}</b><div class="mono dim" style="font-size:11px">${esc(o.expr ? o.expr : from ? "from " + ((from.snap && from.snap.name) || from.label || from.type) + (o.steps.length ? " " + o.steps.join(" ") : "") : "live ref (this VM only)")}</div></div><button class="btn small" id="idel">✕</button></div>
+      <div class="ibody" id="iobj"></div>`;
+    $("#idel").onclick = () => this.remove(o.id);
+    const root = await this.objectRoot(o);
+    if (!root) { $("#iobj").innerHTML = `<div class="warn" style="font-size:12px">Can't resolve: its source is gone (VM restarted, or the source card was removed). ↻ run all rebuilds item cards.</div>`; return; }
+    const v = await explorerInto($("#iobj"), root, o.steps, { child: (step) => this.exploreCard(o.id, step) });
+    if (v && v.$java) { o.cls = short(v.class); o.str = String(v.str || "").slice(0, 60); o.ref = v.ref; this.save(); this.draw(); }
+  },
+
+  // ── script cards (fixing / evolved recipes) ──
+  async inspectScript(el, sc) {
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>≡ ${esc(sc.name)}</b><div class="mono dim" style="font-size:11px">${esc(sc.stype)} script</div></div><button class="btn small" id="idel">✕</button></div><div class="ibody" id="iscr"><span class="spin"></span></div>`;
+    $("#idel").onclick = () => this.remove(sc.id);
+    if (sc.stype !== "fixing" && sc.stype !== "evolved") return this.inspectCatalogScript(sc);
+    const r = await call(sc.stype, { q: String(sc.name).replace(/^Base\./, "") }).catch((e) => ({ error: e.message }));
+    const list = sc.stype === "fixing" ? arr(r.fixing) : arr(r.evolved);
+    const d = list.find((x) => x.name === String(sc.name).replace(/^Base\./, "")) || list[0];
+    const body = $("#iscr");
+    if (!body) return;
+    if (!d) { body.innerHTML = `<pre class="fail">${esc(r.error || "not found")}</pre>`; return; }
+    const items = sc.stype === "fixing" ? arr(d.require) : [d.baseItem, d.resultItem].filter(Boolean);
+    body.innerHTML = `${val(d.obj)}
+      <h3>${sc.stype === "fixing" ? "Repairs" : "Base → result"}</h3>${items.map((t) => `<button class="btn small" data-additem="${esc(t)}" title="add an item card">◇ ${esc(t)}</button>`).join(" ")}
+      ${d.source ? arr(d.source.defs).map((x) => `<div class="muted mono" style="font-size:11px;margin-top:8px">${esc(x.origin || "")} ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("") : ""}`;
+    for (const b of $$("[data-additem]", body)) b.onclick = () => this.add("item", b.dataset.additem.includes(".") ? b.dataset.additem : "Base." + b.dataset.additem, sc.x + 260, sc.y);
+  },
+
+  // Any other catalog type: the object, its source, and a 3D view for models.
+  async inspectCatalogScript(sc) {
+    const r = await call("scriptInfo", { type: sc.stype, name: sc.name }).catch((e) => ({ error: e.message }));
+    const body = $("#iscr");
+    if (!body || this.board().sel !== sc.id) return;
+    if (r.error) { body.innerHTML = `<pre class="fail">${esc(r.error)}</pre>`; return; }
+    body.innerHTML = `<div class="muted" style="font-size:12px">${esc(r.typeLabel)}${r.group ? " · " + esc(r.group) : ""} · module ${esc(r.module)}</div>
+      ${sc.stype === "models" ? `<canvas class="v3d" id="v3d" title="drag to orbit, wheel to zoom"></canvas>` : ""}
+      ${r.notLoaded ? `<div class="warn" style="font-size:11.5px;margin-top:6px">Not loaded by the headless engine: source only, no live object.</div>` : `<h3>Object</h3>${val(r.obj)}`}
+      ${arr(r.source && r.source.defs).length ? `<h3>Source</h3>${r.source.defs.map((x) => `<div class="muted mono" style="font-size:11px">${esc(x.origin || "")} ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("")}` : `<div class="dim" style="font-size:11.5px;margin-top:8px">no source block found on disk for <span class="mono">${esc(r.kw)} ${esc(r.name)}</span></div>`}`;
+    if ($("#v3d")) view3d($("#v3d"), { model: r.name });
+  },
+
+  // Side panels resize by dragging their inner edge; widths persist.
+  bindSplits(v) {
+    const bd = $(".bd", v);
+    const W = JSON.parse(localStorage.wbPanelW || "{}");
+    const apply = () => { if (W.pal) bd.style.setProperty("--palw", W.pal + "px"); else bd.style.removeProperty("--palw");
+                          if (W.insp) bd.style.setProperty("--inspw", W.insp + "px"); else bd.style.removeProperty("--inspw"); };
+    apply();
+    // Handles live on .bd: the palette scrolls and the inspector re-renders.
+    for (const [sel, key, dir, mount] of [[".bpal", "pal", 1, ".bd"], ["#binsp", "insp", -1, ".bd"]]) {
+      const host = $(sel, v);
+      if (!host) continue;
+      const h = document.createElement("div");
+      h.className = "bsplit " + key; h.title = "drag to resize · double-click to reset";
+      $(mount, v).appendChild(h);
+      h.ondblclick = () => { delete W[key]; localStorage.wbPanelW = JSON.stringify(W); apply(); this.wires(); };
+      h.onpointerdown = (e) => {
+        e.preventDefault(); h.setPointerCapture(e.pointerId); h.classList.add("on");
+        const x0 = e.clientX, w0 = host.getBoundingClientRect().width;
+        h.onpointermove = (m) => { W[key] = Math.max(180, Math.min(innerWidth * 0.45, w0 + dir * (m.clientX - x0))); apply(); };
+        h.onpointerup = () => { h.onpointermove = null; h.classList.remove("on"); localStorage.wbPanelW = JSON.stringify(W); this.wires(); };
+      };
+    }
+  },
+
+  // ── console dock ──
+  dock() {
+    const st = this.st, open = !!st.dockOpen;
+    return `<div class="bdock" id="bdock"><div class="dh" id="dockh">›_ <b>console</b><span class="dim">resident VM · <span class="mono">$N</span> = a live object · Ctrl+Enter runs · object results can become cards</span><span style="flex:1"></span>${open ? "▾" : "▴"}</div>
+      ${open ? `<div class="dbody"><div><textarea class="inp mono" id="dsrc" placeholder='return PZEngine.instanceItem("Base.Axe")'></textarea>
+        <div class="row" style="gap:6px;margin-top:4px"><button class="btn small primary" id="drun">▶ run</button><button class="btn small" id="dclr">clear</button></div></div>
+        <div class="dout" id="dout"></div></div>` : ""}</div>`;
+  },
+  bindDock() {
+    const st = this.st;
+    st.dlog = st.dlog || [];
+    $("#dockh").onclick = () => { st.dockOpen = !st.dockOpen; $("#bdock").outerHTML = this.dock(); this.bindDock(); };
+    if (!st.dockOpen) return;
+    const ta = $("#dsrc");
+    ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.runConsole(); } };
+    $("#drun").onclick = () => this.runConsole();
+    $("#dclr").onclick = () => { st.dlog = []; this.renderDock(); };
+    this.renderDock();
+  },
+  async runConsole() {
+    const src = $("#dsrc").value;
+    if (!src.trim()) return;
+    const entry = { src, pending: true };
+    this.st.dlog.unshift(entry);
+    this.renderDock();
+    try { const r = await call("eval", { src }); Object.assign(entry, { values: arr(r.values), out: arr(r._out), ms: r._ms }); }
+    catch (e) { Object.assign(entry, { error: e.message, out: arr(e.out) }); }
+    entry.pending = false;
+    this.renderDock();
+  },
+  renderDock() {
+    const el = $("#dout");
+    if (!el) return;
+    el.innerHTML = this.st.dlog.slice(0, 20).map((e, i) => `<div class="entry"><div class="mono acc" style="font-size:11.5px;white-space:pre-wrap">› ${esc(e.src)}</div>
+      ${e.pending ? `<span class="spin"></span>` : ""}${arr(e.out).length ? `<pre class="muted">${esc(e.out.join("\n"))}</pre>` : ""}${e.error ? `<pre class="fail">${esc(e.error)}</pre>` : ""}
+      ${arr(e.values).map((x, k) => `<div>${val(x)}${x && (x.$java || x.$table) ? ` <button class="btn small" data-tocard="${i}:${k}" title="put it on the board">◎ card</button>${x.$java && /inventory/i.test(x.class || "") ? ` <button class="btn small" data-toitem="${i}:${k}" title="as a live item card">◇ item card</button>` : ""}` : ""}</div>`).join("")}</div>`).join("");
+    for (const b of $$("[data-tocard]", el)) b.onclick = () => { const [i, k] = b.dataset.tocard.split(":").map(Number); const e = this.st.dlog[i]; this.exploreRef(e.values[k].ref, e.src.split("\n")[0].slice(0, 40)); };
+    for (const b of $$("[data-toitem]", el)) b.onclick = async () => {
+      const [i, k] = b.dataset.toitem.split(":").map(Number);
+      const x = this.st.dlog[i].values[k];
+      const snap = await call("addonPanels", { ref: x.ref }).catch(() => null);
+      if (!snap) return;
+      const p = this.centerWorld();
+      const c = this.newCard({ kind: "item", type: snap.fullType, ref: snap.ref, snap, steps: [], x: p.x, y: p.y });
+      this.board().sel = c.id; this.save(); this.draw(); this.inspect();
+    };
+  },
+
   // ── blueprints ──
   toBlueprint(meta) {
     const b = this.board(), tid = (id) => { const c = this.card(id); return c ? (c.tid || c.id) : id; };
     const cards = b.cards.map((c) => {
       const o = { id: c.tid || c.id, kind: c.kind, x: Math.round(c.x), y: Math.round(c.y) };
-      if (c.kind === "recipe") Object.assign(o, { recipe: c.recipe, label: c.label, inputs: c.inputs.map(tid), outputs: c.outputs.map(tid) });
+      if (c.kind === "recipe") Object.assign(o, { recipe: c.recipe, label: c.label, inputs: c.inputs.map(tid), outputs: c.outputs.map(tid), ...(c.bench !== undefined ? { bench: c.bench } : {}) });
+      else if (c.kind === "object") Object.assign(o, { label: c.label, expr: c.expr || null, from: c.from ? tid(c.from) : null, steps: c.steps || [] });
+      else if (c.kind === "script") Object.assign(o, { stype: c.stype, name: c.name });
       else if (c.kind === "action") {
         const slots = {}, outMap = {};
         for (const [k, v] of Object.entries(c.slots || {})) if (v) slots[k] = tid(v);
@@ -671,6 +960,7 @@ tool("board", {
         this.syncSlots(c); c.crafted = true;
       }
       if (c.origin) c.origin = map.get(c.origin);
+      if (c.kind === "object" && c.from) c.from = map.get(c.from) || null;
     }
     const fresh = arr(bp.cards).map((t) => this.card(map.get(t.id)));
     if (fresh.some((c) => c.x == null)) this.layout(fresh);
@@ -726,7 +1016,9 @@ tool("board", {
         if (e.condition != null) { const u = c && c.snap && c.snap.condition; ok = u === e.condition; what = `${n} has condition ${e.condition} (got ${u == null ? "?" : u})`; } }
       if (e.outputsOf) { const r = this.card(e.outputsOf), outs = arr(r && r.outputs).map((id) => this.card(id));
         const n = outs.filter((c) => badges(c).includes(e.badge)).length; ok = n === e.count; what = `${e.count} output(s) of ${(r && (r.label || r.recipe)) || "?"} with "${e.badge}" (got ${n})`; }
-      if (e.recipe) { const r = this.card(e.recipe); ok = !!(r && r.result && arr(r.result.commands).some((x) => x.command === e.command)); what = `${(r && (r.label || r.recipe)) || "?"} sends ${e.command}`; }
+      if (e.recipe && e.command) { const r = this.card(e.recipe); ok = !!(r && r.result && arr(r.result.commands).some((x) => x.command === e.command)); what = `${(r && (r.label || r.recipe)) || "?"} sends ${e.command}`; }
+      else if (e.recipe && e.crafted != null) { const r = this.card(e.recipe), got = !!(r && r.result && r.result.ok); ok = got === e.crafted;
+        what = `${(r && (r.label || r.recipe)) || "?"} ${e.crafted ? "crafts" : "is refused"}${r && r.result ? (got ? " (crafted)" : r.result.gated ? " (the game refused)" : " (refused)") : " (not run)"}`; }
       return { ok, what, card: e.card || e.outputsOf || e.recipe };
     });
     const pass = results.filter((r) => r.ok).length, fail = results.length - pass;
@@ -747,6 +1039,12 @@ tool("board", {
   },
   async add(kind, key, x, y, extra) {
     ({ x, y } = this.freshSpot(x, y));
+    if (kind === "script") {
+      const [stype, name] = key.split(/:(.*)/s);
+      const c = this.newCard({ kind: "script", stype, name, x, y });
+      this.board().sel = c.id; this.save(); this.draw(); this.inspect();
+      return c;
+    }
     if (kind === "action") {
       const [addon, id] = key.split("/");
       const def = (await this.actionCatalog()).find((a) => a.addon === addon && a.id === id);
@@ -800,6 +1098,44 @@ tool("board", {
     this.save(); this.draw(); this.inspect();
   },
 
+  // ── recipe slots: consumed vs kept ──
+  // Recipe definitions are cached per VM session (not saved with the board).
+  rdef(r) {
+    const st = this.st;
+    st.rdefs = st.rdefs || {};
+    if (st.rdefs[r.recipe] !== undefined) return st.rdefs[r.recipe];
+    st.rdefs[r.recipe] = null;
+    call("recipe", { name: r.recipe }).then((d) => { st.rdefs[r.recipe] = d; this.draw(); if (this.board().sel === r.id) this.inspect(); }).catch(() => {});
+    return null;
+  },
+  // Match attached cards to recipe inputs: each card fills the first input
+  // that accepts its type and still needs more. Returns rows (one per input)
+  // + the cards that fit nothing.
+  slotsOf(r) {
+    const d = this.rdef(r);
+    if (!d) return null;
+    const rows = arr(d.inputs).map((inp) => ({ inp, role: inp.resource !== "Item" ? "other" : inp.keep ? "keep" : "use", cards: [], have: 0,
+                                              need: Math.max(1, inp.itemsNeeded || inp.intAmount || Math.ceil(inp.amount || 1)), uses: inp.intAmount }));
+    const extra = [];
+    for (const id of r.inputs) {
+      const c = this.card(id);
+      if (!c) continue;
+      const fits = rows.filter((row) => row.role !== "other" && (row.inp.anyItem || arr(row.inp.items).includes(c.type)));
+      const row = fits.find((x) => x.have < x.need) || fits[0];
+      if (!row) { extra.push(c); continue; }
+      row.cards.push(c);
+      row.have += this.isStock(c) ? (c.count || 1) : 1;
+    }
+    return { rows, extra };
+  },
+  roleOf(r, cardId) {
+    const sl = this.slotsOf(r);
+    const row = sl && sl.rows.find((x) => x.cards.some((c) => c.id === cardId));
+    return row ? row.role : null;
+  },
+  roleChip(role) { return `<span class="role ${role}" title="${role === "keep" ? "kept: a tool, comes back after the craft" : role === "use" ? "consumed by the craft" : "not an item input"}">${role === "keep" ? "KEEP" : role === "use" ? "USE" : "—"}</span>`; },
+  shortType(t) { return String(t || "").replace(/^Base\./, ""); },
+
   // ── crafting ──
   ready(c) { return this.isStock(c) ? !c.consumed : (c.ref && !c.consumed && !c.stale); },
   async craft(r, replaying) {
@@ -810,8 +1146,16 @@ tool("board", {
     if (!replaying && ins.some((c) => !this.ready(c))) { this.say("Inputs were used up by an earlier craft: re-running the board.", true); await this.replay(false, r.id); return; }
     this.say("crafting " + (r.label || r.recipe) + "…", true);
     let res;
-    const specs = ins.map((c) => this.isStock(c) ? { type: c.type, count: c.count, steps: c.steps } : { ref: c.ref, type: c.type });
-    try { res = await call("craft", { recipe: r.recipe, items: specs, qualify: true, mode: "action", monitor: !!r.monitor }); }
+    // Pin each card to the input slot the board shows it in, so the engine
+    // fills exactly those (vanilla's manual-select path).
+    if (!this.st.rdefs || !this.st.rdefs[r.recipe]) {
+      const d = await call("recipe", { name: r.recipe }).catch(() => null);
+      (this.st.rdefs = this.st.rdefs || {})[r.recipe] = d;
+    }
+    const sl = this.slotsOf(r), slotOf = new Map();
+    if (sl && !sl.extra.length) for (const row of sl.rows) for (const k of row.cards) slotOf.set(k.id, row.inp.index);
+    const specs = ins.map((c) => ({ ...(this.isStock(c) ? { type: c.type, count: c.count, steps: c.steps } : { ref: c.ref, type: c.type }), input: slotOf.get(c.id) }));
+    try { res = await call("craft", { recipe: r.recipe, items: specs, qualify: true, mode: "action", monitor: !!r.monitor, bench: r.bench, enforce: true }); }
     catch (e) { r.result = { ok: false, err: e.message }; this.say(""); this.save(); this.draw(); this.inspect(); return; }
     const byRef = (list) => new Map(arr(list).map((i) => [i.ref, i]));
     const consumed = byRef(res.consumed), kept = byRef(res.kept);
@@ -829,13 +1173,14 @@ tool("board", {
       let c = old.find((x) => !used.has(x.id) && x.type === o.fullType) || old.find((x) => !used.has(x.id) && !x.type);
       if (!c) { const p = this.freshSpot(r.x + 300, r.y + i * 104 - 20); c = this.newCard({ kind: "item", x: p.x, y: p.y, steps: [], origin: r.id }); }
       used.add(c.id);
-      Object.assign(c, { type: o.fullType, ref: o.ref, snap: o, consumed: false, stale: false, err: null, origin: r.id });
+      Object.assign(c, { type: o.fullType, ref: o.ref, snap: o, consumed: false, stale: false, err: null, origin: r.id, onFloor: !!o.onFloor });
       r.outputs.push(c.id);
     });
     for (const c of old) if (!used.has(c.id)) { c.ref = null; c.snap = null; c.stale = true; r.outputs.push(c.id); c.err = "not produced this time"; }
     for (const id of r.outputs) { const c = this.card(id); if (c.ref && arr(c.steps).length) await this.applySteps(c); }
     r.result = { ok: res.ok, ran: res.ran, err: res.err, why: res.why, commands: res.commands, hooks: res.hooks, monitor: res.monitor,
-                 ms: res.ms, initErrors: res.initErrors, hooked: res.hooked, out: res._out };
+                 ms: res.ms, initErrors: res.initErrors, hooked: res.hooked, out: res._out,
+                 canPerform: res.canPerform, gated: res.gated, needsWorkstation: res.needsWorkstation, atWorkstation: res.atWorkstation, workstation: res.workstation };
     r.crafted = true;
     if (!replaying) { this.board().sel = r.id; this.say(res.ok ? `✓ ${r.label || r.recipe}: ${outs.length} output${outs.length === 1 ? "" : "s"}` : `✗ ${r.label || r.recipe} refused`); }
     this.save(); this.draw(); this.inspect(); this.showExpect();
@@ -913,7 +1258,7 @@ tool("board", {
       if (c.slots) for (const k of Object.keys(c.slots)) if (c.slots[k] === id) delete c.slots[k];
       if (c.outMap) for (const k of Object.keys(c.outMap)) if (c.outMap[k] === id) delete c.outMap[k];
     }
-    for (const c of b.cards) if (c.origin === id) c.origin = null;
+    for (const c of b.cards) { if (c.origin === id) c.origin = null; if (c.from === id) { c.rootRef = c.rootRef || c.ref; c.from = null; } if (c.linkFrom === id) c.linkFrom = null; }
     b.expect = arr(b.expect).filter((e) => e.card !== id && e.recipe !== id && e.outputsOf !== id);
     if (b.sel === id) b.sel = null;
     if (!quiet) { this.save(); this.draw(); this.inspect(); this.showExpect(); }
@@ -927,6 +1272,15 @@ tool("board", {
     const badges = (c) => arr(c.snap && c.snap.badges).map((x) => `<div class="bb ${esc(x.tone || "")}">${esc(x.text)}</div>`).join("");
     el.innerHTML = b.cards.map((c) => {
       const cls = `bc ${c.kind} ${b.sel === c.id ? "sel" : ""} ${c.consumed ? "gone" : ""} ${c.stale ? "stale" : ""}`;
+      if (c.kind === "object") {
+        return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
+          <div class="bch">◎ ${esc(c.label)}</div><div class="bcs">${esc(c.cls || (c.expr ? "expression" : "object"))}</div>
+          ${c.str ? `<div class="bslot">${esc(c.str)}</div>` : ""}${!c.expr && !c.from ? `<div class="bres dim">live ref: this VM only</div>` : ""}</div>`;
+      }
+      if (c.kind === "script") {
+        const tl = (arr(this.st.scrTypes).find((t) => t.id === c.stype) || {}).label || c.stype;
+        return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px"><div class="bch">≡ ${esc(String(c.name).replace(/^Base\./, ""))}</div><div class="bcs">${esc(tl)}</div></div>`;
+      }
       if (c.kind === "action") {
         const r = c.result, hooks = arr(r && r.steps), bad = hooks.filter((h) => !h.ok).length;
         return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
@@ -942,15 +1296,30 @@ tool("board", {
         const r = c.result;
         return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
           <div class="bch">⚒ ${esc(c.label || c.recipe)}</div>
-          <div class="bcs">${c.inputs.length} input${c.inputs.length === 1 ? "" : "s"} · ${esc(c.recipe)}</div>
+          <div class="bcs">${esc(c.recipe)}</div>
+          ${(() => {
+            const sl = this.slotsOf(c);
+            if (!sl) return `<div class="bslot">${c.inputs.length} input${c.inputs.length === 1 ? "" : "s"} attached</div>`;
+            const rows = sl.rows.filter((x) => x.role !== "other");
+            const line = (x) => {
+              const got = x.cards.map((k) => esc(((k.snap && k.snap.name) || this.shortType(k.type)) + (this.isStock(k) && k.count > 1 ? " ×" + k.count : ""))).join(", ");
+              const want = arr(x.inp.items).length === 1 ? this.shortType(x.inp.items[0]) : arr(x.inp.items).length + " kinds";
+              return `<div class="rslot">${this.roleChip(x.role)}${got && x.have >= x.need ? `<b>${got}</b>` : `<span class="miss">${got ? got + " · " : ""}needs ${esc(want)}${x.need > 1 ? " ×" + (x.need - x.have) : ""}</span>`}</div>`;
+            };
+            return rows.slice(0, 6).map(line).join("") + (rows.length > 6 ? `<div class="bslot">+${rows.length - 6} more inputs</div>` : "")
+              + (sl.extra.length ? `<div class="rslot"><span class="role other">??</span><span class="miss">${sl.extra.length} card${sl.extra.length > 1 ? "s" : ""} fit no input</span></div>` : "");
+          })()}
           <div class="row" style="gap:4px;margin-top:5px"><button class="btn small primary" data-craft>▶ Craft</button>${c.inputs.length ? "" : `<button class="btn small" data-fill>fill inputs</button>`}</div>
-          ${r ? `<div class="bres ${r.ok ? "pass" : "fail"}">${r.ok ? "✓ crafted" : r.ran ? "✗ refused" : "✗ threw"}${r.ms != null ? ` <span class="dim">${r.ms.toFixed(1)}ms</span>` : ""}${arr(r.commands).length ? ` <span class="acc">· ${arr(r.commands).map((x) => esc(x.command)).join(", ")}</span>` : ""}</div>` : ""}
+          ${r && r.needsWorkstation ? `<div class="bslot" title="${esc((r.workstation && r.workstation.sprite) || "")}">⌂ ${r.atWorkstation ? `<b>${esc(String((r.workstation && r.workstation.name) || "").replace(/^Base\./, ""))}</b>` : `<span class="miss">needs a workstation</span>`}</div>` : ""}
+          ${r ? `<div class="bres ${r.ok ? "pass" : "fail"}">${r.ok ? "✓ crafted" : r.gated ? "✗ the game would refuse" : r.ran ? "✗ refused" : "✗ threw"}${r.ms != null ? ` <span class="dim">${r.ms.toFixed(1)}ms</span>` : ""}${arr(r.commands).length ? ` <span class="acc">· ${arr(r.commands).map((x) => esc(x.command)).join(", ")}</span>` : ""}</div>` : ""}
         </div>`;
       }
       const name = (c.snap && c.snap.name) || c.type || "(output)";
-      return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
+      const vis = c.snap && c.snap.visual;
+      const thumb = vis && vis.model ? `<img class="bthumb" loading="lazy" draggable="false" alt="" src="/api/wb/${encodeURIComponent(S.mod)}/model?ref=${encodeURIComponent(vis.model)}&fmt=png" onerror="this.remove()"${vis.glow ? ` style="filter: drop-shadow(0 0 5px ${esc(vis.glow)})"` : ""}>` : "";
+      return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">${thumb}
         <div class="bch">◇ ${esc(name)}${this.isStock(c) ? ` <span class="acc">×${c.count}</span>` : ""}</div><div class="bcs">${esc(c.type || "")}${arr(c.steps).length ? ` · ${c.steps.length} step${c.steps.length === 1 ? "" : "s"}` : ""}</div>
-        ${badges(c)}${c.unchanged ? `<div class="bres warn">unchanged by ${esc((this.card(c.origin) || {}).label || "the action")}</div>` : ""}${c.consumed ? `<div class="bres dim">${c.changedBy ? "→ after card holds its new state" : c.gone ? "gone (inside / used up)" : "consumed"}</div>` : ""}${c.stale && !c.err ? `<div class="bres warn">stale: run all</div>` : ""}${c.err ? `<div class="bres fail" title="${esc(c.err)}">${esc(c.err.length > 34 ? "error" : c.err)}</div>` : ""}
+        ${badges(c)}${c.unchanged ? `<div class="bres warn">unchanged by ${esc((this.card(c.origin) || {}).label || "the action")}</div>` : ""}${c.consumed ? `<div class="bres dim">${c.changedBy ? "→ after card holds its new state" : c.gone ? "gone (inside / used up)" : "consumed"}</div>` : ""}${c.onFloor && !c.consumed ? `<div class="bres dim" title="too heavy to carry: vanilla addOrDropItem put it on the ground">⤓ dropped at your feet</div>` : ""}${c.stale && !c.err ? `<div class="bres warn">stale: run all</div>` : ""}${c.err ? `<div class="bres fail" title="${esc(c.err)}">${esc(c.err.length > 34 ? "error" : c.err)}</div>` : ""}
       </div>`;
     }).join("");
     for (const btn of $$("[data-craft]", el)) btn.onclick = (e) => { e.stopPropagation(); this.craft(this.card(btn.closest(".bc").dataset.id)); };
@@ -962,7 +1331,7 @@ tool("board", {
     const empty = $("#bempty");
     empty.style.display = b.cards.length ? "none" : "flex";
     if (!b.cards.length) {
-      empty.innerHTML = `<div><b>Empty board.</b><br>Open the <b>Library</b> for ready-made blueprints, or find a recipe on the left,<br>click it, then <b>fill inputs</b> and <b>▶ Craft</b>. Outputs become cards you can feed onward.</div>`;
+      empty.innerHTML = `<div><b>Empty board.</b><br>Open the <b>Library</b> for ready-made blueprints, or find items, recipes, actions and scripts on the left.<br>Explore any object as cards (click a value chip), or run Lua in the <b>console</b> below.</div>`;
     }
   },
   wires() {
@@ -978,8 +1347,19 @@ tool("board", {
     for (const r of b.cards.filter((c) => this.isProc(c))) {
       const rb = box(r.id);
       if (!rb) continue;
-      for (const id of r.inputs) { const c = this.card(id), cb = box(id); if (cb) h += path(cb, rb, "w in" + (soul(c) ? " soul" : "") + (c && c.consumed ? " used" : "")); }
+      for (const id of r.inputs) {
+        const c = this.card(id), cb = box(id), role = r.kind === "recipe" ? this.roleOf(r, id) : null;
+        if (cb) h += path(cb, rb, "w in" + (role ? " " + role : "") + (soul(c) ? " soul" : "") + (c && c.consumed ? " used" : ""));
+      }
       for (const id of r.outputs) { const c = this.card(id), cb = box(id); if (cb) h += path(rb, cb, "w out" + (soul(c) ? " soul" : "")); }
+    }
+    // Explore edges: source card -> object card, labelled with the path step.
+    for (const o of b.cards.filter((c) => c.kind === "object" && (c.from || c.linkFrom))) {
+      const fb = box(o.from || o.linkFrom), ob = box(o.id);
+      if (!fb || !ob) continue;
+      h += path(fb, ob, "w obj");
+      const lbl = o.steps.length ? o.steps.map((st) => st.startsWith("#") ? "[" + st.slice(1) + "]" : st.startsWith(".") ? st : ":" + st + "()").join("") : o.from ? "explore" : "ref";
+      h += `<text class="wl" x="${(fb.x + fb.w + ob.x) / 2}" y="${(fb.y + Math.min(fb.h / 2, 28) + ob.y + Math.min(ob.h / 2, 28)) / 2 - 4}" text-anchor="middle">${esc(lbl)}</text>`;
     }
     svg.innerHTML = h;
   },
@@ -1018,6 +1398,7 @@ tool("board", {
   bindCanvas() {
     const can = $("#bcan"), self = this;
     can.onwheel = (e) => {
+      if (e.target.closest(".bdock")) return;   // the dock scrolls itself
       e.preventDefault();
       const v = self.board().view, r = can.getBoundingClientRect();
       if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY)) { v.x -= e.deltaX; self.applyView(); return; }   // trackpad sideways = pan
@@ -1027,7 +1408,7 @@ tool("board", {
       self.applyView(); clearTimeout(self._zt); self._zt = setTimeout(() => self.save(), 300);
     };
     can.onpointerdown = (e) => {
-      if (e.target.closest("button, input, select, textarea, .bbar")) return;
+      if (e.target.closest("button, input, select, textarea, .bbar, .bdock")) return;
       const b = self.board(), v = b.view, cardEl = e.target.closest(".bc");
       const pan = e.button === 1 || (e.button === 0 && (self.space || !cardEl));
       if (e.button !== 0 && !pan) return;
@@ -1132,6 +1513,8 @@ tool("board", {
     }
     if (c.kind === "recipe") return this.inspectRecipe(el, c);
     if (c.kind === "action") return this.inspectAction(el, c);
+    if (c.kind === "object") return this.inspectObject(el, c);
+    if (c.kind === "script") return this.inspectScript(el, c);
     const name = (c.snap && c.snap.name) || c.type;
     const origin = c.origin && this.card(c.origin);
     const pinned = arr(b.expect).filter((e) => e.card === c.id);
@@ -1143,6 +1526,7 @@ tool("board", {
         ${c.consumed ? `<div class="warn" style="font-size:12px;margin-bottom:6px">Consumed by a craft. Panels show it as it went in; ↻ run all to get it back.</div>` : ""}
         ${c.stale ? `<div class="warn" style="font-size:12px;margin-bottom:6px">Stale: the VM restarted. ↻ run all rebuilds it.</div>` : ""}
         ${this.isStock(c) ? `<div class="muted" style="font-size:12px;margin-bottom:6px">A stack of ${c.count} fresh items, minted at craft time. <label>count <input class="inp" type="number" min="1" id="icount" value="${c.count}" style="width:70px"></label></div>` : ""}
+        ${c.snap && c.snap.visual && c.snap.visual.model ? `<canvas class="v3d" id="v3d" title="drag to orbit, wheel to zoom"></canvas><div class="dim mono" style="font-size:10.5px;margin:2px 0 8px">${esc(c.snap.visual.model)}${c.snap.visual.glow ? " · glow " + esc(c.snap.visual.glow) : ""} · rendered by pzchar</div>` : ""}
         <div id="iact"></div>
         ${arr(c.steps).length ? `<h3>Steps <span class="dim" style="text-transform:none">(replayed in order)</span></h3>${c.steps.map((s, j) => `<span class="step">${esc(stepText(s))}<b data-sdel="${j}">✕</b></span>`).join("")}` : ""}
         ${c.lastRun ? `<div class="verdict ${c.lastRun.ok ? "ok" : "bad"}" style="margin:8px 0;padding:6px 9px"><span class="mono" style="font-size:12px">${esc(c.lastRun.addon)}/${esc(c.lastRun.action)}</span> ${c.lastRun.ok ? val(c.lastRun.result) : `<pre class="fail">${esc(c.lastRun.err)}</pre>`}
@@ -1153,9 +1537,12 @@ tool("board", {
             ${c.snap && c.snap.uses != null ? `<option value="uses">uses =</option>` : ""}${c.snap && c.snap.condition != null ? `<option value="condition">condition =</option>` : ""}</select>
           <input class="inp mono" id="etext" placeholder="BLOODED" value="${esc(arr(c.snap && c.snap.badges)[0] ? c.snap.badges[0].text.split(" ").pop() : "BLOODED")}" style="width:110px"><button class="btn small" id="eadd">pin</button>
           ${c.snap && (c.snap.uses != null || c.snap.condition != null) ? `<span class="dim" style="font-size:11px">now: ${c.snap.uses != null ? "uses " + c.snap.uses : ""}${c.snap.uses != null && c.snap.condition != null ? " · " : ""}${c.snap.condition != null ? "condition " + c.snap.condition + "/" + c.snap.conditionMax : ""}</span>` : ""}</div>
+        <div id="idetail"></div>
         <h3>${c.consumed ? "As it went in" : "Now"}</h3>${panelsHtml(c.consumed ? c.before : c.snap && c.snap.panels, c.consumed ? null : c.lastBefore) || `<span class="dim">no panels</span>`}
       </div>`;
-    if ($("#iexp")) $("#iexp").onclick = () => openExplorer({ ref: c.ref, label: "$" + c.ref });
+    if ($("#iexp")) $("#iexp").onclick = () => this.exploreCard(c.id, null, (c.snap && c.snap.name) || c.type);
+    this.itemDetail(c);
+    if ($("#v3d")) view3d($("#v3d"), c.snap.visual);
     if ($("#icount")) $("#icount").onchange = (e) => { c.count = Math.max(1, +e.target.value || 1); this.save(); this.draw(); };
     $("#idel").onclick = () => this.remove(c.id);
     $("#idup").onclick = async () => { const d = this.newCard({ kind: "item", type: c.type, count: c.count, steps: JSON.parse(JSON.stringify(arr(c.steps))), x: c.x + 24, y: c.y + 120 }); b.sel = d.id; this.draw(); if (!this.isStock(d)) await this.instance(d); this.save(); this.draw(); this.inspect(); };
@@ -1219,13 +1606,21 @@ tool("board", {
   inspectAction(el, a) {
     const res = a.result, items = this.board().cards.filter((c) => c.kind === "item" && !c.consumed && !c.stale);
     const nm = (c) => esc((c.snap && c.snap.name) || c.type);
+    // Ask the addon's accepts() which board cards fit each slot (once per card set).
+    const fkey = items.map((c) => c.ref).join(","), F = this.st.fitsFor, fitsMap = F && F.id === a.id && F.key === fkey ? F.fits : null;
+    if (!fitsMap && items.length) call("boardActionFits", { addon: a.addon, action: a.action, refs: items.map((c) => c.ref).filter(Boolean) })
+      .then((r) => { this.st.fitsFor = { id: a.id, key: fkey, fits: r.fits || {} }; if (this.board().sel === a.id) this.inspect(); }).catch(() => {});
     el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>⚡ ${esc(a.label)}</b><div class="mono dim" style="font-size:11px">${esc(a.addon)}/${esc(a.action)} · ${esc(a.akind || "timed")}</div></div><button class="btn small" id="idel">✕</button></div>
       <div class="ibody">
         ${a.doc ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${esc(a.doc)}</div>` : ""}
         <div class="row" style="gap:6px"><button class="btn primary" id="arun">▶ Run</button>
           ${a.akind === "timed" ? `<select class="inp" id="amode"><option value="sp" ${a.mode !== "mp" ? "selected" : ""}>SP (perform + complete on one machine)</option><option value="mp" ${a.mode === "mp" ? "selected" : ""}>MP (client perform; server serverStart + complete)</option></select>` : `<span class="muted" style="font-size:12px">client → server command</span>`}</div>
-        <h3>Slots</h3>${arr(a.slotDefs).map((s) => `<div class="row" style="gap:6px;font-size:12px;margin-bottom:3px"><span style="width:70px" class="muted">${esc(s.label)}</span>
-          <select class="inp" data-slot="${esc(s.name)}" style="flex:1"><option value="">—</option>${items.map((c) => `<option value="${c.id}" ${a.slots[s.name] === c.id ? "selected" : ""}>${nm(c)}</option>`).join("")}${a.slots[s.name] && !items.some((c) => c.id === a.slots[s.name]) && this.card(a.slots[s.name]) ? `<option value="${a.slots[s.name]}" selected>${nm(this.card(a.slots[s.name]))} (used)</option>` : ""}</select></div>`).join("")}
+        <h3>Slots</h3>${arr(a.slotDefs).map((s) => {
+          const fits = fitsMap && fitsMap[s.name], ok = (c) => !fits || !c.ref || fits.includes(c.ref);
+          const opt = (c) => `<option value="${c.id}" ${a.slots[s.name] === c.id ? "selected" : ""}>${nm(c)}</option>`;
+          return `<div class="rrow ${s.role === "kept" ? "keep" : s.role === "used" ? "use" : "other"}"><div style="font-size:12px"><b>${esc(s.label)}</b>${s.role ? ` <span class="role ${s.role === "kept" ? "keep" : s.role === "used" ? "use" : "other"}">${esc(String(s.role).toUpperCase())}</span>` : ""}${s.hint ? ` <span class="muted">${esc(s.hint)}</span>` : ""}</div>
+          <select class="inp" data-slot="${esc(s.name)}" style="width:100%;margin-top:3px"><option value="">—</option>${items.filter(ok).map(opt).join("")}${fits && items.some((c) => !ok(c)) ? `<optgroup label="doesn't fit this slot">${items.filter((c) => !ok(c)).map(opt).join("")}</optgroup>` : ""}${a.slots[s.name] && !items.some((c) => c.id === a.slots[s.name]) && this.card(a.slots[s.name]) ? `<option value="${a.slots[s.name]}" selected>${nm(this.card(a.slots[s.name]))} (used)</option>` : ""}</select></div>`;
+        }).join("")}
         <div class="muted" style="font-size:11px">or drop an item card on the action</div>
         ${arr(a.paramDefs).length ? `<h3>Params</h3><div class="pform" id="aparams">${paramForm({ params: a.paramDefs }, a.params)}</div>` : ""}
         ${res ? `<h3>Last run ${res.mode ? `<span class="dim" style="text-transform:none">(${res.mode === "mp" ? "MP" : "SP"})</span>` : ""}</h3>
@@ -1243,16 +1638,53 @@ tool("board", {
     if ($("#aparams")) $("#aparams").onchange = () => { readP(); this.save(); };
     $("#arun").onclick = () => { if (readP()) { this.save(); this.runAction(a); } };
   },
+  // What the Items tab used to show: recipes around this item (click to add
+  // the recipe card, wired with this card as an input), script properties
+  // and source, folded so the inspector stays short.
+  async itemDetail(c) {
+    const host = $("#idetail");
+    if (!host || !c.type) return;
+    const d = await call("item", { fullType: c.type }).catch(() => null);
+    if (!d || this.board().sel !== c.id || !$("#idetail")) return;
+    const rl = (list, attach) => arr(list).slice(0, 30).map((r) => `<button class="btn small" data-addrec='${esc(JSON.stringify({ r, attach }))}' title="${attach ? "add this recipe with the item attached" : "add this recipe"}">⚒ ${esc(r.replace(/^Base\./, ""))}</button>`).join(" ") || `<span class="dim">none</span>`;
+    const props = d.props || {};
+    $("#idetail").innerHTML = `<details><summary style="font-size:12px">Recipes · uses ${arr(d.consumedBy).length} · tool in ${arr(d.keptBy).length} · made by ${arr(d.producedBy).length}</summary>
+        <div style="font-size:11.5px;margin-top:4px"><span class="muted">consumed by</span> ${rl(d.consumedBy, true)}</div>
+        <div style="font-size:11.5px;margin-top:4px"><span class="muted">used as tool by</span> ${rl(d.keptBy, true)}</div>
+        <div style="font-size:11.5px;margin-top:4px"><span class="muted">produced by</span> ${rl(d.producedBy, false)}</div></details>
+      <details><summary style="font-size:12px">Script properties · ${Object.keys(props).length}</summary><table>${Object.keys(props).sort().map((k) => `<tr><td class="k">${esc(k)}</td><td>${val(props[k])}</td></tr>`).join("")}</table></details>
+      ${arr(d.source && d.source.defs).length ? `<details><summary style="font-size:12px">Script source</summary>${d.source.defs.map((x) => `<div class="muted mono" style="font-size:11px">${esc(x.origin || "")} ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("")}</details>` : ""}`;
+    for (const b of $$("[data-addrec]", host)) b.onclick = async () => {
+      const { r, attach } = JSON.parse(b.dataset.addrec);
+      const rc = await this.add("recipe", r, c.x + (attach ? 280 : -280), c.y);
+      if (attach) { rc.inputs.push(c.id); } else { rc.outputs = rc.outputs || []; }
+      this.save(); this.draw(); this.inspect();
+    };
+  },
+  async recipeDetail(r) {
+    const d = await call("recipe", { name: r.recipe }).catch(() => null);
+    const host = $("#rdetail");
+    if (!d || !host || this.board().sel !== r.id) return;
+    host.innerHTML = `<details><summary style="font-size:12px">Outputs, hooks, script source</summary>
+      <div style="font-size:11.5px;margin-top:4px"><span class="muted">outputs (script)</span> ${arr(d.scriptOutputs).map((t) => `<button class="btn small" data-additem="${esc(t)}">◇ ${esc(t)}</button>`).join(" ") || "none parsed"}</div>
+      ${arr(d.hooks).length ? `<div style="font-size:11.5px;margin-top:4px">${d.hooks.map((h) => `<span class="mono">${esc(h.kind)} = ${esc(h.fn)}</span>`).join("<br>")}</div>` : ""}
+      ${arr(d.source && d.source.defs).map((x) => `<div class="muted mono" style="font-size:11px;margin-top:6px">${esc(x.origin || "")} ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("")}</details>`;
+    for (const b of $$("[data-additem]", host)) b.onclick = () => this.add("item", b.dataset.additem, r.x + 300, r.y);
+  },
   inspectRecipe(el, r) {
     const res = r.result, ins = r.inputs.map((id) => this.card(id)).filter(Boolean);
     el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>⚒ ${esc(r.label || r.recipe)}</b><div class="mono dim" style="font-size:11px">${esc(r.recipe)}</div></div>
-        <button class="btn small" id="iopen" title="Open in the Craft tool (full detail, script source)">detail</button><button class="btn small" id="idel">✕</button></div>
+        <button class="btn small" id="idel">✕</button></div>
       <div class="ibody">
         <div class="row" style="gap:6px"><button class="btn primary" id="icraft">▶ Craft</button><button class="btn small" id="ifill">fill inputs</button>
           <label class="muted" style="font-size:11.5px" title="Turn on Core.debug so CraftRecipeMonitor logs the engine's account of the craft"><input type="checkbox" id="imon" ${r.monitor ? "checked" : ""}> engine monitor</label></div>
-        <h3>Inputs · ${ins.length}</h3>${ins.map((c) => `<div class="row" style="gap:6px;font-size:12px"><a class="lnk" data-sel="${c.id}">${esc((c.snap && c.snap.name) || c.type)}${this.isStock(c) ? " ×" + c.count : ""}</a>${c.consumed ? `<span class="dim">consumed</span>` : ""}<span style="flex:1"></span><a class="lnk" data-det="${c.id}" title="detach">✕</a></div>`).join("") || `<div class="dim" style="font-size:12px">none: drop item cards on the recipe, or fill</div>`}
+        <h3>Inputs <span class="dim" style="text-transform:none;letter-spacing:0">${this.roleChip("use")}consumed ${this.roleChip("keep")}kept (tool)</span></h3>
+        <div id="rslots">${this.slotsHtml(r)}</div>
+        ${this.stationHtml(r)}
+        <div id="rdetail"></div>
         ${arr(r.lines).length ? `<details style="margin-top:6px"><summary style="font-size:12px">recipe wants</summary>${r.lines.map((l) => `<div class="mono" style="font-size:11px">${esc(l)}</div>`).join("")}</details>` : ""}
-        ${res ? `<h3>Last craft</h3><div class="verdict ${res.ok ? "ok" : "bad"}" style="padding:6px 9px"><b>${res.ok ? "Crafted" : res.ran ? "Refused" : "Threw"}</b>${res.ms != null ? ` <span class="dim mono">${res.ms.toFixed(2)}ms</span>` : ""}
+        ${res ? `<h3>Last craft</h3><div class="verdict ${res.ok ? "ok" : "bad"}" style="padding:6px 9px"><b>${res.ok ? "Crafted" : res.gated ? "The game would refuse" : res.ran ? "Refused" : "Threw"}</b>
+            ${res.gated ? `<div class="muted" style="font-size:11.5px">canPerformCurrentRecipe is false, so no action starts in game.${res.needsWorkstation && !res.atWorkstation ? " This recipe needs a workstation: pick one above." : " Tick <b>engine monitor</b> and craft again to see which input fails."}</div>` : ""}${res.ms != null ? ` <span class="dim mono">${res.ms.toFixed(2)}ms</span>` : ""}
             ${arr(res.why).length ? `<div class="warn mono" style="font-size:11.5px">${arr(res.why).slice(0, 4).map(esc).join("<br>")}</div>` : ""}${res.err ? `<pre class="fail">${esc(res.err)}</pre>` : ""}
             ${!res.ok && res.ran && !arr(res.monitor).length ? `<div class="muted" style="font-size:11.5px">No reason recorded: tick <b>engine monitor</b> and craft again to see why. Check inputs for a <span class="fail">broken</span> badge.</div>` : ""}
             ${arr(res.initErrors).length ? `<pre class="warn">${arr(res.initErrors).map(esc).join("\n")}</pre>` : ""}</div>
@@ -1264,349 +1696,65 @@ tool("board", {
     $("#icraft").onclick = () => this.craft(r);
     $("#ifill").onclick = () => this.fill(r);
     $("#imon").onchange = (e) => { r.monitor = e.target.checked; this.save(); };
+    if ($("#ibench")) $("#ibench").onchange = (e) => { const v = e.target.value; r.bench = v === "" ? undefined : v === "-" ? false : v; this.save(); this.inspect(); };
     $("#idel").onclick = () => this.remove(r.id);
-    $("#iopen").onclick = () => switchTool("craft", { recipe: r.recipe });
+    this.recipeDetail(r);
     for (const a of $$("[data-sel]", el)) a.onclick = () => this.select(a.dataset.sel);
     for (const a of $$("[data-det]", el)) a.onclick = () => { r.inputs = r.inputs.filter((x) => x !== a.dataset.det); this.save(); this.draw(); this.inspect(); };
+    this.bindSlots(r, el);
   },
-});
-
-// Craft simulator ----------------------------------------------------------
-tool("craft", {
-  icon: "⚒", label: "Craft",
-  st: { q: "", recipe: null, items: [], qualify: true, mode: "action", list: null, detail: null, result: null, history: [], stepForm: null },
-  hash() { const s = this.st; return { recipe: s.recipe, inv: s.items.length ? JSON.stringify(s.items) : null, mode: s.mode !== "action" ? s.mode : null }; },
-  load(h) {
-    const s = this.st;
-    if (h.recipe) s.recipe = h.recipe;
-    if (h.inv) try { s.items = JSON.parse(h.inv); } catch (_) {}
-    if (h.mode) s.mode = h.mode;
-    if (h.q) s.q = h.q;
+  // Workstation: recipes whose Tags match a CraftBench's Recipes list craft at
+  // one (the game's entity window). Several identical tiles (8 propane tanks)
+  // collapse to their distinct sprites in the list; the first is the default.
+  stationHtml(r) {
+    const d = this.rdef(r), ws = arr(d && d.workstations);
+    if (!ws.length) return "";
+    const cur = r.bench === false ? "-" : r.bench || "";
+    const short = (f) => String(f).replace(/^Base\./, "");
+    return `<h3>Workstation</h3><div class="row" style="gap:6px"><select class="inp" id="ibench" style="flex:1">
+        <option value="" ${cur === "" ? "selected" : ""}>${esc(short(ws[0].full))} (default)</option>
+        ${ws.map((w) => `<option value="${esc(w.full)}" ${cur === w.full ? "selected" : ""}>${esc(short(w.full))} · ${esc(w.sprite)}${w.origin === "mod" ? "" : " (vanilla)"}</option>`).join("")}
+        <option value="-" ${cur === "-" ? "selected" : ""}>in hand, no workstation (the game refuses)</option></select></div>
+      <div class="muted" style="font-size:11px;margin-top:2px">built as a real tile entity on the craft square; HandcraftLogic gets its CraftBench</div>`;
   },
-  async render(v) {
-    const s = this.st;
-    v.innerHTML = `<div class="cols"><div>
-        <input class="inp" id="rq" placeholder="search ${s.list ? s.list.total : ""} recipes / items" value="${esc(s.q)}" style="width:100%;margin-bottom:6px">
-        <div class="list" id="rlist"><div class="empty"><span class="spin"></span></div></div></div>
-      <div id="rmain"></div></div>`;
-    $("#rq").oninput = debounce(async (e) => { s.q = e.target.value; await this.loadList(); }, 200);
-    this.loadList();
-    this.renderMain();
+  slotsHtml(r) {
+    const sl = this.slotsOf(r);
+    const nm = (c) => esc(((c.snap && c.snap.name) || this.shortType(c.type)) + (this.isStock(c) ? " ×" + c.count : ""));
+    if (!sl) return `<span class="spin"></span>`;
+    const free = this.board().cards.filter((c) => c.kind === "item" && !c.consumed);
+    return sl.rows.map((x, i) => {
+      if (x.role === "other") return `<div class="rrow other"><div>${this.roleChip("other")}<span class="muted" style="font-size:12px">${esc(x.inp.resource || "?")} input</span></div><div class="rl" title="${esc(x.inp.line || "")}">${esc(x.inp.line || "")}</div><div class="dim" style="font-size:11px">not simulated: the board fills Item inputs only</div></div>`;
+      const types = arr(x.inp.items);
+      const fit = free.filter((c) => !x.cards.includes(c) && (x.inp.anyItem || types.includes(c.type)));
+      return `<div class="rrow ${x.role}"><div style="font-size:12px">${this.roleChip(x.role)}<b>${x.role === "keep" ? (x.inp.tool ? "tool" : "kept") : "consumed"}</b> <span class="muted">×${x.need}${x.uses && x.uses !== x.need ? ` (${x.uses} uses)` : ""}</span>
+          ${x.have >= x.need ? `<span class="pass">✓</span>` : `<span class="warn">${x.have}/${x.need}</span>`}</div>
+        <div class="rl" title="${esc(x.inp.line || "")}">${esc(types.length ? types.slice(0, 6).map((t) => this.shortType(t)).join(" | ") + (types.length > 6 ? ` | …${types.length - 6} more` : "") : x.inp.line || "")}</div>
+        ${x.cards.map((c) => `<div class="row" style="gap:6px;font-size:12px"><a class="lnk" data-sel="${c.id}">◇ ${nm(c)}</a>${c.consumed ? `<span class="dim">used</span>` : ""}<span style="flex:1"></span><a class="lnk" data-det="${c.id}" title="detach">✕</a></div>`).join("")}
+        ${x.have < x.need ? `<div class="row" style="gap:4px;margin-top:3px">
+          ${fit.length ? `<select class="inp" data-pick="${i}" style="flex:1;font-size:11.5px"><option value="">attach a card on the board…</option>${fit.map((c) => `<option value="${c.id}">${nm(c)}</option>`).join("")}</select>` : ""}
+          ${types.length > 1 ? `<select class="inp" data-newt="${i}" style="flex:1;font-size:11.5px">${types.slice(0, 80).map((t) => `<option value="${esc(t)}">${esc(this.shortType(t))}</option>`).join("")}</select>` : ""}
+          <button class="btn small" data-new="${i}" title="make a fresh card of this type and attach it">+ new</button></div>` : ""}
+      </div>`;
+    }).join("") + (sl.extra.length ? `<div class="rrow other"><div class="warn" style="font-size:12px">fits no input of this recipe</div>${sl.extra.map((c) => `<div class="row" style="gap:6px;font-size:12px"><a class="lnk" data-sel="${c.id}">◇ ${nm(c)}</a><span style="flex:1"></span><a class="lnk" data-det="${c.id}" title="detach">✕</a></div>`).join("")}</div>` : "")
+      + (!r.inputs.length ? `<div class="dim" style="font-size:11.5px">or drop item cards on the recipe, or <b>fill inputs</b></div>` : "");
   },
-  async loadList() {
-    const s = this.st;
-    const isItem = /^[A-Z][\w]*\.[\w]+$/.test(s.q.trim()) && !s.q.includes(" ");
-    const r = await call("recipes", isItem ? { item: s.q.trim(), limit: 400 } : { q: s.q, limit: 400 }).catch((e) => ({ error: e.message }));
-    if (r.error) { $("#rlist").innerHTML = `<pre class="fail" style="padding:8px">${esc(r.error)}</pre>`; return; }
-    s.list = r;
-    $("#rlist").innerHTML = (isItem ? `<div class="li dim" style="cursor:default">recipes using/producing ${esc(s.q)}</div>` : "")
-      + arr(r.recipes).map((x) => `<div class="li ${x.full === s.recipe ? "sel" : ""}" data-r="${esc(x.full)}"><span class="t" title="${esc(x.full)}">${esc(x.label)}</span><span class="s">${esc(x.category || "")}${x.learn ? " · learn" : ""}</span></div>`).join("")
-      + (r.total > arr(r.recipes).length ? `<div class="li dim">… ${r.total - arr(r.recipes).length} more, refine the search</div>` : "");
-    for (const li of $$("#rlist [data-r]")) li.onclick = () => this.pick(li.dataset.r);
-  },
-  async pick(full, keepItems) {
-    const s = this.st;
-    if (s.recipe !== full) { s.result = null; if (!keepItems) s.items = []; }
-    s.recipe = full;
-    $$("#rlist .li").forEach((li) => li.classList.toggle("sel", li.dataset.r === full));
-    writeHash();
-    await this.renderMain();
-  },
-  async renderMain() {
-    const s = this.st, el = $("#rmain");
-    if (!el) return;
-    if (!s.recipe) { el.innerHTML = `<div class="empty">Pick a recipe. Search by name, category, or a full item type (e.g. <span class="mono">Base.Broom</span>) to list recipes that use or make it.</div>`; return; }
-    el.innerHTML = `<span class="spin"></span>`;
-    let d;
-    try { d = s.detail && s.detail.full === s.recipe ? s.detail : await call("recipe", { name: s.recipe }); }
-    catch (e) { el.innerHTML = `<pre class="fail">${esc(e.message)}</pre>`; return; }
-    s.detail = d;
-    if (!s.items.length) {
-      const plan = await call("craftPlan", { recipe: s.recipe }).catch(() => null);
-      if (plan) { s.items = arr(plan.items).map((x) => ({ type: x.type, count: x.count })); s.planNotes = arr(plan.notes); writeHash(); }
-    }
-    const hooks = arr(d.hooks);
-    el.innerHTML = `
-      <h2>${esc(d.label || d.name)} <small>${esc(d.full)}</small> ${val(d.obj)}</h2>
-      <div class="row muted" style="margin:-4px 0 10px;font-size:12px">${esc(d.category || "")} · ${d.time} ticks${d.learn ? " · must be learned" : ""}${arr(d.skills).length ? " · needs " + arr(d.skills).map((k) => esc(k.perk) + " " + k.level).join(", ") : ""}${arr(d.tags).length ? " · " + arr(d.tags).map((t) => `<span class="tag">${esc(t)}</span>`).join("") : ""}</div>
-      <div class="cols3">
-        <div class="card"><h3 style="margin-top:0">Inputs</h3>${arr(d.inputs).map((i) => `<div style="margin-bottom:6px"><div class="mono" style="font-size:11.5px">${esc(i.line || i.resource)}</div>
-            <div style="font-size:11.5px">${i.keep ? `<span class="tag">keep</span>` : ""}${arr(i.items).slice(0, 12).map((t) => `<a class="lnk" data-go='${esc(JSON.stringify({ tool: "items", item: t }))}'>${esc(t)}</a>`).join(", ")}${arr(i.items).length > 12 ? ` <span class="dim">+${arr(i.items).length - 12}</span>` : ""}</div></div>`).join("")}</div>
-        <div class="card"><h3 style="margin-top:0">Outputs <span class="dim" style="text-transform:none">(from script source)</span></h3>${arr(d.scriptOutputs).map((t) => `<div><a class="lnk" data-go='${esc(JSON.stringify({ tool: "items", item: t }))}'>${esc(t)}</a></div>`).join("") || `<span class="dim">none parsed</span>`}
-          ${hooks.length ? `<h3>Lua hooks</h3>${hooks.map((h) => `<div class="mono" style="font-size:11.5px">${esc(h.kind)} = ${esc(h.fn)} <span class="dim">${esc(h.origin)}${arr(h.requires).length ? " · " + arr(h.requires).map(esc).join(", ") : ""}</span></div>`).join("")}` : ""}</div>
-      </div>
-      <div class="card"><div class="row"><h3 style="margin:0;flex:1">Inventory</h3>
-          <button class="btn small" id="fill" title="Reset to the recipe's first possible item per input">fill from recipe</button>
-          <button class="btn small" id="addrow">+ item</button></div>
-        <table class="inv" style="margin-top:6px"><thead><tr><th style="width:38%">full type</th><th style="width:60px">count</th><th>modData (JSON)</th><th>init (Lua, <span class="mono">it</span> = the item)</th><th>addon steps <a class="lnk" data-go='{"tool":"addons"}' style="font-size:10px">?</a></th><th></th></tr></thead><tbody id="invrows"></tbody></table>
-        <datalist id="itemlist"></datalist>
-        ${arr(s.planNotes).length ? `<div class="warn" style="font-size:11.5px;margin-top:4px">${arr(s.planNotes).map(esc).join("<br>")}</div>` : ""}
-        <div class="row" style="margin-top:8px">
-          <label class="muted"><input type="checkbox" id="qual" ${s.qualify ? "checked" : ""}> qualify player (learn recipe + set required skills)</label>
-          <label class="muted" title="Core.debug on so CraftRecipeMonitor logs. Off by default: under debug a Lua error during the craft hits PZ's debugger path (no thread headless) and kills the craft."><input type="checkbox" id="mon" ${s.monitor ? "checked" : ""}> engine monitor</label>
-          <label class="muted">path <select id="mode" class="inp"><option value="action" ${s.mode === "action" ? "selected" : ""}>ISHandcraftAction.performRecipe (mod hooks run)</option><option value="logic" ${s.mode === "logic" ? "selected" : ""}>HandcraftLogic only (no Lua action layer)</option></select></label>
-          <span style="flex:1"></span><button class="btn primary" id="runcraft">▶ Craft</button></div></div>
-      <div id="cresult"></div>
-      <details class="card"><summary>Script source (${arr(d.source && d.source.defs).length} definition${arr(d.source && d.source.defs).length === 1 ? "" : "s"})</summary>${arr(d.source && d.source.defs).map((x) => `<div class="muted mono" style="font-size:11px;margin-top:8px">${esc(x.origin)} · ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("") || `<span class="dim">not found on disk</span>`}</details>`;
-    this.renderRows();
-    $("#fill").onclick = async () => { s.items = []; s.result = null; await this.renderMain(); };
-    $("#addrow").onclick = () => { s.items.push({ type: "", count: 1 }); this.renderRows(); };
-    $("#qual").onchange = (e) => (s.qualify = e.target.checked);
-    $("#mon").onchange = (e) => (s.monitor = e.target.checked);
-    $("#mode").onchange = (e) => { s.mode = e.target.value; writeHash(); };
-    $("#runcraft").onclick = () => this.run();
-    if (s.result) this.renderResult();
-  },
-  renderRows() {
-    const s = this.st;
-    $("#invrows").innerHTML = s.items.map((it, i) => `<tr data-i="${i}">
-      <td><input class="inp mono" list="itemlist" data-f="type" value="${esc(it.type)}"></td>
-      <td><input class="inp" type="number" min="1" data-f="count" value="${it.count || 1}"></td>
-      <td><input class="inp mono" data-f="modData" placeholder='{"key": 1}' value="${esc(it.modData ? JSON.stringify(it.modData) : "")}"></td>
-      <td><input class="inp mono" data-f="init" placeholder="it:setCondition(3)" value="${esc(it.init || "")}"></td>
-      <td class="steps" data-i="${i}">${arr(it.steps).map((st, j) => `<span class="step" title="${esc(stepText(st))}">${esc(stepText(st))}<b data-sdel="${j}">✕</b></span>`).join("")}<select class="inp" data-addstep="${i}" style="max-width:150px"><option value="">+ step…</option></select></td>
-      <td><button class="btn small" data-del="${i}">✕</button></td></tr>
-      ${s.stepForm && s.stepForm.row === i ? `<tr class="stepform"><td colspan="6"><div class="pform"><b class="acc mono" style="font-size:12px">${esc(s.stepForm.addon)}/${esc(s.stepForm.action)}</b>${paramForm(s.stepForm.def, null)}
-        <button class="btn small primary" id="stepok">add step</button><button class="btn small" id="stepcancel">cancel</button>${s.stepForm.def.doc ? `<span class="muted" style="font-size:11.5px">${esc(s.stepForm.def.doc)}</span>` : ""}</div></td></tr>` : ""}`).join("");
-    for (const inp of $$("#invrows input")) {
-      inp.onchange = inp.oninput = (e) => {
-        const i = +e.target.closest("tr").dataset.i, f = e.target.dataset.f;
-        let v = e.target.value;
-        if (f === "count") v = Math.max(1, +v || 1);
-        if (f === "modData") { try { v = v.trim() ? JSON.parse(v) : undefined; e.target.style.borderColor = ""; } catch (_) { e.target.style.borderColor = "var(--fail)"; return; } }
-        s.items[i][f] = v;
-        writeHash();
-        if (f === "type") itemSuggest(e.target.value);
-      };
-    }
-    for (const b of $$("#invrows [data-del]")) b.onclick = () => { s.items.splice(+b.dataset.del, 1); this.renderRows(); writeHash(); };
-    for (const b of $$("#invrows [data-sdel]")) b.onclick = () => { const i = +b.closest("td").dataset.i; s.items[i].steps.splice(+b.dataset.sdel, 1); this.renderRows(); writeHash(); };
-    if (s.stepForm) {
-      $("#stepok").onclick = () => {
-        let params;
-        try { params = readParams($("tr.stepform")); } catch (e) { alert(e.message); return; }
-        const it = s.items[s.stepForm.row];
-        (it.steps = it.steps || []).push({ addon: s.stepForm.addon, action: s.stepForm.action, params });
-        s.stepForm = null; this.renderRows(); writeHash();
-      };
-      $("#stepcancel").onclick = () => { s.stepForm = null; this.renderRows(); };
-    }
-    // Step menus: presets + actions that apply to the row's item type.
-    for (const sel of $$("#invrows [data-addstep]")) {
-      const i = +sel.dataset.addstep, type = s.items[i].type;
-      if (!type) continue;
-      addonsFor(type).then((r) => {
-        const live = arr(r.addons).filter((a) => !a.disabled && a.applies !== false);
-        sel.innerHTML = `<option value="">+ step…</option>` + live.map((a) => {
-          const pre = arr(a.presets).filter((p) => p.applies !== false);
-          const acts = arr(a.actions).filter((x) => x.applies !== false);
-          return (pre.length ? `<optgroup label="${esc(a.name)} presets">${pre.map((p, k) => `<option value='${esc(JSON.stringify({ preset: [a.id, k] }))}'>★ ${esc(p.label)}</option>`).join("")}</optgroup>` : "")
-            + (acts.length ? `<optgroup label="${esc(a.name)} actions">${acts.map((x) => `<option value='${esc(JSON.stringify({ addon: a.id, action: x.id }))}'>${esc(x.label)}</option>`).join("")}</optgroup>` : "");
-        }).join("");
-        sel.onchange = () => {
-          if (!sel.value) return;
-          const v = JSON.parse(sel.value), it = s.items[i];
-          if (v.preset) {
-            const a = live.find((x) => x.id === v.preset[0]);
-            it.steps = (it.steps || []).concat(arr(a.presets[v.preset[1]].steps).map((st) => ({ addon: st.addon, action: st.action, params: st.params || {} })));
-            this.renderRows(); writeHash(); return;
-          }
-          const def = live.find((x) => x.id === v.addon).actions.find((x) => x.id === v.action);
-          if (!arr(def.params).length) { (it.steps = it.steps || []).push({ addon: v.addon, action: v.action, params: {} }); this.renderRows(); writeHash(); return; }
-          s.stepForm = { row: i, addon: v.addon, action: v.action, def };
-          this.renderRows();
-        };
-      });
-    }
-  },
-  async run() {
-    const s = this.st;
-    $("#cresult").innerHTML = `<div class="card"><span class="spin"></span> crafting…</div>`;
-    try {
-      s.result = await call("craft", { recipe: s.recipe, items: s.items.filter((x) => x.type), qualify: s.qualify, mode: s.mode, monitor: !!s.monitor });
-    } catch (e) { s.result = { error: e.message, _out: e.out }; }
-    s.history.unshift({ recipe: s.recipe, ok: s.result.ok, at: new Date().toLocaleTimeString(), items: JSON.parse(JSON.stringify(s.items)) });
-    this.renderResult();
-  },
-  renderResult() {
-    const r = this.st.result, el = $("#cresult");
-    if (!el || !r) return;
-    if (r.error) { el.innerHTML = `<div class="verdict bad"><b>Tool error</b><pre>${esc(r.error)}</pre></div>`; return; }
-    // mode: "before" = show the item as it went in (consumed), "after" = as it is now,
-    // "diff" = now, with changes vs before highlighted (kept tools).
-    const items = (list, mode) => arr(list).map((i) => {
-      const panels = mode === "before" ? i.panelsBefore : i.panels;
-      const ph = panelsHtml(panels, mode === "diff" ? i.panelsBefore : null);
-      return `<tr><td>${val({ $java: true, ref: i.ref, class: i.class, str: i.fullType })}</td><td class="mono" style="font-size:12px">${esc(i.name || "")}</td>
-      <td class="mono dim" style="font-size:11px">${i.condition != null ? "cond " + i.condition + "/" + i.conditionMax : ""}${i.uses != null ? " uses " + i.uses : ""}</td>
-      <td style="text-align:right"><button class="btn small" data-bench='${esc(JSON.stringify({ ref: i.ref, type: i.fullType }))}' title="Open this live item in the item bench: run addon actions on it">⚙</button></td></tr>
-      ${ph ? `<tr><td colspan="4">${ph}</td></tr>` : (i.modData && !panels ? `<tr><td colspan="4">${val(i.modData, 1)}</td></tr>` : "")}`;
-    }).join("");
-    const hooks = arr(r.hooks), cmds = arr(r.commands), why = arr(r.why), out = arr(r._out);
-    const verdict = r.ok ? ["ok", "Crafted"] : r.ran ? ["bad", "Refused — no output"] : ["bad", "Threw"];
-    el.innerHTML = `<div class="verdict ${verdict[0]}"><b>${verdict[1]}</b> <span class="muted mono">${esc(r.recipe)} · ${r.mode} path · ${r.ms != null ? r.ms.toFixed(2) + " ms in engine" : ""}</span>
-        <div class="muted" style="font-size:12px;margin-top:3px">canPerform: ${r.canPerform == null ? "n/a" : r.canPerform} · mod performRecipe wrapper: ${r.hooked ? `<span class="acc">installed</span>` : "none"} · qualified: ${arr(r.qualified).map(esc).join(", ") || "—"}</div>
-        ${why.length ? `<div class="warn mono" style="font-size:12px;margin-top:4px">${why.map(esc).join("<br>")}</div>` : ""}
-        ${r.err ? `<pre class="fail" style="margin-top:4px">${esc(r.err)}</pre>` : ""}
-        ${arr(r.initErrors).length ? `<pre class="warn">${arr(r.initErrors).map(esc).join("\n")}</pre>` : ""}</div>
-      <div class="cols3"><div class="card"><h3 style="margin-top:0">Consumed · ${arr(r.consumed).length} <span class="dim" style="text-transform:none">(as they went in)</span></h3><table>${items(r.consumed, "before") || `<tr><td class="dim">nothing</td></tr>`}</table>
-          <h3>Kept · ${arr(r.kept).length} <span class="dim" style="text-transform:none">(changes highlighted)</span></h3><table>${items(r.kept, "diff") || `<tr><td class="dim">nothing</td></tr>`}</table></div>
-        <div class="card"><h3 style="margin-top:0">Produced · ${arr(r.outputs).length}</h3><table>${items(r.outputs, "after") || `<tr><td class="dim">nothing</td></tr>`}</table>
-          ${cmds.length ? `<h3>Commands sent · ${cmds.length}</h3>${cmds.map((c) => `<div class="mono" style="font-size:12px">${esc(c.module)} / <b>${esc(c.command)}</b> ${val(c.args, 1)}</div>`).join("")}` : ""}</div></div>
-      ${hooks.length ? `<div class="card"><h3 style="margin-top:0">Lua hooks</h3><table>${hooks.map((h) => `<tr><td class="mono" style="font-size:12px">${esc(h.kind)}</td><td class="mono" style="font-size:12px">${esc(h.fn)}</td>
-          <td>${h.resolved ? (h.calls ? `<span class="pass">called ×${h.calls}</span>` : `<span class="warn">resolved, not called</span>`) : `<span class="fail">unresolved</span>`}${arr(h.loaded).length ? ` <span class="dim">(required ${arr(h.loaded).map(esc).join(", ")})</span>` : ""}</td>
-          <td>${h.args ? "args " + val(h.args, 1) : ""}${h.returned != null ? " → " + val(h.returned) : ""}${h.err ? `<span class="fail">${esc(h.err)}</span>` : ""}${h.reason ? `<span class="muted" style="font-size:11.5px">${esc(h.reason)}</span>` : ""}</td></tr>`).join("")}</table></div>` : ""}
-      <div class="row" style="margin-bottom:12px">${val(r.logic)} ${val(r.player)} <span class="dim" style="font-size:11px">← the live HandcraftLogic and player; click to explore</span></div>
-      <details class="card" ${r.ok ? "" : "open"}><summary>CraftRecipeMonitor · ${arr(r.monitor).length ? arr(r.monitor).length + " lines" : "off (tick engine monitor)"}</summary><div class="monitor" style="margin-top:6px">${arr(r.monitor).map((l) => `<div class="${/WARN|FAIL|NOT /.test(l) ? "why" : ""}">${esc(l)}</div>`).join("")}</div></details>
-      ${out.length ? `<details class="card"><summary>Lua print output · ${out.length} lines</summary><pre class="box">${esc(out.join("\n"))}</pre></details>` : ""}
-      <details class="card"><summary>Inventory after · ${arr(r.inventory).length}</summary><table>${items(r.inventory, "after")}</table></details>
-      ${this.st.history.length > 1 ? `<details class="card"><summary>This session · ${this.st.history.length} crafts</summary>${this.st.history.map((h) => `<div class="mono" style="font-size:12px"><span class="${h.ok ? "pass" : "fail"}">${h.ok ? "✓" : "✗"}</span> ${esc(h.at)} ${esc(h.recipe)} ← ${h.items.map((i) => esc(i.type) + "×" + i.count).join(", ")}</div>`).join("")}</details>` : ""}`;
-  },
-});
-
-// Items ----------------------------------------------------------------------
-tool("items", {
-  icon: "◇", label: "Items",
-  st: { q: "", item: null, list: null, pq: "" },
-  hash() { return { item: this.st.item, q: this.st.q || null }; },
-  load(h) { if (h.item) this.st.item = h.item; if (h.q) this.st.q = h.q; },
-  async render(v) {
-    const s = this.st;
-    v.innerHTML = `<div class="cols"><div><input class="inp" id="iq" placeholder="search items (type, name, category)" value="${esc(s.q)}" style="width:100%;margin-bottom:6px">
-      <div class="list" id="ilist"><div class="empty"><span class="spin"></span></div></div></div><div id="imain"></div></div>`;
-    $("#iq").oninput = debounce((e) => { s.q = e.target.value; writeHash(); this.loadList(); }, 200);
-    this.loadList();
-    this.renderMain();
-  },
-  async loadList() {
-    const s = this.st;
-    const r = await call("items", { q: s.q, limit: 400 }).catch((e) => ({ error: e.message }));
-    if (r.error) { $("#ilist").innerHTML = `<pre class="fail" style="padding:8px">${esc(r.error)}</pre>`; return; }
-    $("#ilist").innerHTML = arr(r.items).map((x) => `<div class="li ${x.fullType === s.item ? "sel" : ""}" data-i="${esc(x.fullType)}"><span class="t" title="${esc(x.fullType)}">${esc(x.name)}</span><span class="s">${esc(x.fullType)}</span></div>`).join("")
-      + (r.total > arr(r.items).length ? `<div class="li dim">… ${r.total - arr(r.items).length} more of ${r.total}</div>` : "");
-    for (const li of $$("#ilist [data-i]")) li.onclick = () => { s.item = li.dataset.i; $$("#ilist .li").forEach((x) => x.classList.toggle("sel", x === li)); writeHash(); this.renderMain(); };
-  },
-  async renderMain() {
-    const s = this.st, el = $("#imain");
-    if (!el) return;
-    if (!s.item) { el.innerHTML = `<div class="empty">Pick an item to see its script properties, tags, source, and every recipe that consumes, keeps, or produces it.</div>`; return; }
-    el.innerHTML = `<span class="spin"></span>`;
-    let d;
-    try { d = await call("item", { fullType: s.item }); } catch (e) { el.innerHTML = `<pre class="fail">${esc(e.message)}</pre>`; return; }
-    const props = d.props || {};
-    const rl = (list) => arr(list).map((r) => `<a class="lnk" data-go='${esc(JSON.stringify({ tool: "craft", recipe: r }))}'>${esc(r.replace(/^Base\./, ""))}</a>`).join(", ") || `<span class="dim">none</span>`;
-    el.innerHTML = `<h2>${esc(props.getDisplayName || s.item)} <small>${esc(s.item)}</small> ${val(d.script)}</h2>
-      <div class="row" style="margin:-4px 0 10px"><button class="btn small" id="inst">instance a real item → explore</button>
-        ${arr(d.tags).map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>
-      <div class="cols3"><div class="card"><h3 style="margin-top:0">Recipes</h3>
-          <div style="font-size:12px"><span class="muted">consumed by</span> ${rl(d.consumedBy)}</div>
-          <div style="font-size:12px;margin-top:4px"><span class="muted">used as tool by</span> ${rl(d.keptBy)}</div>
-          <div style="font-size:12px;margin-top:4px"><span class="muted">produced by</span> ${rl(d.producedBy)}</div></div>
-        <div class="card"><h3 style="margin-top:0">Script source</h3>${arr(d.source && d.source.defs).map((x) => `<div class="muted mono" style="font-size:11px">${esc(x.origin)} · ${esc(x.file)}:${x.line}</div><pre class="box" style="max-height:260px">${esc(x.text)}</pre>`).join("") || `<span class="dim">not found on disk</span>`}</div></div>
-      <div class="card" id="bench"></div>
-      <div class="card"><div class="row"><h3 style="margin:0;flex:1">Script properties · ${Object.keys(props).length} getters</h3><input class="inp" id="pq" placeholder="filter" value="${esc(s.pq)}"></div>
-        <table id="ptable" style="margin-top:6px"></table></div>`;
-    const rows = (q) => Object.keys(props).sort().filter((k) => !q || k.toLowerCase().includes(q.toLowerCase()) || String(props[k]).toLowerCase().includes(q.toLowerCase()))
-      .map((k) => `<tr><td class="k">${esc(k)}</td><td>${val(props[k])}</td></tr>`).join("");
-    $("#ptable").innerHTML = rows(s.pq);
-    $("#pq").oninput = (e) => { s.pq = e.target.value; $("#ptable").innerHTML = rows(s.pq); };
-    $("#inst").onclick = () => openExplorer({ expr: `PZEngine.instanceItem("${s.item}")` });
-    this.renderBench();
-  },
-  // A live item + every addon action that applies to it. Each action shows
-  // what changed (panels before -> after), the log and any network commands.
-  async renderBench() {
-    const s = this.st, el = $("#bench");
-    if (!el) return;
-    if (s.live && s.live.type !== s.item) s.live = null;
-    const r = await addonsFor(s.item);
-    const live = arr(r.addons).filter((a) => !a.disabled && a.applies !== false);
-    const head = `<div class="row"><h3 style="margin:0;flex:1">Item bench <span class="dim" style="text-transform:none">· addons: ${live.map((a) => esc(a.name)).join(", ") || "none apply"}</span></h3>
-      ${s.live ? `${val({ $java: true, ref: s.live.ref, class: "", str: s.item })} <button class="btn small" id="bnew" title="Discard this one and instance a fresh item">fresh item</button>` : `<button class="btn small primary" id="bnew">instance a live item</button>`}</div>`;
-    if (!s.live) { el.innerHTML = head + `<div class="muted" style="font-size:12px;margin-top:6px">Instance a real item to run addon actions on it (add kills, set modData, force affixes...) and watch what changes.</div>`; $("#bnew").onclick = () => this.freshItem(); return; }
-    let snap = s.live.snap;
-    if (!snap) { try { snap = s.live.snap = await call("addonPanels", { ref: s.live.ref }); } catch (e) { s.live = null; el.innerHTML = head + `<pre class="fail">${esc(e.message)}</pre>`; return; } }
-    const last = s.live.last;
-    el.innerHTML = head + `<div class="cols3" style="margin-top:8px"><div>
-        ${live.map((a) => arr(a.actions).filter((x) => x.applies !== false).map((x) => `<div class="act" data-a="${esc(a.id)}" data-x="${esc(x.id)}"><div class="row"><b style="font-size:12.5px">${esc(x.label)}</b> <span class="dim mono" style="font-size:11px">${esc(a.id)}/${esc(x.id)}</span></div>
-          ${x.doc ? `<div class="doc">${esc(x.doc)}</div>` : ""}<div class="pform">${paramForm(x)}<button class="btn small primary" data-run>▶</button></div></div>`).join("")).join("")}</div>
-      <div>${last ? `<div class="verdict ${last.ok ? "ok" : "bad"}" style="margin-bottom:8px"><b>${esc(last.addon)}/${esc(last.action)}</b> ${last.ok ? val(last.result) : `<pre class="fail">${esc(last.err)}</pre>`}
-          ${arr(last.log).length ? `<pre class="muted" style="margin-top:4px">${arr(last.log).map(esc).join("\n")}</pre>` : ""}
-          ${arr(last.commands).length ? `<div style="font-size:12px;margin-top:4px">commands: ${arr(last.commands).map((c) => `<span class="mono">${esc(c.module)}/<b>${esc(c.command)}</b></span>`).join(", ")}</div>` : ""}
-          ${arr(last._out).length ? `<details style="margin-top:4px"><summary>print output · ${arr(last._out).length}</summary><pre class="box">${esc(arr(last._out).join("\n"))}</pre></details>` : ""}</div>` : ""}
-        ${panelsHtml(snap.panels, last ? last.before : null) || `<div class="dim">no panels for this item</div>`}</div></div>`;
-    $("#bnew").onclick = () => this.freshItem();
-    for (const b of $$("#bench [data-run]")) b.onclick = async () => {
-      const row = b.closest(".act");
-      let params;
-      try { params = readParams(row); } catch (e) { alert(e.message); return; }
-      b.disabled = true;
-      let res;
-      try { res = await call("addonRun", { ref: s.live.ref, addon: row.dataset.a, action: row.dataset.x, params }); }
-      catch (e) { res = { ok: false, err: e.message, addon: row.dataset.a, action: row.dataset.x }; }
-      s.live.last = res;
-      if (res.item) s.live.snap = res.item;
-      this.renderBench();
+  bindSlots(r, el) {
+    const sl = this.slotsOf(r);
+    if (!sl) return;
+    for (const s of $$("[data-pick]", el)) s.onchange = () => { if (s.value && !r.inputs.includes(s.value)) r.inputs.push(s.value); this.save(); this.draw(); this.inspect(); };
+    for (const b of $$("[data-new]", el)) b.onclick = async () => {
+      const x = sl.rows[+b.dataset.new], pick = $(`[data-newt="${b.dataset.new}"]`, el);
+      const type = pick ? pick.value : arr(x.inp.items)[0];
+      if (!type) return;
+      const n = Math.max(1, x.need - x.have);
+      const c = await this.add("item", type, r.x - 270, r.y + r.inputs.length * 96 - 20, n > 1 ? { count: n } : null);
+      r.inputs.push(c.id);
+      this.board().sel = r.id;
+      this.save(); this.draw(); this.inspect();
     };
   },
-  async freshItem() {
-    const s = this.st;
-    try {
-      const r = await call("addonPanels", { type: s.item });
-      s.live = { ref: r.ref, type: s.item, snap: r };
-    } catch (e) { $("#bench").innerHTML += `<pre class="fail">${esc(e.message)}</pre>`; return; }
-    this.renderBench();
-  },
 });
 
-// Scripts: fixing + evolved recipes ------------------------------------------
-tool("scripts", {
-  icon: "≡", label: "Scripts",
-  st: { tab: "fixing", q: "" },
-  hash() { return { stab: this.st.tab, q: this.st.q || null }; },
-  load(h) { if (h.stab) this.st.tab = h.stab; if (h.q) this.st.q = h.q; },
-  async render(v) {
-    const s = this.st;
-    const stats = await call("scriptStats").catch(() => ({}));
-    v.innerHTML = `<h2>Scripts <small>${["items", "recipes", "fixing", "evolved", "vehicles"].map((k) => stats[k] != null ? stats[k] + " " + k : "").filter(Boolean).join(" · ")}</small></h2>
-      <div class="tabs">${["fixing", "evolved"].map((t) => `<div class="tab ${s.tab === t ? "on" : ""}" data-t="${t}">${t === "fixing" ? "Fixing (repairs)" : "Evolved recipes"}</div>`).join("")}</div>
-      <input class="inp" id="sq" placeholder="filter" value="${esc(s.q)}" style="width:320px;margin-bottom:8px"><div id="slist"></div>
-      <p class="muted" style="font-size:12px">Items and craft recipes have their own tools (◇ Items, ⚒ Craft). Vehicle scripts aren't parsed by the engine bridge's boot.</p>`;
-    for (const t of $$(".tab", v)) t.onclick = () => { s.tab = t.dataset.t; writeHash(); this.render(v); };
-    $("#sq").oninput = debounce((e) => { s.q = e.target.value; writeHash(); this.loadList(); }, 200);
-    this.loadList();
-  },
-  async loadList() {
-    const s = this.st;
-    const r = await call(s.tab, { q: s.q }).catch((e) => ({ error: e.message }));
-    if (r.error) { $("#slist").innerHTML = `<pre class="fail">${esc(r.error)}</pre>`; return; }
-    const rows = s.tab === "fixing" ? arr(r.fixing).map((f) => `<details class="card"><summary><b class="mono">${esc(f.name)}</b> <span class="muted">repairs ${arr(f.require).map(esc).join(", ")}</span> ${val(f.obj)}</summary>${f.source ? arr(f.source.defs).map((x) => `<div class="muted mono" style="font-size:11px">${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("") : ""}</details>`)
-      : arr(r.evolved).map((e) => `<details class="card"><summary><b class="mono">${esc(e.name)}</b> <span class="muted">${esc(e.baseItem)} → ${esc(e.resultItem)}</span> ${val(e.obj)}</summary>${e.source ? arr(e.source.defs).map((x) => `<div class="muted mono" style="font-size:11px">${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("") : ""}</details>`);
-    $("#slist").innerHTML = rows.join("") || `<div class="empty">nothing matches</div>`;
-  },
-});
-
-// Addons: what's loaded, from where, and how to write one ---------------------
-tool("addons", {
-  icon: "✚", label: "Addons",
-  st: {},
-  async render(v) {
-    v.innerHTML = `<span class="spin"></span>`;
-    const r = await addonsFor("");
-    const errs = arr(r.loadErrors);
-    v.innerHTML = `<h2>Addons <small>${arr(r.addons).length} loaded in the ${esc(S.mod)} VM</small></h2>
-      <p class="muted" style="max-width:900px">An addon is one <span class="mono">WB.addon{...}</span> call in Lua. Its actions show up as <b>craft input steps</b> (⚒ Craft → addon steps) and as buttons on a live item (◇ Items → Item bench); its panels show on every matching item, before and after a craft. Forms are generated from the declared params.
-      Files are picked up from <span class="mono">dashboard/workbench/addons/</span>, <span class="mono">&lt;mod&gt;/workbench/</span> and each pz-test.lua dependency's <span class="mono">workbench/</span>; edit one, then <b>reload tools</b>.</p>
-      ${errs.length ? `<div class="verdict bad"><b>Failed to load</b>${errs.map((e) => `<div class="mono" style="font-size:12px;margin-top:4px">${esc(e.file)}</div><pre class="fail">${esc(e.error)}</pre>`).join("")}</div>` : ""}
-      ${arr(r.addons).map((a) => `<div class="card"><div class="row"><h3 style="margin:0;flex:1;text-transform:none;font-size:14px;color:var(--text)">${esc(a.name)} <span class="dim mono" style="font-size:11px">${esc(a.id)}</span></h3><span class="dim mono" style="font-size:11px">${esc(a.file || "")}</span></div>
-        ${a.description ? `<div class="muted" style="font-size:12px">${esc(a.description)}</div>` : ""}
-        ${a.disabled ? `<div class="fail" style="font-size:12px;margin-top:4px">disabled: ${esc(a.disabled)}</div>` : ""}
-        <table style="margin-top:6px">${arr(a.actions).map((x) => `<tr><td class="k">${esc(x.id)}</td><td>${esc(x.label)}${arr(x.params).length ? ` <span class="dim mono" style="font-size:11px">(${arr(x.params).map((p) => esc(p.name) + ":" + esc(p.type || "string")).join(", ")})</span>` : ""}</td><td class="muted" style="font-size:12px">${esc(x.doc || "")}</td></tr>`).join("")}</table>
-        ${arr(a.presets).length ? `<div style="margin-top:6px;font-size:12px"><span class="muted">presets:</span> ${arr(a.presets).map((p) => `<span class="tag" title="${esc(arr(p.steps).map(stepText).join("\n"))}">★ ${esc(p.label)}</span>`).join("")}</div>` : ""}
-        ${arr(a.panels).length ? `<div style="font-size:12px"><span class="muted">panels:</span> ${arr(a.panels).map((p) => `<span class="tag">${esc(p.title)}</span>`).join("")}</div>` : ""}</div>`).join("")}
-      <details class="card"><summary>Template: <span class="mono">&lt;your mod&gt;/workbench/mymod.lua</span></summary><pre class="box">${esc(ADDON_TEMPLATE)}</pre></details>`;
-  },
-});
 const ADDON_TEMPLATE = `-- Lives outside media/: dev tooling, never deployed. ASCII only (Kahlua's lexer).
 local MyMod   -- bound below, after WB.addon has required it
 
@@ -1638,112 +1786,14 @@ WB.addon {
 
 MyMod = _G.MyMod`;
 
-// Explorer (as a page: start from an expression) -----------------------------
-tool("explore", {
-  icon: "◎", label: "Explore",
-  st: {},
-  async render(v) {
-    const ex = [
-      ["a real Axe", `PZEngine.instanceItem("Base.Axe")`],
-      ["the script manager", `getScriptManager()`],
-      ["GetLongStick recipe", `getScriptManager():getCraftRecipe("Base.GetLongStick")`],
-      ["a real player", `WB.craft and WB.craft.player or PZEngine.newPlayer()`],
-      ["the PZEngine API table", `PZEngine`],
-      ["SandboxVars", `SandboxVars`],
-    ];
-    v.innerHTML = `<h2>Object explorer</h2><p class="muted">Evaluate any Lua expression in the VM and open the result. Every Java object shows its Lua-exposed methods with signatures (from <span class="mono">pz-dev-tools/indexes/java-api</span>); zero-arg methods are one click, and every result drills further. Paths made of expressions + method steps survive VM restarts and are shareable links.</p>
-      <div class="row"><input class="inp mono" id="xexpr" style="flex:1" placeholder='PZEngine.instanceItem("Base.Axe")'><button class="btn primary" id="xgo">open</button></div>
-      <h3>Starting points</h3>${ex.map(([l, e]) => `<div><a class="lnk" data-x="${esc(e)}">${esc(e)}</a> <span class="muted">— ${esc(l)}</span></div>`).join("")}`;
-    const go = () => { const e = $("#xexpr").value.trim(); if (e) openExplorer({ expr: e }); };
-    $("#xgo").onclick = go;
-    $("#xexpr").onkeydown = (e) => { if (e.key === "Enter") go(); };
-    for (const a of $$("[data-x]", v)) a.onclick = () => openExplorer({ expr: a.dataset.x });
-  },
-});
-
-// Console ----------------------------------------------------------------------
-tool("console", {
-  icon: "›_", label: "Console",
-  st: { log: [], hist: JSON.parse(localStorage.wbHist || "[]"), hi: -1 },
-  async render(v) {
-    const s = this.st;
-    v.innerHTML = `<h2>Lua console <small>resident VM · <span class="mono">$N</span> = explored object N · <span class="mono">_</span> = last result · Ctrl+Enter runs</small></h2>
-      <textarea id="csrc" rows="5" style="width:100%" class="mono" placeholder='local it = PZEngine.instanceItem("Base.Axe")\nreturn it:getMaxDamage(), it'></textarea>
-      <div class="row" style="margin:6px 0 12px"><button class="btn primary" id="crun">▶ Run</button><button class="btn small" id="cclear">clear</button><span class="muted" style="font-size:11px">↑/↓ in an empty box walks history</span></div>
-      <div class="consoleout" id="cout"></div>`;
-    const ta = $("#csrc");
-    ta.onkeydown = (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.run(); }
-      if ((e.key === "ArrowUp" || e.key === "ArrowDown") && (!ta.value || s.hi >= 0)) {
-        if (!s.hist.length) return;
-        e.preventDefault();
-        s.hi = e.key === "ArrowUp" ? Math.min(s.hist.length - 1, s.hi + 1) : Math.max(-1, s.hi - 1);
-        ta.value = s.hi >= 0 ? s.hist[s.hi] : "";
-      }
-    };
-    $("#crun").onclick = () => this.run();
-    $("#cclear").onclick = () => { s.log = []; this.renderLog(); };
-    this.renderLog();
-    ta.focus();
-  },
-  async run() {
-    const s = this.st, src = $("#csrc").value;
-    if (!src.trim()) return;
-    s.hist = [src, ...s.hist.filter((x) => x !== src)].slice(0, 100);
-    localStorage.wbHist = JSON.stringify(s.hist);
-    s.hi = -1;
-    const entry = { src, pending: true };
-    s.log.unshift(entry);
-    this.renderLog();
-    try { const r = await call("eval", { src }); Object.assign(entry, { values: arr(r.values), out: arr(r._out), ms: r._ms }); }
-    catch (e) { Object.assign(entry, { error: e.message, out: arr(e.out) }); }
-    entry.pending = false;
-    $("#csrc").value = "";
-    this.renderLog();
-  },
-  renderLog() {
-    const el = $("#cout");
-    if (!el) return;
-    el.innerHTML = this.st.log.map((e) => `<div class="entry"><div class="src">› ${esc(e.src)}</div>
-      ${e.pending ? `<span class="spin"></span>` : ""}
-      ${e.out && e.out.length ? `<pre class="muted">${esc(e.out.join("\n"))}</pre>` : ""}
-      ${e.error ? `<pre class="fail">${esc(e.error)}</pre>` : ""}
-      ${e.values ? (e.values.length ? e.values.map((x) => `<div>${val(x)}</div>`).join("") : `<span class="dim">(no value)</span>`) : ""}
-      ${e.ms != null ? `<span class="dim" style="font-size:11px">${e.ms} ms</span>` : ""}</div>`).join("");
-  },
-});
-
-// ── item autocomplete (shared) ─────────────────────────────────────────────
-const itemSuggest = debounce(async (q) => {
-  if (!q || q.length < 2) return;
-  const r = await call("items", { q, limit: 40 }).catch(() => null);
-  const dl = $("#itemlist");
-  if (r && dl) dl.innerHTML = arr(r.items).map((x) => `<option value="${esc(x.fullType)}">${esc(x.name)}</option>`).join("");
-}, 180);
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
 // ── shell ──────────────────────────────────────────────────────────────────
-function renderRail() {
-  $("#rail").innerHTML = Object.entries(TOOLS).map(([id, t]) => `<div class="tool ${id === S.tool ? "on" : ""}" data-t="${id}"><b>${t.icon}</b>${t.label}</div>`).join("");
-  for (const el of $$("#rail .tool")) el.onclick = () => switchTool(el.dataset.t);
-}
-async function switchTool(id, params) {
-  S.tool = id;
-  if (params) {
-    if (id === "craft" && params.recipe) { const st = TOOLS.craft.st; if (st.recipe !== params.recipe) { st.items = []; st.result = null; } st.recipe = params.recipe; st.q = st.q || ""; }
-    if (id === "items" && params.item) TOOLS.items.st.item = params.item;
-  }
-  renderRail();
-  writeHash();
-  $("#view").classList.toggle("bleed", id === "board");
-  await TOOLS[id].render($("#view"));
-}
 async function selectMod(id) {
   S.mod = id;
   S.addonCache = {};
   localStorage.wbMod = id;
   $("#mod").value = id;
-  for (const t of Object.values(TOOLS)) if (t.st) { t.st.list = null; t.st.detail = null; t.st.result = null; }
   writeHash();
   pollStatus();
   await TOOLS[S.tool].render($("#view"));
@@ -1758,13 +1808,10 @@ async function boot() {
   const pref = h.mod || localStorage.wbMod || (S.mods.find((m) => m.id === "VorpallySauced") || S.mods.find((m) => m.engine) || S.mods[0]).id;
   S.mod = S.mods.some((m) => m.id === pref) ? pref : S.mods[0].id;
   $("#mod").value = S.mod;
-  if (h.tool && TOOLS[h.tool]) S.tool = h.tool;
-  for (const t of Object.values(TOOLS)) if (t.load) t.load(h);
-  renderRail();
+
   $("#restart").onclick = async () => {
     await fetch(`/api/wb/${S.mod}/stop`, { method: "POST" });
     S.addonCache = {};
-    for (const t of Object.values(TOOLS)) if (t.st) { t.st.detail = null; t.st.result = null; }
     await new Promise((r) => setTimeout(r, 1800));
     await TOOLS[S.tool].render($("#view"));
   };
@@ -1775,15 +1822,8 @@ async function boot() {
     pollStatusSoon();
   };
   pollStatus();
-  $("#view").classList.toggle("bleed", S.tool === "board");
-  const view = TOOLS[S.tool].render($("#view"));
-  if (h.x) {
-    try {
-      const x = JSON.parse(h.x);
-      if (x) openExplorer(x.e ? { expr: x.e } : { ref: x.r }, x.p || []);
-    } catch (_) {}
-  }
-  await view;
+  $("#view").classList.add("bleed");
+  await TOOLS.board.render($("#view"));
 }
 boot();
 </script>

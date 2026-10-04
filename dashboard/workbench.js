@@ -71,12 +71,17 @@ function walk(dir, out) {
 }
 
 // Brace-matched blocks of `<kind> <Name> { ... }` inside `module X { ... }`.
-const KINDS = new Set(["craftRecipe", "item", "fixing", "evolvedrecipe", "entity"]);
+// Every top-level block keyword the catalog (22_catalog.lua) knows about.
+const KINDS = new Set(["craftRecipe", "item", "fixing", "evolvedrecipe", "entity", "itemFilter", "itemConfig", "timedAction",
+  "fluid", "fluidFilter", "energy", "model", "spriteModel", "animationsMesh", "animation", "mannequin", "physicsShape",
+  "sound", "soundTimeline", "vehicle", "template", "vehicleEngineRPM", "clock", "stringList",
+  "xuiLayout", "xuiStyle", "xuiDefaultStyle", "xuiColors", "xuiSkin", "xuiConfig"]);
+const BLOCK_RE = new RegExp("\\b(module|" + [...KINDS].join("|") + ")\\s+([A-Za-z0-9_.\\- ]+?)\\s*\\{", "g");
 function parseScriptFile(file, into, origin) {
   let text;
   try { text = fs.readFileSync(file, "utf8"); } catch (_) { return; }
   const clean = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
-  const re = /\b(module|craftRecipe|item|fixing|evolvedrecipe|entity)\s+([A-Za-z0-9_.\- ]+?)\s*\{/g;
+  const re = new RegExp(BLOCK_RE.source, "g");
   let module = "Base", moduleEnd = -1, m;
   while ((m = re.exec(clean))) {
     const kind = m[1], name = m[2].trim();
@@ -139,6 +144,49 @@ function scriptIndex(mod) {
 }
 // Lua hooks a recipe declares (OnCreate = Some.fn ...), from its source.
 const HOOK_RE = /\b(OnCreate|OnTest|OnStart|OnUpdate|OnFailed|OnCanPerform|OnGiveXP|OnAddToMenu)\s*=\s*([A-Za-z_][\w.]*)/g;
+// Workstations: entities with a CraftBench, from the script source (the
+// component's script class is not Lua-exposed). A recipe needs one when its
+// Tags share a tag with the bench's `Recipes =` list -- the game's own
+// matching (CraftBench.getRecipeTagQuery). `sprite` is the first tile the
+// entity's SpriteConfig names: the craft tool builds the entity on it.
+const OPEN_TAGS = new Set(["inhandcraft", "anysurfacecraft", "cannotberesearched"]);
+function benchIndex(mod) {
+  const idx = scriptIndex(mod);
+  if (idx.benches) return idx.benches;
+  const out = [];
+  for (const defs of Object.values(idx.byKey)) {
+    if (defs[0].kind !== "entity") continue;
+    const text = defs.map((d) => d.text).join("\n");
+    const cb = /component\s+CraftBench\s*\{([\s\S]*?)\}/.exec(text);
+    if (!cb) continue;
+    const rm = /Recipes\s*=\s*([^,\n]+)/.exec(cb[1]);
+    const sprite = /\brow\s*=\s*([\w]+)/.exec(text);
+    if (!rm) continue;
+    out.push({ full: defs[0].full, tags: rm[1].split(";").map((t) => t.trim().toLowerCase()).filter(Boolean),
+               sprite: sprite ? sprite[1] : null, origin: defs[defs.length - 1].origin });
+  }
+  out.sort((a, b) => a.full.localeCompare(b.full));
+  idx.benches = out;
+  return out;
+}
+function recipeTags(mod, full) {
+  const src = sourceOf(mod, "craftRecipe", full);
+  const tags = new Set();
+  for (const d of (src && src.defs) || []) {
+    const m = /\bTags\s*=\s*([^,\n]+)/.exec(d.text);
+    if (m) for (const t of m[1].split(";")) if (t.trim()) tags.add(t.trim().toLowerCase());
+  }
+  return tags;
+}
+// Workstations a recipe can be crafted at (empty: needs none). Grouped by tag
+// so 8 identical propane tiles read as one choice.
+function workstationsFor(mod, full) {
+  const tags = recipeTags(mod, full);
+  const need = [...tags].filter((t) => !OPEN_TAGS.has(t));
+  if (!need.length) return [];
+  return benchIndex(mod).filter((b) => b.sprite && b.tags.some((t) => need.includes(t)));
+}
+
 function recipeHooks(mod, full) {
   const src = sourceOf(mod, "craftRecipe", full);
   if (!src) return [];
@@ -497,8 +545,56 @@ function resolveApi(className, observed) {
   return { simple: cls.simple, fqcn: cls.fqcn, inferred, chain: apiChain(cls).map((c) => c.simple), methods };
 }
 
+// Script types the headless engine never loads (models, sounds, vehicles)
+// are listed from the files instead, grouped by file: vanilla already splits
+// them sensibly (sounds_weapons.txt, models_items.txt...).
+function diskEntries(mod, kw) {
+  const out = [];
+  for (const defs of Object.values(scriptIndex(mod).byKey)) if (defs[0].kind === kw) out.push(defs[defs.length - 1]);
+  return out;
+}
+function diskList(mod, kw, q) {
+  const groups = new Map();
+  const ql = (q || "").toLowerCase();
+  let n = 0;
+  for (const d of diskEntries(mod, kw).sort((a, b) => a.full.localeCompare(b.full))) {
+    if (ql && !d.full.toLowerCase().includes(ql)) continue;
+    const g = path.basename(d.file, ".txt") + (d.origin === "mod" ? "  (this mod)" : "");
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push({ name: d.full.slice(d.full.indexOf(".") + 1), full: d.full });
+    n++;
+  }
+  return { total: n, fromDisk: true,
+           groups: [...groups].sort((a, b) => a[0].localeCompare(b[0])).map(([group, entries]) => ({ group, entries })) };
+}
+
+// A group too long to scan (118 timed actions in one file) splits by the
+// name's first CamelCase word: "Craft", "Add", "Remove"... Prefixes with
+// fewer than 3 entries stay together under "other".
+function splitBig(groups) {
+  const out = [];
+  for (const g of groups) {
+    if (g.entries.length <= 60) { out.push(g); continue; }
+    const by = new Map();
+    for (const e of g.entries) {
+      const m = /^[A-Z]?[a-z0-9]+|^[A-Z]+(?=[A-Z][a-z]|$)/.exec(e.name || "");
+      const k = m ? m[0] : "other";
+      if (!by.has(k)) by.set(k, []);
+      by.get(k).push(e);
+    }
+    const other = [];
+    const subs = [];
+    for (const [k, list] of by) (list.length >= 3 ? subs.push({ group: g.group + " › " + k, entries: list }) : other.push(...list));
+    if (subs.length < 2) { out.push(g); continue; }
+    subs.sort((a, b) => a.group.localeCompare(b.group));
+    if (other.length) subs.push({ group: g.group + " › other", entries: other });
+    out.push(...subs);
+  }
+  return out;
+}
+
 // Attach script source (and source-derived links) to tool results.
-function augment(mod, tool, v) {
+function augment(mod, tool, v, args) {
   if (!v || typeof v !== "object" || v.error) return;
   if (tool === "inspect" && v.kind === "java") {
     v.api = resolveApi(v.class, v.methods);
@@ -510,10 +606,31 @@ function augment(mod, tool, v) {
     v.source = sourceOf(mod, "craftRecipe", v.full);
     v.scriptOutputs = idx.outputs[v.full] || [];
     v.hooks = recipeHooks(mod, v.full);
+    v.workstations = workstationsFor(mod, v.full).map((w) => ({ full: w.full, sprite: w.sprite, origin: w.origin }));
   } else if (tool === "item") {
     v.source = sourceOf(mod, "item", v.fullType);
   } else if (tool === "fixing") {
     for (const f of v.fixing || []) f.source = sourceOf(mod, "fixing", "Base." + f.name) || sourceOf(mod, "fixing", f.name);
+  } else if (tool === "scriptTypes") {
+    for (const t of v.types || []) if (!t.count) { t.count = diskEntries(mod, t.kw).length; t.fromDisk = t.count > 0; }
+  } else if (tool === "scriptList") {
+    if (!v.loaded) Object.assign(v, diskList(mod, v.kw, args && args.q));
+    else if (!v.byCategory) {
+      // No category to group by: group by the file that defines each entry.
+      const groups = new Map();
+      for (const g of v.groups || []) for (const e of g.entries) {
+        const src = sourceOf(mod, v.kw, e.full);
+        const key = src ? path.basename(src.file, ".txt") + (src.origin === "mod" ? "  (this mod)" : "") : g.group;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(e);
+      }
+      v.groups = [...groups].sort((a, b) => a[0].localeCompare(b[0])).map(([group, entries]) => ({ group, entries }));
+    }
+    if (Array.isArray(v.groups)) v.groups = splitBig(v.groups);
+  } else if (tool === "scriptInfo") {
+    // template blocks read "template vehicle Name"; the rest "<kw> Name".
+    v.source = sourceOf(mod, v.kw, v.full) || sourceOf(mod, v.kw, "Base." + v.name)
+            || (v.kw === "template" ? sourceOf(mod, v.kw, (v.module || "Base") + ".vehicle " + v.name) : null);
   } else if (tool === "evolved") {
     for (const e of v.evolved || []) e.source = sourceOf(mod, "evolvedrecipe", "Base." + e.name);
   }
@@ -550,11 +667,71 @@ function listBlueprints(mod) {
 }
 const slug = (s) => String(s || "blueprint").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "blueprint";
 
+// ── item renders (pzchar) ────────────────────────────────────────────────────
+// pzchar (pz-mods/tools/pzchar) turns PZ model scripts into .glb + a PNG
+// thumbnail (item_glb.py). It lives in the monorepo, not the kit, so it is
+// optional: PZCHAR_DIR or <kit>/../tools/pzchar; absent -> renders are off.
+const PZCHAR = [process.env.PZCHAR_DIR, path.resolve(KIT_ROOT, "..", "tools", "pzchar")]
+  .filter(Boolean).find((d) => fs.existsSync(path.join(d, "item_glb.py"))) || null;
+const PY = process.env.PZCHAR_PYTHON || "python";
+const CACHE = path.join(HERE, ".cache", "models");
+const building = new Map();   // key -> Promise
+let buildActive = 0;
+const buildQueue = [];
+function runQueued(fn) {
+  return new Promise((resolve, reject) => {
+    const go = () => { buildActive++; fn().then(resolve, reject).finally(() => { buildActive--; const n = buildQueue.shift(); if (n) n(); }); };
+    if (buildActive < 2) go(); else buildQueue.push(go);
+  });
+}
+function modelFiles(mod, ref) {
+  const safe = ref.replace(/[^\w.-]+/g, "_");
+  const dir = path.join(CACHE, mod.id);
+  return { glb: path.join(dir, safe + ".glb"), png: path.join(dir, safe + ".png"), err: path.join(dir, safe + ".err.json") };
+}
+function buildModel(mod, ref) {
+  const f = modelFiles(mod, ref);
+  if (fs.existsSync(f.glb) && fs.existsSync(f.png)) return Promise.resolve(f);
+  if (fs.existsSync(f.err)) return Promise.reject(new Error(JSON.parse(fs.readFileSync(f.err, "utf8")).error));
+  const key = mod.id + "|" + ref;
+  if (building.has(key)) return building.get(key);
+  const roots = [path.join(mod.root, "media"), ...depRoots(mod).map((r) => path.join(r, "media"))].filter((d) => fs.existsSync(d));
+  const p = runQueued(() => new Promise((resolve, reject) => {
+    fs.mkdirSync(path.dirname(f.glb), { recursive: true });
+    const args = [path.join(PZCHAR, "item_glb.py"), "--json", "--png", f.png, "--size", "128", "--mods", roots.join(";"), ref, f.glb];
+    const proc = spawn(PY, args, { cwd: PZCHAR });
+    let out = "";
+    proc.stdout.on("data", (c) => (out += c));
+    proc.stderr.on("data", () => {});
+    proc.on("close", () => {
+      let r = null;
+      try { r = JSON.parse(out.trim().split(/\r?\n/).pop()); } catch (_) {}
+      if (r && r.ok) resolve(f);
+      else {
+        const error = (r && r.error) || "item_glb.py failed";
+        fs.writeFileSync(f.err, JSON.stringify({ error }));   // don't retry a known-bad model every paint
+        reject(new Error(error));
+      }
+    });
+  })).finally(() => building.delete(key));
+  building.set(key, p);
+  return p;
+}
+
 async function handle(req, res, url, ctx) {
   const p = url.pathname;
   if (p === "/workbench" || p === "/workbench.html") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
     fs.createReadStream(path.join(HERE, "workbench.html")).pipe(res);
+    return true;
+  }
+  if (p.startsWith("/pzchar-vendor/")) {
+    if (!PZCHAR) { res.writeHead(404); res.end(); return true; }
+    const base = path.join(PZCHAR, "viewer", "vendor");
+    const file = path.resolve(base, "." + p.slice("/pzchar-vendor".length));
+    if (!file.startsWith(base) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return true; }
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "max-age=3600" });
+    fs.createReadStream(file).pipe(res);
     return true;
   }
   if (!p.startsWith("/api/wb/")) return false;
@@ -572,6 +749,19 @@ async function handle(req, res, url, ctx) {
   const action = parts[3];
   try {
     if (action === "status") { json(res, 200, (bridges.get(mod.id) || new Bridge(mod, ctx)).status()); return true; }
+    if (action === "model") {
+      // GET /api/wb/<mod>/model?ref=<model script>&fmt=png|glb  (built on first request, cached)
+      if (!PZCHAR) { json(res, 404, { error: "item renders need pzchar (tools/pzchar or PZCHAR_DIR)" }); return true; }
+      const ref = String(url.searchParams.get("ref") || "");
+      if (!/^[\w.|-]+$/.test(ref)) { json(res, 400, { error: "bad model ref" }); return true; }
+      try {
+        const f = await buildModel(mod, ref);
+        const png = url.searchParams.get("fmt") !== "glb";
+        res.writeHead(200, { "Content-Type": png ? "image/png" : "model/gltf-binary", "Cache-Control": "max-age=600" });
+        fs.createReadStream(png ? f.png : f.glb).pipe(res);
+      } catch (e) { json(res, 404, { error: e.message }); }
+      return true;
+    }
     if (action === "blueprints") {
       if (req.method === "GET") { json(res, 200, { blueprints: listBlueprints(mod), targets: blueprintDirs(mod).filter((d) => d.writable).map((d) => ({ key: d.key, label: d.label })) }); return true; }
       if (req.method === "POST") {
@@ -622,10 +812,18 @@ async function handle(req, res, url, ctx) {
           // Hooks come from the source text: the engine-side CraftRecipe
           // keeps them behind non-exposed LuaCall enums.
           const r0 = String(body.args.recipe);
-          body.args.hooks = recipeHooks(mod, r0.includes(".") ? r0 : "Base." + r0);
+          const full0 = r0.includes(".") ? r0 : "Base." + r0;
+          body.args.hooks = recipeHooks(mod, full0);
+          // Workstation: the board's choice, else the first that serves the
+          // recipe. bench = false crafts in hand (to see the refusal).
+          if (body.args.bench !== false) {
+            const ws = workstationsFor(mod, full0);
+            const pick = (body.args.bench && ws.find((w) => w.full === body.args.bench)) || ws[0];
+            body.args.bench = pick ? { name: pick.full, sprite: pick.sprite } : null;
+          } else body.args.bench = null;
         }
         const r = await b.call(body.tool, body.args);
-        augment(mod, body.tool, r.value);
+        augment(mod, body.tool, r.value, body.args);
         json(res, 200, { ok: true, ms: Date.now() - t0, value: r.value, out: r.out });
       } catch (e) {
         json(res, 200, { ok: false, ms: Date.now() - t0, error: e.message, out: e.out || [] });

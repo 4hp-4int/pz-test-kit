@@ -186,6 +186,20 @@ WB.register("ping", function()
     return { ok = true, engine = PZEngine and PZEngine.available() or false }
 end)
 
+-- How many items an input amount takes: the engine counts USES, so
+-- "item 32 [CeramicCrucible_Iron]" is 2 crucibles of 20 uses, while
+-- "item 10 tags[base:charcoal]" is 10 lumps (1 use each).
+function WB.itemsForAmount(fullType, amount)
+    amount = tonumber(amount) or 1
+    local per = 1
+    if fullType and PZEngine and PZEngine.instanceItem then
+        local ok, it = pcall(PZEngine.instanceItem, fullType)
+        local u = ok and it and WB.try(function() return it:getCurrentUses() end)
+        if type(u) == "number" and u > 1 then per = u end
+    end
+    return math.max(1, math.ceil(amount / per)), per
+end
+
 function WB.info()
     local tools = {}
     for k in pairs(WB.tools) do tools[#tools + 1] = k end

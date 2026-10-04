@@ -175,6 +175,22 @@ function WB.addonBadges(item)
     return out
 end
 
+-- How an item looks, for 3D renders: addons may define
+-- visual = function(item) return { model = "<model script>", tint = "#rrggbb", glow = "#rrggbb" } end
+-- Later addons override earlier keys (core supplies the model; a mod can
+-- tint what its state means, e.g. a Blooded glow).
+function WB.addonVisual(item)
+    local out, any = {}, false
+    for _, id in ipairs(WB.addonOrder) do
+        local a = WB.addons[id]
+        if not a.disabled and type(a.visual) == "function" then
+            local ok, v = pcall(a.visual, item)
+            if ok and type(v) == "table" then for k, x in pairs(v) do out[k] = x; any = true end end
+        end
+    end
+    return any and out or nil
+end
+
 -- Every applicable panel for an item: { {addon, id, title, data | error} }.
 function WB.addonPanelsFor(item)
     local out = {}
@@ -245,6 +261,7 @@ local function snapshot(it)
     local info = WB.craft and WB.craft.itemInfo and WB.craft.itemInfo(it) or { ref = WB.ref(it) }
     info.panels = WB.addonPanelsFor(it)
     info.badges = WB.addonBadges(it)
+    info.visual = WB.addonVisual(it)
     return info
 end
 
@@ -264,7 +281,8 @@ end)
 -- ── board actions (timed actions / client commands, see 35_actions.lua) ────
 -- Declared on an addon:
 --   boardActions = { { id, label, doc, kind = "timed" | "command",
---       slots = { { name = "gun", label = "gun", accepts = function(item) ... end }, ... },
+--       slots = { { name = "gun", label = "gun", accepts = function(item) ... end,
+--                   role = "used" | "kept" | "changed", hint = "what happens to it" }, ... },
 --       params = { ... same as actions ... },
 --       run = function(items, p, ctx) ... end } }
 -- items[name] = the live item in that slot. ctx: player, mode ("sp" | "mp"),
@@ -286,7 +304,7 @@ WB.register("boardActions", function()
         if not a.disabled then
             for _, b in ipairs(a.boardActions or {}) do
                 local slots = {}
-                for _, s in ipairs(b.slots or {}) do slots[#slots + 1] = { name = s.name, label = s.label or s.name, hint = s.hint } end
+                for _, s in ipairs(b.slots or {}) do slots[#slots + 1] = { name = s.name, label = s.label or s.name, hint = s.hint, role = s.role } end
                 out[#out + 1] = { addon = a.id, addonName = a.name, id = b.id, label = b.label or b.id, doc = b.doc,
                                   kind = b.kind or "timed", slots = slots, params = b.params or {} }
             end
@@ -309,6 +327,22 @@ WB.register("boardActionSlot", function(a)
         end
     end
     return { slot = nil }
+end)
+
+-- Which of these refs each slot accepts (the inspector lists fits first).
+WB.register("boardActionFits", function(a)
+    local _, b = boardActionDef(a.addon, a.action)
+    local out = {}
+    for _, s in ipairs(b.slots or {}) do
+        local list = {}
+        for _, ref in ipairs(a.refs or {}) do
+            local it = WB.deref(ref)
+            local ok, r = pcall(s.accepts or function() return true end, it)
+            if it and ok and r then list[#list + 1] = ref end
+        end
+        out[s.name] = list
+    end
+    return { fits = out }
 end)
 
 WB.register("boardActionRun", function(a)

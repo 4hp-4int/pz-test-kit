@@ -202,6 +202,8 @@ WB.register("recipe", function(a)
             line = ioLine(input),
             resource = s(try(function() return input:getResourceType() end)),
             amount = try(function() return input:getAmount() end),
+            -- items needed (amount is in uses; drainables hold several)
+            itemsNeeded = items[1] and WB.itemsForAmount(items[1], try(function() return input:getIntAmount() end) or 1) or nil,
             intAmount = try(function() return input:getIntAmount() end),
             keep = try(function() return input:isKeep() end) or false,
             tool = try(function() return input:isTool() end) or false,

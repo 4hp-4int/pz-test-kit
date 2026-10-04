@@ -14,6 +14,16 @@ WB.addon {
         if ok and max and max > 0 and cur <= 0 then return "broken", "fail" end
         return nil
     end,
+    -- The model the game draws: held model for weapons, else the inventory
+    -- static model, else the ground model (pzchar renders these).
+    visual = function(item)
+        local sc = item.getScriptItem and item:getScriptItem()
+        if not sc then return nil end
+        local function nz(f) local ok, v = pcall(f); if ok and v and tostring(v) ~= "" then return tostring(v) end end
+        local m = nz(function() return sc:getWeaponSprite() end) or nz(function() return sc:getStaticModel() end)
+            or nz(function() return sc:getWorldStaticModel() end)
+        return m and { model = m } or nil
+    end,
     panels = {
         {
             id = "moddata", title = "modData",
@@ -52,6 +62,16 @@ WB.addon {
             run = function(item, p)
                 item:setCondition(p.condition)
                 return "condition " .. tostring(item:getCondition()) .. "/" .. tostring(item:getConditionMax())
+            end,
+        },
+        {
+            id = "setUses", label = "Set uses",
+            doc = "Drainables (propane, batteries, crucibles): a recipe flagged NotFull refuses a full one",
+            params = { { name = "uses", type = "number", default = 1 } },
+            appliesTo = function(item) return instanceof(item, "DrainableComboItem") end,
+            run = function(item, p)
+                item:setCurrentUses(math.max(0, math.floor(tonumber(p.uses) or 0)))
+                return "uses " .. tostring(item:getCurrentUses()) .. "/" .. tostring(item:getMaxUses())
             end,
         },
     },
