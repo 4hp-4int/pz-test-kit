@@ -28,6 +28,17 @@ public class StubbingClassLoader extends URLClassLoader {
     }
 
     /**
+     * Every zombie.* class that got an EMPTY synthesized body, in load order.
+     * Most are dead constant-pool references resolved at boot; one resolved
+     * while tests run is a fidelity hole -- real code reached a class the
+     * harness doesn't have (GameVersion.parse -> PZMath was one). Read by
+     * KahluaTestRunner --fidelity through reflection: the runner is loaded BY
+     * this loader, so its own StubbingClassLoader type is a different class.
+     */
+    public final java.util.Set<String> synthesized =
+        java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<>());
+
+    /**
      * Engine mode (EngineBridge): append a jar — projectzomboid.jar — at
      * runtime. URLClassLoader searches in URL order, so everything already
      * on the classpath (the runtime jar's baked stubs, the stubs/ dir)
@@ -90,6 +101,7 @@ public class StubbingClassLoader extends URLClassLoader {
                     if (c == null) {
                         byte[] bytes = generateEmptyClass(name);
                         c = defineClass(name, bytes, 0, bytes.length);
+                        synthesized.add(name);
                     }
                 }
                 if (resolve) resolveClass(c);
