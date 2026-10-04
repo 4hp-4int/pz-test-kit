@@ -40,9 +40,19 @@ _pz_cov_files  = _pz_cov_files  or {}   -- [id]   = entry  (id->entry for the ru
 _pz_cov_nextId = _pz_cov_nextId or 0
 
 -- Runtime probe. Kept tiny — it runs on every executed statement-line.
+-- `_pz_cov_test` is set by the executor around each test under
+-- --coverage-per-test: [id] = {[line]=true}, i.e. what THIS test executed.
 function __cov(id, line)
     local e = _pz_cov_files[id]
-    if e then e.hit[line] = true end
+    if e then
+        e.hit[line] = true
+        local t = _pz_cov_test
+        if t then
+            local s = t[id]
+            if not s then s = {}; t[id] = s end
+            s[line] = true
+        end
+    end
 end
 
 -- ── scope test ────────────────────────────────────────────────────────────

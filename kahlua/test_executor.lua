@@ -110,8 +110,13 @@ end
 -- Honor `_pz_filter` (Lua pattern) if set by the runner (via --filter CLI).
 local names = {}
 local filterPattern = _pz_filter
+-- `_pz_only` (--only): exact test names selected for THIS file — smart
+-- reruns pick tests by impact, which a pattern can't express.
+local only = _pz_only
 for name in pairs(testTable) do
-    if filterPattern then
+    if only then
+        if only[name] then table.insert(names, name) end
+    elseif filterPattern then
         if name:find(filterPattern) then
             table.insert(names, name)
         end
@@ -124,7 +129,7 @@ table.sort(names)
 local total, passed, failed, errors, skipped = 0, 0, 0, 0, 0
 local details = {}
 
--- Per-test records for JUnit XML output. Each entry: { name, status, message }.
+-- Per-test records for JUnit XML / --report-json. Each entry: { name, status, message, ms?, output? }.
 -- status = "pass" | "fail" | "error" | "skip".
 local records = {}
 
@@ -201,6 +206,8 @@ for _, name in ipairs(names) do
     end
 
     local record = { name = name, status = "pass", message = "" }
+    local startMs = _pz_now_ms and _pz_now_ms() or nil
+    if _pz_cov_per_test then _pz_cov_test = {} end
 
     -- Capture everything the test prints (mod Assert libraries report the
     -- actual failing assertion via print, e.g. "[MyMod:TEST] [FAIL] ...").
@@ -317,6 +324,30 @@ for _, name in ipairs(names) do
         if #details < 10 then
             table.insert(details, name .. ": " .. tostring(err))
         end
+    end
+    -- Report-only extras (--report-json): wall time and what the test
+    -- printed. Output is capped so a chatty mod can't balloon the report.
+    if startMs then record.ms = _pz_now_ms() - startMs end
+    -- Per-test coverage: { [path] = {line, ...} } of what this test ran.
+    if _pz_cov_per_test and _pz_cov_test then
+        local cov = {}
+        for id, lines in pairs(_pz_cov_test) do
+            local e = _pz_cov_files[id]
+            if e then
+                local l = {}
+                for ln in pairs(lines) do l[#l + 1] = ln end
+                cov[e.file] = l
+            end
+        end
+        record.cov = cov
+        _pz_cov_test = nil
+    end
+    if #captured > 0 then
+        local first = math.max(1, #captured - 199)
+        local kept = {}
+        for i = first, #captured do kept[#kept + 1] = captured[i] end
+        if first > 1 then table.insert(kept, 1, "... (" .. (first - 1) .. " earlier lines dropped)") end
+        record.output = table.concat(kept, "\n")
     end
     table.insert(records, record)
 end

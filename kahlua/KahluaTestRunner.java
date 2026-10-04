@@ -50,6 +50,23 @@ public class KahluaTestRunner {
     private static boolean engineModsOn = false;
     private static String  coverageScope = null;
     private static boolean coverageLines = false;   // --coverage-lines: dump uncovered line ranges
+    private static boolean coveragePerTest = false; // --coverage-per-test: record which lines EACH test ran
+
+    // --fidelity: which layer provides each global (mock / kit / vanilla /
+    // engine / mod), which earlier layer it overrode, and how often the suite
+    // called each mock, vanilla and engine function. Captured from the first
+    // primary env; call counts aggregate across files.
+    private static boolean fidelityOn = false;
+    private static final Map<String, String> fidLayer = new LinkedHashMap<>();
+    private static final Map<String, String> fidOverrode = new LinkedHashMap<>();
+    private static final Map<String, String> fidKind = new HashMap<>();
+    private static boolean fidCaptured = false;
+    private static String reportFidelityJson = null;
+
+    // --report-json: per-entry outcome of vanilla_requires ("ok" | "miss" |
+    // "fail" | "exc" | "no-install"), last env wins (every env loads the same
+    // list). Read only by the report writer.
+    private static final Map<String, String> vanillaStatus = new LinkedHashMap<>();
 
     public static void main(String[] args) throws Exception {
 
@@ -65,6 +82,8 @@ public class KahluaTestRunner {
         boolean listOnly      = false;
         boolean failFast      = false;
         String junitXmlPath   = null;
+        String reportJsonPath = null;   // --report-json <path>: full machine-readable run record
+        String onlyListPath   = null;   // --only <file>: exact "testFile::testName" lines to run
         boolean eventCoverage = false;
         String serveScene     = null;   // --serve <scene>: resident UI render loop
         boolean bridgeOn      = false;  // --bridge: resident eval bridge (b64 line protocol)
@@ -90,6 +109,17 @@ public class KahluaTestRunner {
                 if (a.startsWith("--junit-xml=")) {
                     junitXmlPath = a.substring("--junit-xml=".length()); continue;
                 }
+                if (a.equals("--report-json") && i + 1 < args.length) {
+                    reportJsonPath = args[++i]; continue;
+                }
+                if (a.startsWith("--report-json=")) {
+                    reportJsonPath = a.substring("--report-json=".length()); continue;
+                }
+                if (a.equals("--only") && i + 1 < args.length) {
+                    onlyListPath = args[++i]; continue;
+                }
+                if (a.equals("--coverage-per-test")) { coverageOn = true; coveragePerTest = true; continue; }
+                if (a.equals("--fidelity")) { fidelityOn = true; continue; }
                 if (a.equals("--event-coverage")) { eventCoverage = true; continue; }
                 if (a.equals("--coverage")) { coverageOn = true; continue; }
                 if (a.equals("--coverage-lines")) { coverageOn = true; coverageLines = true; continue; }
@@ -158,6 +188,23 @@ public class KahluaTestRunner {
                 it.remove();
                 tests.add(norm);
             }
+        }
+
+        // --only: an exact selection (smart reruns pick tests by coverage
+        // impact). The listed files ARE the test files; each file's env gets
+        // its name set as _pz_only. Blank lines and # comments are ignored; a
+        // bare file line (no ::) runs that whole file.
+        Map<String, Set<String>> onlyMap = null;
+        if (onlyListPath != null) {
+            onlyMap = new LinkedHashMap<>();
+            for (String ln : Files.readAllLines(Paths.get(onlyListPath))) {
+                ln = ln.trim();
+                if (ln.isEmpty() || ln.startsWith("#")) continue;
+                int sep = ln.indexOf("::");
+                if (sep < 0) { onlyMap.computeIfAbsent(ln, _k -> new LinkedHashSet<>()); continue; }
+                onlyMap.computeIfAbsent(ln.substring(0, sep), _k -> new LinkedHashSet<>()).add(ln.substring(sep + 2));
+            }
+            tests = new ArrayList<>(onlyMap.keySet());
         }
 
         if (tests.isEmpty()) tests = discoverTests(modRoot);
@@ -310,6 +357,19 @@ public class KahluaTestRunner {
                 " file(s) without '" + filterPattern + "' in source (--no-prescan to run all)");
         }
 
+        // --report-json: one record per test file, plus the resolved config
+        // (captured once from the first env that loaded it).
+        List<ReportFile> reportFiles = reportJsonPath != null ? new ArrayList<>() : null;
+        String reportConfigJson = null;
+        String reportStartedAt = java.time.OffsetDateTime.now().toString();
+
+        // --fidelity: per-name call totals and files that called each; classes
+        // synthesized empty AFTER boot (i.e. reached while tests ran) per file.
+        Map<String, long[]> fidCalls = new TreeMap<>();   // name -> {calls, files}
+        List<String[]> fidSynthRuntime = new ArrayList<>(); // {class, testFile}
+        Set<String> synthSeen = fidelityOn ? new HashSet<>(synthesizedClasses()) : null;
+        int synthAtBoot = synthSeen != null ? synthSeen.size() : 0;
+
         long grandStartNs = System.nanoTime();
         for (String testFile : tests) {
             Path testPath = modRoot.resolve(testFile);
@@ -363,6 +423,13 @@ public class KahluaTestRunner {
                 if (filterPattern != null) {
                     env.rawset("_pz_filter", filterPattern);
                 }
+                // --only: exact names for this file (an empty set = whole file).
+                Set<String> onlyNames = onlyMap != null ? onlyMap.get(testFile) : null;
+                if (onlyNames != null && !onlyNames.isEmpty()) {
+                    KahluaTable only = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+                    for (String n : onlyNames) only.rawset(n, Boolean.TRUE);
+                    env.rawset("_pz_only", only);
+                }
 
                 // 5. Test file → pass the source through to context/load_test_file.lua,
                 //    which wraps it and captures the returned table into _pz_last_return.
@@ -392,7 +459,43 @@ public class KahluaTestRunner {
 
             // File-level failure (load / env / executor): counts as an error —
             // a broken file must never exit 0 just because other files passed.
+            if (reportFiles != null) {
+                if (reportConfigJson == null && env != null && env.rawget("_pz_config") instanceof KahluaTable)
+                    reportConfigJson = luaToJson(env.rawget("_pz_config"), 0);
+            }
+
+            if (fidelityOn && env != null) {
+                // Globals that appeared only after buildEnv were defined by
+                // the mod's modules or the test file itself.
+                KahluaTableIterator git = env.iterator();
+                while (git.advance()) {
+                    if (!(git.getKey() instanceof String)) continue;
+                    String k = (String) git.getKey();
+                    if (k.startsWith("_pz") || k.startsWith("__") || fidLayer.containsKey(k)) continue;
+                    fidLayer.put(k, "mod");
+                    fidKind.put(k, luaKind(git.getValue()));
+                }
+                if (env.rawget("_pz_fid_calls") instanceof KahluaTable calls) {
+                    KahluaTableIterator ci = calls.iterator();
+                    while (ci.advance()) {
+                        if (!(ci.getKey() instanceof String) || !(ci.getValue() instanceof Number)) continue;
+                        long[] agg = fidCalls.computeIfAbsent((String) ci.getKey(), _k -> new long[2]);
+                        agg[0] += ((Number) ci.getValue()).longValue();
+                        agg[1]++;
+                    }
+                }
+                List<String> now;
+                synchronized (synthesizedClasses()) { now = new ArrayList<>(synthesizedClasses()); }
+                for (String c : now) if (synthSeen.add(c)) fidSynthRuntime.add(new String[]{ c, testFile });
+            }
+
             if (fileError != null) {
+                if (reportFiles != null) {
+                    ReportFile rf = new ReportFile();
+                    rf.file = testFile; rf.ms = fileMs; rf.error = fileError; rf.errors = 1;
+                    rf.output = bufferText(fileBuf);
+                    reportFiles.add(rf);
+                }
                 grandErr += 1;
                 failDigest.add(new String[]{ testFile, "<file>", fileError });
                 System.out.printf("%n--- %s (ERROR, %dms) --- *** %s ***%n",
@@ -440,6 +543,15 @@ public class KahluaTestRunner {
                     System.out.printf("    (%d skipped)%n", skipped);
                 }
                 if (failedFile) replayBuffer(fileBuf);
+            }
+
+            if (reportFiles != null) {
+                ReportFile rf = new ReportFile();
+                rf.file = testFile; rf.ms = fileMs;
+                rf.tests = total; rf.passed = pass; rf.failures = fail; rf.errors = errs; rf.skipped = skipped;
+                rf.cases.addAll(cases);
+                if (failedFile) rf.output = bufferText(fileBuf);
+                reportFiles.add(rf);
             }
 
             // Collect per-test records for JUnit XML (if requested).
@@ -519,6 +631,38 @@ public class KahluaTestRunner {
 
         // ── Summary ─────────────────────────────────────────────────
         long grandMs = (System.nanoTime() - grandStartNs) / 1_000_000L;
+
+        if (reportJsonPath != null) {
+            if (fidelityOn) {
+                StringBuilder fj = new StringBuilder("{\"layers\":{");
+                boolean f = true;
+                for (Map.Entry<String, String> e : new TreeMap<>(fidLayer).entrySet()) {
+                    if (!f) fj.append(',');
+                    f = false;
+                    fj.append(js(e.getKey())).append(":[").append(js(e.getValue())).append(',')
+                      .append(js(fidKind.getOrDefault(e.getKey(), "?"))).append(',')
+                      .append(js(fidOverrode.get(e.getKey()))).append(']');
+                }
+                fj.append("},\"calls\":{");
+                f = true;
+                for (Map.Entry<String, long[]> e : fidCalls.entrySet()) {
+                    if (!f) fj.append(',');
+                    f = false;
+                    fj.append(js(e.getKey())).append(":[").append(e.getValue()[0]).append(',').append(e.getValue()[1]).append(']');
+                }
+                fj.append("},\"synthAtBoot\":").append(synthAtBoot).append(",\"synthRuntime\":[");
+                for (int i = 0; i < fidSynthRuntime.size(); i++) {
+                    if (i > 0) fj.append(',');
+                    fj.append('[').append(js(fidSynthRuntime.get(i)[0])).append(',').append(js(fidSynthRuntime.get(i)[1])).append(']');
+                }
+                fj.append("]}");
+                reportFidelityJson = fj.toString();
+            }
+            writeReportJson(Paths.get(reportJsonPath), modRoot, args, reportStartedAt, grandMs,
+                grandTotal, grandPass, grandFail, grandErr, grandSkip,
+                filterPattern, reportFiles, reportConfigJson, covAccum, eventAccum, preSkipped);
+            System.out.println("Report JSON written to " + reportJsonPath);
+        }
         if (hiddenNoMatch > 0) {
             System.out.printf("%n(%d file(s) with no tests matching the filter — hidden)%n", hiddenNoMatch);
         }
@@ -673,6 +817,243 @@ public class KahluaTestRunner {
         }
     }
 
+    // ── JSON report (--report-json) ─────────────────────────────────
+    //
+    // One self-contained record of a run, for dashboard/ (and anything else
+    // that would otherwise scrape console text). Schema version bumps on any
+    // breaking change; additive fields don't bump it.
+
+    private static class ReportFile {
+        String file, error, output;
+        long ms;
+        int tests, passed, failures, errors, skipped;
+        List<JUnitCase> cases = new ArrayList<>();
+    }
+
+    private static String bufferText(ByteArrayOutputStream buf) {
+        if (buf == null || buf.size() == 0) return null;
+        String s = buf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        int cap = 64 * 1024;
+        return s.length() > cap ? "... (truncated)\n" + s.substring(s.length() - cap) : s;
+    }
+
+    private static String js(String s) {
+        if (s == null) return "null";
+        StringBuilder sb = new StringBuilder(s.length() + 2).append('"');
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"':  sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
+    }
+
+    /** Sorted line set -> "1-4,9,12-13". */
+    private static String ranges(Set<Integer> sorted) {
+        StringBuilder sb = new StringBuilder();
+        Integer start = null, prev = null;
+        for (Integer n : sorted) {
+            if (start == null) { start = prev = n; continue; }
+            if (n == prev + 1) { prev = n; continue; }
+            if (sb.length() > 0) sb.append(',');
+            sb.append(start.equals(prev) ? String.valueOf(start) : start + "-" + prev);
+            start = prev = n;
+        }
+        if (start != null) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(start.equals(prev) ? String.valueOf(start) : start + "-" + prev);
+        }
+        return sb.toString();
+    }
+
+    private static String jsonInts(Collection<Integer> xs) {
+        List<Integer> l = new ArrayList<>(xs);
+        Collections.sort(l);
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < l.size(); i++) { if (i > 0) sb.append(','); sb.append(l.get(i)); }
+        return sb.append(']').toString();
+    }
+
+    /** Lua value → JSON. Sequences become arrays; functions/userdata become
+     *  a "<type>" string so the config viewer shows they exist. */
+    private static String luaToJson(Object v, int depth) {
+        if (v == null) return "null";
+        if (v instanceof Boolean) return v.toString();
+        if (v instanceof Number) {
+            double d = ((Number) v).doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d)) return js(String.valueOf(d));
+            return d == Math.rint(d) && Math.abs(d) < 1e15 ? String.valueOf((long) d) : String.valueOf(d);
+        }
+        if (v instanceof String) return js((String) v);
+        if (v instanceof KahluaTable) {
+            if (depth > 8) return js("<table: too deep>");
+            KahluaTable t = (KahluaTable) v;
+            List<Object> keys = new ArrayList<>();
+            KahluaTableIterator it = t.iterator();
+            while (it.advance()) keys.add(it.getKey());
+            boolean seq = !keys.isEmpty();
+            for (int i = 1; seq && i <= keys.size(); i++) if (t.rawget(i) == null) seq = false;
+            StringBuilder sb = new StringBuilder();
+            if (seq) {
+                sb.append('[');
+                for (int i = 1; i <= keys.size(); i++) {
+                    if (i > 1) sb.append(',');
+                    sb.append(luaToJson(t.rawget(i), depth + 1));
+                }
+                return sb.append(']').toString();
+            }
+            keys.sort(Comparator.comparing(String::valueOf));
+            sb.append('{');
+            boolean first = true;
+            for (Object k : keys) {
+                if (!first) sb.append(',');
+                first = false;
+                sb.append(js(String.valueOf(k))).append(':').append(luaToJson(t.rawget(k), depth + 1));
+            }
+            return sb.append('}').toString();
+        }
+        if (v instanceof LuaClosure || v instanceof JavaFunction) return js("<function>");
+        return js("<" + v.getClass().getSimpleName() + ">");
+    }
+
+    private static void writeReportJson(Path outPath, Path modRoot, String[] args, String startedAt, long ms,
+            int total, int pass, int fail, int err, int skip, String filter,
+            List<ReportFile> files, String configJson,
+            Map<String, CovFile> cov, Map<String, int[]> events, int preSkipped) throws IOException {
+        StringBuilder sb = new StringBuilder(64 * 1024);
+        sb.append("{\n\"schema\":1");
+        sb.append(",\n\"modRoot\":").append(js(modRoot.toString().replace('\\', '/')));
+        sb.append(",\n\"startedAt\":").append(js(startedAt));
+        sb.append(",\n\"ms\":").append(ms);
+        sb.append(",\n\"args\":[");
+        for (int i = 1; i < args.length; i++) { if (i > 1) sb.append(','); sb.append(js(args[i])); }
+        sb.append(']');
+        sb.append(",\n\"filter\":").append(js(filter));
+        sb.append(",\n\"preSkipped\":").append(preSkipped);
+        sb.append(",\n\"gameVersion\":").append(js(installedBuildVersion()));
+        Path pz = resolvePZInstall();
+        sb.append(",\n\"pzInstall\":").append(js(pz != null ? pz.toString().replace('\\', '/') : null));
+        sb.append(",\n\"engine\":{\"requested\":").append(engineOn)
+          .append(",\"booted\":").append(engineOn && EngineBridge.isBooted())
+          .append(",\"error\":").append(js(engineOn && !EngineBridge.isBooted() ? EngineBridge.getBootError() : null))
+          .append('}');
+        sb.append(",\n\"totals\":{\"tests\":").append(total).append(",\"passed\":").append(pass)
+          .append(",\"failed\":").append(fail).append(",\"errors\":").append(err)
+          .append(",\"skipped\":").append(skip).append('}');
+        sb.append(",\n\"config\":").append(configJson != null ? configJson : "null");
+        sb.append(",\n\"fidelity\":").append(reportFidelityJson != null ? reportFidelityJson : "null");
+
+        sb.append(",\n\"vanillaRequires\":{");
+        boolean first = true;
+        for (Map.Entry<String, String> e : vanillaStatus.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append(js(e.getKey())).append(':').append(js(e.getValue()));
+        }
+        sb.append('}');
+
+        // Coverage file order, fixed up front so per-test coverage can refer to
+        // files by index (coverage.files below is written in the same order).
+        List<Map.Entry<String, CovFile>> covEntries = new ArrayList<>();
+        Map<String, Integer> covIdx = new HashMap<>();
+        if (cov != null) {
+            covEntries.addAll(cov.entrySet());
+            covEntries.sort(Comparator.comparing(e -> e.getValue().name != null ? e.getValue().name : ""));
+            for (int i = 0; i < covEntries.size(); i++) covIdx.put(covEntries.get(i).getKey(), i);
+        }
+
+        sb.append(",\n\"files\":[");
+        for (int i = 0; i < files.size(); i++) {
+            ReportFile f = files.get(i);
+            sb.append(i > 0 ? ",\n" : "\n");
+            sb.append("{\"file\":").append(js(f.file))
+              .append(",\"ms\":").append(f.ms)
+              .append(",\"tests\":").append(f.tests).append(",\"passed\":").append(f.passed)
+              .append(",\"failures\":").append(f.failures).append(",\"errors\":").append(f.errors)
+              .append(",\"skipped\":").append(f.skipped)
+              .append(",\"error\":").append(js(f.error))
+              .append(",\"output\":").append(js(f.output))
+              .append(",\"cases\":[");
+            for (int j = 0; j < f.cases.size(); j++) {
+                JUnitCase c = f.cases.get(j);
+                if (j > 0) sb.append(',');
+                sb.append("{\"name\":").append(js(c.name)).append(",\"status\":").append(js(c.status));
+                if (c.message != null && !c.message.isEmpty()) sb.append(",\"message\":").append(js(c.message));
+                if (c.ms >= 0) sb.append(",\"ms\":").append(String.format(java.util.Locale.ROOT, "%.2f", c.ms));
+                if (c.output != null) sb.append(",\"output\":").append(js(c.output));
+                if (c.cov != null && !c.cov.isEmpty()) {
+                    // {"<coverage file index>": "1-4,9"}: ranges keep a
+                    // 1000-test suite's report in the low megabytes.
+                    sb.append(",\"cov\":{");
+                    boolean fc = true;
+                    for (Map.Entry<String, Set<Integer>> e : c.cov.entrySet()) {
+                        Integer ix = covIdx.get(e.getKey());
+                        if (ix == null || e.getValue().isEmpty()) continue;
+                        if (!fc) sb.append(',');
+                        fc = false;
+                        sb.append('"').append(ix).append("\":\"").append(ranges(e.getValue())).append('"');
+                    }
+                    sb.append('}');
+                }
+                sb.append('}');
+            }
+            sb.append("]}");
+        }
+        sb.append("\n]");
+
+        sb.append(",\n\"coverage\":");
+        if (cov == null) sb.append("null");
+        else {
+            sb.append("{\"scope\":").append(js(coverageScope))
+              .append(",\"perTest\":").append(coveragePerTest).append(",\"files\":[");
+            boolean f1 = true;
+            for (Map.Entry<String, CovFile> entry : covEntries) {
+                String path = entry.getKey();
+                CovFile cf = entry.getValue();
+                Set<Integer> miss = new TreeSet<>(cf.points);
+                miss.removeAll(cf.hit);
+                Set<Integer> hit = new TreeSet<>(cf.points);
+                hit.retainAll(cf.hit);
+                if (!f1) sb.append(',');
+                f1 = false;
+                sb.append("\n{\"name\":").append(js(cf.name))
+                  .append(",\"path\":").append(js(path != null ? path.replace('\\', '/') : null))
+                  .append(",\"fallback\":").append(cf.fallback)
+                  .append(",\"points\":").append(cf.points.size())
+                  .append(",\"hit\":").append(jsonInts(hit))
+                  .append(",\"miss\":").append(jsonInts(miss)).append('}');
+            }
+            sb.append("\n]}");
+        }
+
+        sb.append(",\n\"events\":");
+        if (events == null) sb.append("null");
+        else {
+            sb.append('{');
+            boolean f2 = true;
+            for (Map.Entry<String, int[]> e : new TreeMap<>(events).entrySet()) {
+                if (!f2) sb.append(',');
+                f2 = false;
+                sb.append(js(e.getKey())).append(":{\"registered\":").append(e.getValue()[0])
+                  .append(",\"fired\":").append(e.getValue()[1]).append('}');
+            }
+            sb.append('}');
+        }
+        sb.append("\n}\n");
+
+        Path abs = outPath.toAbsolutePath();
+        if (abs.getParent() != null) Files.createDirectories(abs.getParent());
+        Files.writeString(abs, sb.toString(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     // ── JUnit XML output ────────────────────────────────────────────
 
     /** One test suite = one test file. */
@@ -687,6 +1068,9 @@ public class KahluaTestRunner {
         String name;
         String status;   // "pass" | "fail" | "error"
         String message;
+        double ms = -1;  // --report-json only
+        String output;   // --report-json only: what the test printed (capped)
+        Map<String, Set<Integer>> cov;   // --coverage-per-test: path -> lines this test ran
     }
 
     /** Minimal JUnit XML (Surefire-compatible): enough for GitHub Actions,
@@ -862,8 +1246,14 @@ public class KahluaTestRunner {
             (System.getenv("PZTEST_VERBOSE") != null || System.getProperty("pztest.verbose") != null)
                 ? Boolean.TRUE : Boolean.FALSE);
 
+        // --fidelity: layer bookkeeping only for the primary env (DualVMSim
+        // endpoints build the same surface; counting them would double up).
+        final boolean fid = fidelityOn && !isServer && clientIdx == 0;
+        Map<Object, Object> snap = fid ? snapshot(env) : null;
+
         // 1. Mocks + Assert + Fixtures
         loadFile(thread, env, kahluaDir.resolve("mock_environment.lua"));
+        if (fid) snap = fidPhase(thread, env, snap, "mock", true);
         loadFile(thread, env, kahluaDir.resolve("Assert.lua"));
         loadFile(thread, env, kahluaDir.resolve("Fixtures.lua"));
         // Timed-action lifecycle simulator (PZTestKit.TimedActions) — runs
@@ -894,6 +1284,7 @@ public class KahluaTestRunner {
         // module is required during the test run.
         if (coverageOn) {
             env.rawset("_pz_cov_on", Boolean.TRUE);
+            if (coveragePerTest) env.rawset("_pz_cov_per_test", Boolean.TRUE);
             if (coverageScope != null) env.rawset("_pz_cov_scope", coverageScope);
             loadFile(thread, env, kahluaDir.resolve("coverage.lua"));
         }
@@ -906,6 +1297,7 @@ public class KahluaTestRunner {
             loadFile(thread, env, kahluaDir.resolve("context/load_config.lua"));
         }
         loadFile(thread, env, kahluaDir.resolve("config_loader.lua"));
+        if (fid) snap = fidPhase(thread, env, snap, "kit", false);
 
         // 3b. Sandbox auto-discovery — parse media/sandbox-options.txt and
         //     fill in defaults NOT already covered by pz-test.lua's sandbox
@@ -915,6 +1307,7 @@ public class KahluaTestRunner {
             env.rawset("_pz_sandbox_source", Files.readString(sandboxFile));
             loadFile(thread, env, kahluaDir.resolve("context/sandbox_auto.lua"));
         }
+        if (fid) snap = fidPhase(thread, env, snap, "mod", false);
 
         // 3c. Vanilla requires — for mods that want to exercise real vanilla
         //     PZ Lua (ISTransferAction, ISBaseTimedAction, etc.) instead of
@@ -923,6 +1316,7 @@ public class KahluaTestRunner {
         //     load failure, logs a warning and continues — the hand-written
         //     mock from mock_environment.lua remains as fallback.
         loadVanillaRequires(thread, env);
+        if (fid) snap = fidPhase(thread, env, snap, "vanilla", true);
 
         // 3d. Translations — install a Translator-faithful getText. The format
         //     semantics (formatFixer + String.formatted + the WARN it logs when
@@ -931,6 +1325,7 @@ public class KahluaTestRunner {
         //     the mod's actual strings is opt-in via `translate = "EN"` in
         //     pz-test.lua — without it getText echoes the key, as before.
         loadTranslations(thread, env, modRoot, kahluaDir);
+        if (fid) snap = fidPhase(thread, env, snap, "kit", false);
 
         // 4. Scripts
         List<String> scriptPaths = new ArrayList<>();
@@ -963,8 +1358,11 @@ public class KahluaTestRunner {
             if (Files.exists(p)) loadStripped(thread, env, p);
         }
 
+        if (fid) snap = fidPhase(thread, env, snap, "mod", false);
+
         // 6. Post-scripts hook
         loadFile(thread, env, kahluaDir.resolve("post_scripts.lua"));
+        if (fid) snap = fidPhase(thread, env, snap, "kit", false);
 
         // 6b. Engine mode — real PZ classes for this env. Installed LAST
         //     among the surface-defining steps, because mods can (and VPS
@@ -999,7 +1397,9 @@ public class KahluaTestRunner {
             // exercise the protocol, not item fidelity.
             if (isServer || clientIdx > 0) chainItems = false;
             EngineBridge.installIntoEnv(new TestPlatform(), thread, env, extraExpose, chainItems, System.out);
+            if (fid) snap = fidPhase(thread, env, snap, "engine", true);
         }
+        if (fid) fidCaptured = fidCaptured || !fidLayer.isEmpty();
 
         // 7. Match PZ's runtime surface. LAST, so every harness file above has
         //    already been compiled and switched to _pz_compile.
@@ -1218,6 +1618,65 @@ public class KahluaTestRunner {
      * be executed offline at all. Handing back a runnable chunk would invite
      * exactly the dynamic-code habit PZ removed the global to prevent.
      */
+    // ── Fidelity (--fidelity) ──────────────────────────────────────
+
+    private static Map<Object, Object> snapshot(KahluaTable env) {
+        Map<Object, Object> m = new HashMap<>();
+        KahluaTableIterator it = env.iterator();
+        while (it.advance()) m.put(it.getKey(), it.getValue());
+        return m;
+    }
+
+    private static String luaKind(Object v) {
+        if (v instanceof LuaClosure || v instanceof JavaFunction) return "function";
+        if (v instanceof KahluaTable) return "table";
+        if (v == null) return "nil";
+        if (v instanceof String || v instanceof Number || v instanceof Boolean) return "value";
+        return "java";
+    }
+
+    /** Attribute every global the last phase added or replaced to `layer`
+     *  (first env only), optionally wrap its functions with call counters,
+     *  and return the new snapshot. Harness internals (_pz*, __*) are skipped. */
+    private static Map<Object, Object> fidPhase(KahluaThread thread, KahluaTable env,
+                                                Map<Object, Object> before, String layer, boolean count) throws Exception {
+        List<String> changed = new ArrayList<>();
+        KahluaTableIterator it = env.iterator();
+        while (it.advance()) {
+            if (!(it.getKey() instanceof String)) continue;
+            String k = (String) it.getKey();
+            if (k.startsWith("_pz") || k.startsWith("__")) continue;
+            Object v = it.getValue();
+            if (before.containsKey(k) && before.get(k) == v) continue;
+            changed.add(k);
+            if (!fidCaptured) {
+                String prev = fidLayer.get(k);
+                if (prev != null && !prev.equals(layer)) fidOverrode.put(k, prev);
+                fidLayer.put(k, layer);
+                fidKind.put(k, luaKind(v));
+            }
+        }
+        if (count && !changed.isEmpty()) {
+            KahluaTable names = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+            for (int i = 0; i < changed.size(); i++) names.rawset(i + 1, changed.get(i));
+            env.rawset("_pz_fid_env", env);
+            env.rawset("_pz_fid_names", names);
+            loadFile(thread, env, kahluaDir.resolve("fidelity.lua"));
+        }
+        return snapshot(env);
+    }
+
+    /** The StubbingClassLoader's synthesized-class set, or an empty set. */
+    @SuppressWarnings("unchecked")
+    private static Set<String> synthesizedClasses() {
+        try {
+            ClassLoader cl = KahluaTestRunner.class.getClassLoader();
+            return (Set<String>) cl.getClass().getField("synthesized").get(cl);
+        } catch (Throwable t) {
+            return Collections.emptySet();
+        }
+    }
+
     private static void installCompiler(KahluaTable env) {
         KahluaTable pzTestKit = env.rawget("PZTestKit") instanceof KahluaTable
             ? (KahluaTable) env.rawget("PZTestKit")
@@ -1235,6 +1694,16 @@ public class KahluaTestRunner {
         pzTestKit.rawset("gameVersion", installedBuildVersion());
 
         final KahluaTable envRef = env;
+
+        // Wall clock for per-test timings in --report-json. Kahlua's os lib
+        // has no usable clock, and getTimestampMs is mocked to 0 on purpose.
+        env.rawset("_pz_now_ms", new JavaFunction() {
+            @Override
+            public int call(LuaCallFrame frame, int nArguments) {
+                frame.push(System.nanoTime() / 1_000_000.0);
+                return 1;
+            }
+        });
 
         // The harness's own drop-in for the removed global: same signature and
         // same return contract as loadstring (chunk, or nil + message), under a
@@ -1472,6 +1941,7 @@ public class KahluaTestRunner {
         if (pzInstall == null) {
             System.out.println("[PZTestKit] vanilla_requires: PZ install not found — set PZ_INSTALL_DIR env var or add to common Steam paths. Falling back to mocks for "
                 + entries.size() + " entries.");
+            for (String e : entries) vanillaStatus.put(e, "no-install");
             return;
         }
         Path luaRoot = pzInstall.resolve("media/lua");
@@ -1488,6 +1958,7 @@ public class KahluaTestRunner {
             Path file = luaRoot.resolve(entry + ".lua");
             if (!Files.exists(file)) {
                 System.out.println("  [vanilla_requires] MISS (" + entry + "): file not found at " + file);
+                vanillaStatus.put(entry, "miss");
                 continue;
             }
             try {
@@ -1497,12 +1968,15 @@ public class KahluaTestRunner {
                 if (res != null && res.length >= 1 && Boolean.FALSE.equals(res[0])) {
                     String err = res.length >= 2 ? String.valueOf(res[1]) : "unknown";
                     System.out.println("  [vanilla_requires] FAIL (" + entry + "): " + err + " — falling back to mock");
+                    vanillaStatus.put(entry, "fail: " + err);
                 } else {
                     System.out.println("  [vanilla_requires] OK   (" + entry + ")");
+                    vanillaStatus.put(entry, "ok");
                     markVanillaRequireSatisfied(env, entry);
                 }
             } catch (Exception e) {
                 System.out.println("  [vanilla_requires] EXC  (" + entry + "): " + e.getMessage() + " — falling back to mock");
+                vanillaStatus.put(entry, "exc: " + e.getMessage());
             }
         }
     }
@@ -1745,6 +2219,25 @@ public class KahluaTestRunner {
                 c.name = nm instanceof String ? (String) nm : "unknown";
                 c.status = st instanceof String ? (String) st : "pass";
                 c.message = msg instanceof String ? (String) msg : "";
+                Object ms = r.rawget("ms");
+                if (ms instanceof Number) c.ms = ((Number) ms).doubleValue();
+                Object outp = r.rawget("output");
+                if (outp instanceof String) c.output = (String) outp;
+                Object cv = r.rawget("cov");
+                if (cv instanceof KahluaTable) {
+                    c.cov = new LinkedHashMap<>();
+                    KahluaTableIterator ci = ((KahluaTable) cv).iterator();
+                    while (ci.advance()) {
+                        if (!(ci.getKey() instanceof String) || !(ci.getValue() instanceof KahluaTable)) continue;
+                        Set<Integer> lines = new TreeSet<>();
+                        KahluaTable lt = (KahluaTable) ci.getValue();
+                        for (int k = 1; lt.rawget(k) != null; k++) {
+                            Object n = lt.rawget(k);
+                            if (n instanceof Number) lines.add(((Number) n).intValue());
+                        }
+                        c.cov.put((String) ci.getKey(), lines);
+                    }
+                }
                 out.add(c);
             }
             idx++;
@@ -1780,6 +2273,10 @@ public class KahluaTestRunner {
         System.out.println("  -v, --verbose      Stream all output live (default buffers per file and");
         System.out.println("                     replays captured output only for failing files)");
         System.out.println("  --junit-xml <path> Write JUnit XML report (CI integration)");
+        System.out.println("  --coverage-per-test Also record which lines EACH test ran (impact data for smart reruns)");
+        System.out.println("  --only <file>      Run exactly the \"testFile::testName\" lines listed in <file>");
+        System.out.println("  --fidelity         Record which layer (mock/kit/vanilla/engine/mod) provides each global + mock call counts");
+        System.out.println("  --report-json <path> Write the full run as JSON (tests, timings, coverage, config) — dashboard/ reads this");
         System.out.println("  --event-coverage   Report which Events.* listeners fired vs. registered");
         System.out.println("  --coverage[=sub]   Report line coverage of modules (optionally scoped to");
         System.out.println("                     names/paths containing <sub>, e.g. --coverage=palette/)");
