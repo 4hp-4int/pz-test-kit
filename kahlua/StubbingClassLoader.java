@@ -36,6 +36,40 @@ public class StubbingClassLoader extends URLClassLoader {
      */
     public void addJar(URL url) {
         super.addURL(url);
+        try {
+            realJar = new java.util.jar.JarFile(new java.io.File(url.toURI()));
+        } catch (Exception ignored) {
+            realJar = null;
+        }
+    }
+
+    /** The game jar, once engine mode attaches it (see addJar). */
+    private java.util.jar.JarFile realJar;
+
+    /**
+     * Packages whose REAL classes win over stubs once the game jar is attached.
+     * Their stubs exist only so the non-engine harness (no PZ install) can
+     * load the Kahlua runtime; in engine mode real game code reaches deep into
+     * them -- character construction reads dozens of DebugOptions groups
+     * (character.debug.*, cheat.player.*, terrain.renderTiles.*) that a
+     * hand-kept stub would have to grow field by field.
+     */
+    private static final String[] PREFER_REAL = { "zombie.debug." };
+
+    private Class<?> defineFromRealJar(String name) {
+        if (realJar == null) return null;
+        boolean wanted = false;
+        for (String p : PREFER_REAL) if (name.startsWith(p)) { wanted = true; break; }
+        if (!wanted) return null;
+        try {
+            java.util.jar.JarEntry e = realJar.getJarEntry(name.replace('.', '/') + ".class");
+            if (e == null) return null;
+            byte[] bytes;
+            try (java.io.InputStream in = realJar.getInputStream(e)) { bytes = in.readAllBytes(); }
+            return defineClass(name, bytes, 0, bytes.length);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     @Override
@@ -43,6 +77,9 @@ public class StubbingClassLoader extends URLClassLoader {
         if (name.startsWith("zombie.")) {
             synchronized (getClassLoadingLock(name)) {
                 Class<?> c = findLoadedClass(name);
+                if (c == null) {
+                    c = defineFromRealJar(name);
+                }
                 if (c == null) {
                     // Try real stubs on classpath first
                     try {

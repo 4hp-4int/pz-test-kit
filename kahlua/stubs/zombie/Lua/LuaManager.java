@@ -15,7 +15,40 @@ import se.krka.kahlua.vm.Coroutine;
 public class LuaManager {
     public static KahluaThread thread = null;
     public static KahluaThread debugthread = null;
-    public static Object debugcaller = null;
+    // Typed as the real fields are: engine bytecode resolves fields by name
+    // AND type, so an Object-typed stand-in is a NoSuchFieldError. Null until
+    // engine mode's EngineBridge.installIntoEnv points them at a real
+    // LuaCaller; the non-engine harness never reaches the code that reads them.
+    public static se.krka.kahlua.integration.LuaCaller caller = null;
+    public static se.krka.kahlua.integration.LuaCaller debugcaller = null;
+
+    // Engine mode: the CURRENT test file's env, for getFunctionObject. Kept
+    // apart from `env` (the defines.lua scratch env ZomboidGlobals reads).
+    public static se.krka.kahlua.vm.KahluaTable functionEnv = null;
+
+    /**
+     * Recipe Lua hooks (OnCreate, OnTest, OnStart...) are looked up by dotted
+     * name -- CraftRecipeData.initLuaFunctions calls this for any recipe that
+     * declares one, BEFORE outputs are created. Missing, every such recipe
+     * died mid-craft with its inputs already consumed. Same walk as the real
+     * method (LuaManager.java:1413); an unknown name is null, which the engine
+     * treats as "no hook" and logs.
+     */
+    public static Object getFunctionObject(String functionName) {
+        if (functionName == null || functionName.isEmpty() || functionEnv == null) return null;
+        se.krka.kahlua.vm.KahluaTable t = functionEnv;
+        String[] ss = functionName.split(java.util.regex.Pattern.quote("."));
+        for (int i = 0; i < ss.length - 1; i++) {
+            Object o = t.rawget(ss[i]);
+            if (!(o instanceof se.krka.kahlua.vm.KahluaTable)) return null;
+            t = (se.krka.kahlua.vm.KahluaTable) o;
+        }
+        return t.rawget(ss[ss.length - 1]);
+    }
+
+    public static Object getFunctionObject(String functionName, zombie.debug.DebugType logger) {
+        return getFunctionObject(functionName);
+    }
 
     // Engine mode: ZomboidGlobals.Load() reads LuaManager.env's
     // "ZomboidGlobals" table. EngineBridge points this at a scratch env that

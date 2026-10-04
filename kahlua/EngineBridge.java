@@ -63,6 +63,8 @@ public final class EngineBridge {
     // Process-global boot state: scripts parse once, envs are per test file.
     private static boolean bootAttempted = false;
     private static boolean booted = false;
+    /** The install boot adopted; PZEngine.loadVanilla reads media/lua from it. */
+    private static Path pzInstallDir;
     private static String bootError = null;
     private static ClassLoader loader = null;
 
@@ -72,6 +74,15 @@ public final class EngineBridge {
     private static final String[] DEFAULT_EXPOSED = {
         "zombie.inventory.InventoryItem",
         "zombie.inventory.InventoryItemFactory",
+        // PZEngine.newPlayer (character spike, 2026-10-04)
+        "zombie.characters.IsoGameCharacter",
+        "zombie.characters.IsoPlayer",
+        "zombie.entity.components.crafting.recipe.HandcraftLogic",
+        "zombie.entity.components.crafting.recipe.CraftRecipeData",
+        "zombie.entity.components.crafting.CraftRecipeMonitor",
+        "zombie.scripting.entity.components.crafting.CraftRecipe",
+        "zombie.scripting.entity.components.crafting.InputScript",
+        "zombie.scripting.entity.components.crafting.CraftRecipe$RequiredSkill",
         "zombie.inventory.ItemContainer",
         "zombie.inventory.types.Food",
         "zombie.inventory.types.DrainableComboItem",
@@ -143,6 +154,7 @@ public final class EngineBridge {
             return false;
         }
 
+        pzInstallDir = pzDir;
         loader = Thread.currentThread().getContextClassLoader();
         // Checked by NAME, not instanceof: when this class is itself loaded
         // through the StubbingClassLoader, its StubbingClassLoader class
@@ -318,6 +330,21 @@ public final class EngineBridge {
             resolve.setAccessible(true);
             resolve.invoke(sm);
 
+            // The step IsoWorld.init runs right after WorldDictionary.init:
+            // recipes resolve their inputs/outputs (tags -> item lists, output
+            // mappers) here. Without it every craftRecipe input matches ZERO
+            // items, so no recipe can ever be performed offline -- found by the
+            // character spike (GetLongStick: canUseItem(broom) false,
+            // getPossibleInputItems() empty). ScriptManager catches per-
+            // collection failures itself; a throw here is logged, never fatal.
+            try {
+                smClass.getMethod("PostWorldDictionaryInit").invoke(sm);
+                log.println("[engine] PostWorldDictionaryInit done (recipe inputs/outputs resolved)");
+            } catch (Throwable t) {
+                Throwable root = t; while (root.getCause() != null) root = root.getCause();
+                log.println("[engine] PostWorldDictionaryInit failed: " + root);
+            }
+
             Object allItems = smClass.getMethod("getAllItems").invoke(sm);
             log.println("[engine] " + allItems.getClass().getMethod("size").invoke(allItems)
                 + " item scripts registered");
@@ -490,6 +517,60 @@ public final class EngineBridge {
         env.rawset("PZEngine", pzEngine);
         pzEngine.rawset("available", (JavaFunction) (frame, n) -> { frame.push(booted); return 1; });
         pzEngine.rawset("bootError", (JavaFunction) (frame, n) -> { frame.push(bootError); return 1; });
+        // The Lua thread engine code uses to call back into Lua and to print Lua
+        // stacks (KahluaThread.doStacktraceProper via UIManager.defaultthread).
+        // Null, the first Java->Lua error on a crafting path NPE'd inside the
+        // error reporter itself. Each test file has its own thread; point the
+        // engine at the current one.
+        if (booted) {
+            try {
+                cls("zombie.ui.UIManager").getField("defaultthread").set(null, thread);
+            } catch (Throwable t) {
+                log.println("[engine] could not set UIManager.defaultthread: " + t);
+            }
+        }
+        pzEngine.rawset("newPlayer", (JavaFunction) (frame, n) -> {
+            Object[] r = newPlayer();
+            frame.push(r[0]);
+            frame.push(r[1]);
+            return 2;
+        });
+        // Run one vanilla Lua file (path under media/lua, no .lua) in this
+        // env, on demand. vanilla_requires loads files for EVERY test file;
+        // this is for a test that wants the real class without replacing the
+        // mock the rest of the suite was written against -- it can save the
+        // global, load, take what it needs, and restore. Returns ok, err.
+        pzEngine.rawset("loadVanilla", (JavaFunction) (frame, n) -> {
+            Object entry = n > 0 ? frame.get(0) : null;
+            if (pzInstallDir == null || !(entry instanceof String e)) {
+                frame.push(false); frame.push("no PZ install or bad path"); return 2;
+            }
+            try {
+                Path f = pzInstallDir.resolve("media/lua").resolve(e + ".lua");
+                se.krka.kahlua.vm.LuaClosure c = se.krka.kahlua.luaj.compiler.LuaCompiler
+                    .loadstring(Files.readString(f), "vanilla:" + e, env);
+                Object[] res = thread.pcall(c, new Object[0]);
+                if (res != null && res.length >= 1 && Boolean.FALSE.equals(res[0])) {
+                    frame.push(false); frame.push(res.length >= 2 ? String.valueOf(res[1]) : "error"); return 2;
+                }
+                frame.push(true); return 1;
+            } catch (Exception ex) {
+                frame.push(false); frame.push(String.valueOf(ex)); return 2;
+            }
+        });
+        // Core.debug gates the engine's own diagnostics -- CraftRecipeMonitor
+        // only records with it on (CraftRecipeMonitor.canLog). Flip it around
+        // a single call to ask the engine WHY a craft refused; leaving it on
+        // changes behaviour (debug-only throws), so restore it after.
+        pzEngine.rawset("setCoreDebug", (JavaFunction) (frame, n) -> {
+            try {
+                java.lang.reflect.Field f = cls("zombie.core.Core").getField("debug");
+                boolean prev = f.getBoolean(null);
+                f.setBoolean(null, n > 0 && Boolean.TRUE.equals(frame.get(0)));
+                frame.push(prev);
+            } catch (Throwable t) { frame.push(null); }
+            return 1;
+        });
         pzEngine.rawset("modLoaded", (JavaFunction) (frame, n) -> {
             Object id = n > 0 ? frame.get(0) : null;
             frame.push(booted && id instanceof String s && loadedModIds.contains(s));
@@ -512,6 +593,24 @@ public final class EngineBridge {
                 .newInstance(arrPlatform, manager);
             arrConv.getMethod("install").invoke(arrConvInst);
             KitExposer exposer = new KitExposer(manager, platform, env);
+
+            // Engine -> Lua calls (recipe OnCreate/OnTest/OnStart hooks) go
+            // through LuaManager.caller on LuaManager.thread, looking the
+            // function up with LuaManager.getFunctionObject. Point all three at
+            // THIS test file's thread and env. LuaManager.thread is otherwise
+            // read only behind Core.debug (KahluaThread/KahluaUtil/Coroutine)
+            // or for debug local-var tracking (LuaCallFrame), so a non-null
+            // value changes nothing else.
+            try {
+                Class<?> lm = cls("zombie.Lua.LuaManager");
+                se.krka.kahlua.integration.LuaCaller caller = new se.krka.kahlua.integration.LuaCaller(manager);
+                lm.getField("caller").set(null, caller);
+                lm.getField("debugcaller").set(null, caller);
+                lm.getField("thread").set(null, thread);
+                lm.getField("functionEnv").set(null, env);
+            } catch (Throwable t) {
+                log.println("[engine] could not wire LuaManager caller: " + t);
+            }
 
             List<String> names = new ArrayList<>(List.of(DEFAULT_EXPOSED));
             if (extraExpose != null) names.addAll(extraExpose);
@@ -632,6 +731,78 @@ public final class EngineBridge {
             if (((Enum<?>) c).name().equals(name)) return c;
         }
         throw new IllegalArgumentException(enumClass + " has no constant " + name);
+    }
+
+    /**
+     * EXPERIMENTAL (character spike, 2026-10-04): construct a real IsoPlayer
+     * headless -- no cell, position 0,0,0 -- with GameServer.server forced true
+     * for the duration of the constructor (the dedicated server builds players
+     * headless exactly this way: dummy sound emitter, no client-only paths).
+     * Returns {player, null} or {null, "Root: message @ first zombie.* frame"}.
+     */
+    public static Object[] newPlayer() {
+        if (!booted) return new Object[] { null, "engine not booted" };
+        java.lang.reflect.Field server = null;
+        boolean prev = false;
+        // Construction parses the clothing and AnimSet XML and logs a line per
+        // file it can't fully resolve without a renderer -- ~3500 lines, all
+        // of it unrelated to what a test is checking. Swallow it and say so
+        // once, so a test's own output stays readable.
+        PrintStream realOut = System.out, realErr = System.err;
+        java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
+        PrintStream quiet = new PrintStream(sink, true);
+        System.setOut(quiet); System.setErr(quiet);
+        try {
+            server = cls("zombie.network.GameServer").getField("server");
+            prev = server.getBoolean(null);
+            server.setBoolean(null, true);
+            Class<?> cell = cls("zombie.iso.IsoCell");
+            Class<?> desc = cls("zombie.characters.SurvivorDesc");
+            // Appearance pools a game session fills before any character
+            // exists; empty, SurvivorDesc's random hair/trouser pick indexes
+            // into nothing. One neutral colour each -- appearance is not what a
+            // harness character is for.
+            Class<?> immutable = cls("zombie.core.ImmutableColor");
+            Object grey = immutable.getConstructor(float.class, float.class, float.class, float.class)
+                .newInstance(0.5f, 0.5f, 0.5f, 1.0f);
+            for (String pool : new String[] { "HairCommonColors" }) {
+                @SuppressWarnings("unchecked")
+                java.util.List<Object> list = (java.util.List<Object>) desc.getField(pool).get(null);
+                if (list.isEmpty()) list.add(grey);
+            }
+            // The appearance data the game loads at startup (Core.java:3938-3940,
+            // IngameState.java:1060): plain XML under media/, no rendering.
+            for (String pop : new String[] { "BeardStyles", "HairStyles", "OutfitManager" }) {
+                Class<?> c = cls("zombie.core.skinnedmodel.population." + pop);
+                if (c.getField("instance").get(null) == null) c.getMethod("init").invoke(null);
+            }
+            // Skin texture NAME lists (PopTemplateManager.init: string adds only).
+            // The game calls it from ModelManager, which the harness never
+            // starts; the lists themselves touch no textures.
+            Class<?> ptm = cls("zombie.core.skinnedmodel.population.PopTemplateManager");
+            Object ptmInst = ptm.getField("instance").get(null);
+            if (((java.util.List<?>) ptm.getField("maleSkins").get(ptmInst)).isEmpty()) {
+                ptm.getMethod("init").invoke(ptmInst);
+            }
+            Object p = cls("zombie.characters.IsoPlayer")
+                .getConstructor(cell, desc, int.class, int.class, int.class)
+                .newInstance(null, null, 0, 0, 0);
+            return new Object[] { p, null };
+        } catch (Throwable t) {
+            Throwable root = t;
+            while (root.getCause() != null) root = root.getCause();
+            String at = "";
+            for (StackTraceElement el : root.getStackTrace()) {
+                if (el.getClassName().startsWith("zombie.")) { at = " @ " + el; break; }
+            }
+            return new Object[] { null, root.getClass().getSimpleName() + ": " + root.getMessage() + at };
+        } finally {
+            try { if (server != null) server.setBoolean(null, prev); } catch (Throwable ignored) {}
+            System.setOut(realOut); System.setErr(realErr);
+            long lines = sink.toString().lines().count();
+            if (lines > 0)
+                realOut.println("[engine] newPlayer: suppressed " + lines + " lines of appearance/anim XML load output");
+        }
     }
 
     /** Real InventoryItemFactory.CreateItem(String). Null when not booted. */

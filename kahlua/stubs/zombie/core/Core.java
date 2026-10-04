@@ -25,6 +25,12 @@ public class Core {
     // engine refuses condition DECREASES, and a harness that silently did the
     // same would hide every wear/degradation bug.
     public static boolean tutorial = false;
+    // Character construction (PZEngine.newPlayer, 2026-10-04 spike). Real
+    // defaults except soundDisabled: the harness is headless, so true -- the
+    // same branch the dedicated server takes (dummy CharacterSoundEmitter).
+    public static int tileScale = 2;
+    public static String gameMode = "Sandbox";
+    public static boolean soundDisabled = true;
 
     private static final Core instance = new Core();
 
@@ -65,13 +71,22 @@ public class Core {
     private static GameVersion readBakedGameVersion() {
         try (java.io.InputStream in = Core.class.getResourceAsStream(VERSION_RESOURCE)) {
             if (in != null) {
-                // parse() throws on anything unparseable rather than returning
-                // null, so a malformed bake lands in the catch below.
-                return GameVersion.parse(
-                    new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim());
+                // Parsed here, NOT via GameVersion.parse: that calls
+                // zombie.core.math.PZMath, which the runtime jar doesn't carry,
+                // so outside engine mode StubbingClassLoader hands it an empty
+                // synthesized PZMath, parse throws, and every non-engine suite
+                // reported 42.0 under a "resource missing" warning that was
+                // false. The constructor touches nothing else.
+                String s = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\.(\\d+)(.*)").matcher(s);
+                if (m.matches())
+                    return new GameVersion(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), m.group(3).trim());
+                System.err.println("[pztest] WARNING: " + VERSION_RESOURCE + " is unparseable ('" + s + "') -- reporting 42.0.");
+                return new GameVersion(42, 0, "");
             }
-        } catch (Throwable ignored) {
-            // Fall through to the loud default below.
+        } catch (Throwable t) {
+            System.err.println("[pztest] WARNING: reading " + VERSION_RESOURCE + " failed: " + t);
+            return new GameVersion(42, 0, "");
         }
         // Reached only if the jar was built without the bake step. Deliberately
         // NOT a plausible-looking version: 42.0 makes getModVersionDirName skip
