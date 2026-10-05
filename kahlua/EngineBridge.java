@@ -135,6 +135,9 @@ public final class EngineBridge {
         "zombie.characters.skills.PerkFactory",
         "zombie.characters.skills.PerkFactory$Perk",
         "zombie.characters.skills.PerkFactory$Perks",
+        // A character's XP ledger (LuaManager.java:1823): player:getXp()
+        // returns it, and getXP / getPerkBoost live on it.
+        "zombie.characters.IsoGameCharacter$XP",
         // Action animation names (LuaManager.java:1836): vanilla timed
         // actions call setActionAnim(CharacterActionAnims.Reload) in start().
         "zombie.characters.CharacterActionAnims",
@@ -339,6 +342,19 @@ public final class EngineBridge {
                 cls("zombie.Lua.LuaManager").getField("scriptThread").set(null, scratchThread);
                 cls("zombie.ZomboidGlobals").getMethod("Load").invoke(null);
                 log.println("[engine] ZomboidGlobals loaded from defines.lua");
+                // The skill tree, as GameWindow.java:197 / GameServer.java:1421
+                // build it at boot: AddPerk assigns every perk its parent
+                // category and XP curve. Without it every perk's parent reads
+                // None, so code that walks skills the way vanilla's own stats
+                // panel does (ISPlayerStatsUI.lua:720 -- skip parent == None)
+                // skips every real skill and sees nothing.
+                try {
+                    cls("zombie.characters.skills.PerkFactory").getMethod("init").invoke(null);
+                    log.println("[engine] PerkFactory initialised (skill tree)");
+                } catch (Throwable pt) {
+                    Throwable r = pt; while (r.getCause() != null) r = r.getCause();
+                    log.println("[engine] PerkFactory init FAILED: " + r);
+                }
                 // SandboxOptions.instance is built in its static init (defines
                 // + the Apocalypse preset via LuaManager.RunLua). Force it now so
                 // a failure is one boot-log line, not a silent nil deep inside
