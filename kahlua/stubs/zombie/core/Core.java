@@ -31,6 +31,10 @@ public class Core {
     public static int tileScale = 2;
     public static String gameMode = "Sandbox";
     public static boolean soundDisabled = true;
+    // World loading (PZEngine.loadWorld, the workbench's real map):
+    // IsoMetaGrid.getLotDirectories reads and writes this. "DEFAULT" is the
+    // real default; the loader sets the map stack it wants.
+    public static String gameMap = "DEFAULT";
 
     private static final Core instance = new Core();
 

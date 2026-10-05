@@ -35,6 +35,30 @@ function depRoots(mod) {
   } catch (_) { return []; }
 }
 
+// Files that register TooltipLib providers, in the mod and its dependencies
+// (require names): the item tooltip tool loads them before asking.
+function tooltipModules(mod) {
+  const out = [];
+  for (const root of [mod.root, ...depRoots(mod)]) {
+    for (const f of modLuaFiles({ root })) {
+      if (/TooltipLib\.registerProvider\s*\(/.test(f.text) && !/^TooltipLib\//.test(f.req)) out.push(f.req);
+    }
+  }
+  return [...new Set(out)];
+}
+
+function translationsFor(mod) {
+  const out = {};
+  for (const root of [mod.root, ...depRoots(mod)]) {
+    const dir = path.join(root, "media", "lua", "shared", "Translate", "EN");
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".json"))) {
+      try { Object.assign(out, JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"))); } catch (_) {}
+    }
+  }
+  return out;
+}
+
 function addonFiles(mod) {
   const dirs = [path.join(LUA_DIR, "addons"), path.join(mod.root, "workbench")];
   for (const r of depRoots(mod)) dirs.push(path.join(r, "workbench"));
@@ -281,11 +305,13 @@ class Bridge {
   start() {
     if (this.state === "booting" || this.state === "loading" || this.state === "ready") return;
     this.state = "booting";
+    this.translated = false;   // a fresh VM: tooltips resend the string table
     this.error = null;
     this.bootLog = [];
     this.startedAt = Date.now();
     const pztest = path.join(this.ctx.KIT, "pztest");
-    this.proc = spawn(this.ctx.bashPath(), [pztest, "--bridge"], { cwd: this.mod.root });
+    const flags = workbenchConfig(this.mod).engine ? ["--bridge", "--engine"] : ["--bridge"];
+    this.proc = spawn(this.ctx.bashPath(), [pztest, ...flags], { cwd: this.mod.root });
     let buf = "";
     this.proc.stdout.on("data", (chunk) => {
       buf += chunk.toString("utf8");
@@ -465,7 +491,15 @@ function readBody(req) {
     req.on("end", () => { try { resolve(b ? JSON.parse(b) : {}); } catch (_) { resolve({}); } });
   });
 }
+// <mod>/workbench/workbench.json { "engine": true }: run THIS mod's
+// workbench VM on the real engine without changing how its test suite runs
+// (SauceTooltips: offline tests, engine-backed workbench).
+function workbenchConfig(mod) {
+  try { return JSON.parse(fs.readFileSync(path.join(mod.root, "workbench", "workbench.json"), "utf8")); }
+  catch (_) { return {}; }
+}
 function engineConfigured(mod) {
+  if (workbenchConfig(mod).engine) return true;
   try { return /^\s*engine\s*=\s*true/m.test(fs.readFileSync(path.join(mod.root, "pz-test.lua"), "utf8")); }
   catch (_) { return false; }
 }
@@ -667,6 +701,39 @@ function listBlueprints(mod) {
 }
 const slug = (s) => String(s || "blueprint").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "blueprint";
 
+// ── uiview (kit uiview/): the recording UI layer + the canonical replay ────
+const UIVIEW_LUA = path.join(KIT_ROOT, "uiview", "media", "lua", "client", "UIView");
+const UIVIEW_FILES = ["Recorder", "FontMetrics", "TextureSizes", "UIMock", "Render"];
+
+// ── world tiles (pzmap) ──────────────────────────────────────────────────────
+// pzmap (pz-mods/tools/pzmap) extracts the game's tile atlases to
+// extracted/<pack>/<page>.png + .toml (per-sprite pos/size/frame_offset/
+// frame_size in a 128x256 frame). Optional like pzchar: PZMAP_DIR or
+// <kit>/../tools/pzmap; absent -> world cards draw without art.
+const PZMAP = [process.env.PZMAP_DIR, path.resolve(KIT_ROOT, "..", "tools", "pzmap")]
+  .filter(Boolean).find((d) => fs.existsSync(path.join(d, "extracted"))) || null;
+let SPRITES = null;
+function spriteIndex() {
+  if (SPRITES || !PZMAP) return SPRITES || {};
+  SPRITES = {};
+  const root = path.join(PZMAP, "extracted");
+  // Same pack order pzmap's renderer resolves names in; the first wins.
+  for (const pack of fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
+    const dir = path.join(root, pack);
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".toml"))) {
+      const page = "/pzmap/extracted/" + pack + "/" + f.replace(/\.toml$/, ".png");
+      const text = fs.readFileSync(path.join(dir, f), "utf8");
+      const re = /^\[([^\]]+)\]\s*pos\s*=\s*\[\s*(\d+),\s*(\d+),?\s*\]\s*size\s*=\s*\[\s*(\d+),\s*(\d+),?\s*\]\s*frame_offset\s*=\s*\[\s*(-?\d+),\s*(-?\d+),?\s*\]\s*frame_size\s*=\s*\[\s*(\d+),\s*(\d+),?\s*\]/gm;
+      let m;
+      while ((m = re.exec(text))) {
+        if (SPRITES[m[1]]) continue;
+        SPRITES[m[1]] = { page, pos: [+m[2], +m[3]], size: [+m[4], +m[5]], off: [+m[6], +m[7]], frame: [+m[8], +m[9]] };
+      }
+    }
+  }
+  return SPRITES;
+}
+
 // ── item renders (pzchar) ────────────────────────────────────────────────────
 // pzchar (pz-mods/tools/pzchar) turns PZ model scripts into .glb + a PNG
 // thumbnail (item_glb.py). It lives in the monorepo, not the kit, so it is
@@ -729,6 +796,45 @@ async function handle(req, res, url, ctx) {
     // Studios: authoring views over a mod's text generators (45_studios.lua).
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
     fs.createReadStream(path.join(HERE, "studio.html")).pipe(res);
+    return true;
+  }
+  if (p === "/uiview/replay.js") {
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    fs.createReadStream(path.join(KIT_ROOT, "uiview", "replay.js")).pipe(res);
+    return true;
+  }
+  if (p.startsWith("/pzinstall/media/")) {
+    // UI textures a replayed frame references (media/ui/...), read-only.
+    const pz = pzInstall();
+    const base = pz && path.join(pz, "media");
+    const file = base && path.resolve(base, "." + decodeURIComponent(p.slice("/pzinstall/media".length)));
+    if (!file || !file.startsWith(base) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return true; }
+    res.writeHead(200, { "Content-Type": file.endsWith(".png") ? "image/png" : "application/octet-stream", "Cache-Control": "max-age=86400" });
+    fs.createReadStream(file).pipe(res);
+    return true;
+  }
+  if (p.startsWith("/pzmap/")) {
+    // pzmap (tools/pzmap): the map viewer (v2, embedded as the board's map
+    // picker) and the tile atlases it extracts from the install. Build-from-
+    // install assets, served read-only.
+    if (!PZMAP) { res.writeHead(404); res.end(); return true; }
+    const file = path.resolve(PZMAP, "." + decodeURIComponent(p.slice("/pzmap".length)));
+    if (!file.startsWith(PZMAP) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return true; }
+    const ext = path.extname(file).toLowerCase();
+    const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json",
+                    ".png": "image/png", ".webp": "image/webp", ".css": "text/css" };
+    const live = ext === ".html" || ext === ".js";
+    res.writeHead(200, { "Content-Type": types[ext] || "application/octet-stream", "Cache-Control": live ? "no-store" : "max-age=86400" });
+    fs.createReadStream(file).pipe(res);
+    return true;
+  }
+  if (p === "/api/wb/sprites") {
+    // GET /api/wb/sprites?names=a,b -> { name: {page, pos, size, off, frame} }
+    const names = String(url.searchParams.get("names") || "").split(",").filter(Boolean).slice(0, 4000);
+    const idx = spriteIndex();
+    const out = {};
+    for (const n of names) if (idx[n]) out[n] = idx[n];
+    json(res, 200, { available: !!PZMAP, sprites: out });
     return true;
   }
   if (p.startsWith("/pzchar-vendor/")) {
@@ -827,6 +933,19 @@ async function handle(req, res, url, ctx) {
             const pick = (body.args.bench && ws.find((w) => w.full === body.args.bench)) || ws[0];
             body.args.bench = pick ? { name: pick.full, sprite: pick.sprite } : null;
           } else body.args.bench = null;
+        }
+        if (body.tool === "itemTooltip" && body.args && !body.args.modules) body.args.modules = tooltipModules(mod);
+        if ((body.tool === "itemTooltip" || body.tool === "worldTooltip") && body.args && !b.translated) {
+          // The mod's + its dependencies' EN strings (the files the kit's
+          // translate = "EN" option reads), once per VM.
+          body.args.strings = translationsFor(mod);
+          b.translated = true;
+        }
+        if (body.tool === "worldTooltip" && body.args) {
+          // uiview's recording UI layer (kit uiview/, outside the VM's require
+          // path) + TooltipLib's world-object hook ahead of the providers.
+          body.args.modules = ["TooltipLib/HookWorldObject", ...tooltipModules(mod)];
+          body.args.sources = UIVIEW_FILES.map((n) => ({ name: "UIView/" + n, src: fs.readFileSync(path.join(UIVIEW_LUA, n + ".lua"), "utf8") }));
         }
         const r = await b.call(body.tool, body.args);
         augment(mod, body.tool, r.value, body.args);

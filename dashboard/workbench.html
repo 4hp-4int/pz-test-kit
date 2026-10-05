@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>PZ Engine Workbench</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/uiview/replay.js"></script>
 <script type="importmap">{ "imports": { "three": "/pzchar-vendor/three/three.module.js", "three/addons/": "/pzchar-vendor/three/addons/" } }</script>
 <style>
 :root {
@@ -71,6 +72,27 @@ main { overflow: hidden; display: flex; min-width: 0; position: relative; }
 .bc.action { width: 230px; border-color: #3d5378; background: #121823; }
 .bc.object { width: 220px; border-color: #3b4a3a; background: #121712; }
 .bc.script { width: 220px; border-color: #4a3b52; background: #17121a; }
+.bc.world { width: 230px; border-color: #3f5a3a; background: #111811; }
+.bc.world canvas { float: right; width: 64px; height: 80px; margin: -4px -4px 0 4px; image-rendering: pixelated; }
+.bc.world .wchip { display: inline-block; font: 10px var(--mono); color: var(--muted); border: 1px solid var(--line2); border-radius: 3px; padding: 0 3px; margin: 2px 2px 0 0; }
+.bc.world .wchip.ent { color: #9fd18f; border-color: #3f5a3a; }
+.wmap { position: absolute; inset: 40px 10px 54px 10px; z-index: 4; background: #0b0d0f; border: 1px solid var(--line2); border-radius: 6px; box-shadow: 0 8px 30px rgba(0,0,0,.6); display: flex; flex-direction: column; }
+.wmap .wh { display: flex; gap: 8px; align-items: center; padding: 5px 8px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.wmap iframe { flex: 1; border: 0; width: 100%; border-radius: 0 0 6px 6px; }
+.warea { width: 100%; background: radial-gradient(circle at 50% 40%, #1a2018, #0c0f0b 80%); border: 1px solid var(--line); border-radius: 4px; display: block; cursor: crosshair; image-rendering: auto; }
+.wobj { border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; margin-bottom: 5px; display: flex; gap: 8px; }
+.wobj canvas { width: 48px; height: 64px; flex: none; }
+.wobj .wbody { flex: 1; min-width: 0; font-size: 12px; }
+.wobj .wbody .mono { font-size: 11px; }
+.pztip { background: rgba(18, 18, 18, .94); border: 1px solid #3a3a3a; border-radius: 2px; padding: 6px 9px 8px; font: 13px/17px "Segoe UI", system-ui, sans-serif; color: #e6e6e6; box-shadow: 0 2px 10px rgba(0,0,0,.6); position: relative; }
+.pztip .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.pztip .nm { color: #ffffcc; margin-bottom: 3px; }
+.pztip .kv { display: flex; gap: 14px; } .pztip .kv .v { margin-left: auto; text-align: right; }
+.pztip .hd { font-weight: 600; margin-top: 4px; }
+.pztip .dv { border-top: 1px solid #555; margin: 4px 0; }
+.pztip .bar { height: 7px; background: #333; margin: 3px 0 3px auto; width: 110px; } .pztip .bar i { display: block; height: 100%; }
+.pztip .row { display: flex; align-items: center; gap: 10px; }
+.pztip .pv { color: #6a6a6a; font: 10px var(--mono); margin-top: 5px; }
 .bwires .wl { fill: var(--muted); font: 10px var(--mono); }
 .bwires .w.obj { stroke: #4e6a4b; stroke-dasharray: 3 3; }
 .bwires .w.keep { stroke: #5b86b8; stroke-dasharray: 2 4; stroke-width: 2.5; }
@@ -530,14 +552,18 @@ tool("board", {
   async render(v) {
     this.board();
     v.innerHTML = `<div class="bd">
-      <div class="bpal"><div class="tabs" style="margin-bottom:6px">${[["find", "Find"], ["scripts", "Scripts"], ["lib", "Library"], ["addons", "Addons"]].map(([k, l]) => `<div class="tab ${this.st.palTab === k ? "on" : ""}" data-pt="${k}">${l}</div>`).join("")}</div><div id="bpl"></div></div>
+      <div class="bpal"><div class="tabs" style="margin-bottom:6px">${[["find", "Find"], ["world", "World"], ["scripts", "Scripts"], ["lib", "Library"], ["addons", "Addons"]].map(([k, l]) => `<div class="tab ${this.st.palTab === k ? "on" : ""}" data-pt="${k}">${l}</div>`).join("")}</div><div id="bpl"></div></div>
       <div class="bcan" id="bcan">
         <div class="bbar"><button class="btn small" id="breplay" title="Rebuild every live object and re-run every recipe in order">↻ run all</button>
           <button class="btn small" id="bsave" title="Save this board to the library as a blueprint">save blueprint</button>
+          <button class="btn small" id="bmap" title="Open the real map: click a tile to put that square on the board (shift-click: several)">🗺 map</button>
           <button class="btn small" id="bfit" title="Fit everything (f)">fit</button><button class="btn small" id="bclear">clear</button>
           <span class="brng" title="Random rolls (ZombRand). seeded: varied, and run all replays the same rolls. random: a new seed every run all. fixed: the test kit's midpoint, every roll identical">🎲
             <select class="inp" id="brngm"><option value="seeded">seeded</option><option value="random">random</option><option value="midpoint">fixed (kit)</option></select>
             <input class="inp mono" id="brngs" style="width:70px" title="seed"></span>
+          <span class="brng" title="The world clock: advance the engine's GameTime, fire EveryOneMinute / EveryTenMinutes / EveryHours / EveryDays on their real boundaries, and let every live item on the board age by the engine's own code">⏱ <b class="mono" id="bclk">…</b>
+            <select class="inp" id="bclkstep"><option value="10">+10 min</option><option value="60" selected>+1 hour</option><option value="360">+6 hours</option><option value="1440">+1 day</option><option value="4320">+3 days</option><option value="10080">+7 days</option></select>
+            <button class="btn small" id="bclkgo" title="advance the clock">▶</button></span>
           <span id="bexp"></span><span id="bmsg" class="muted" style="font-size:12px"></span></div>
         <div class="bworld" id="bworld"><svg class="bwires" id="bwires"></svg><div id="bcards"></div></div>
         <div class="bempty" id="bempty"></div>
@@ -548,6 +574,9 @@ tool("board", {
     $("#breplay").onclick = () => this.replay(true);
     $("#bsave").onclick = () => this.saveDialog();
     $("#bfit").onclick = () => this.fit();
+    $("#bmap").onclick = () => this.toggleMap();
+    $("#bclkgo").onclick = () => this.advanceClock(+$("#bclkstep").value);
+    this.clockRefresh();
     const rng = this.rng();
     $("#brngm").value = rng.mode; $("#brngs").value = rng.seed ?? ""; $("#brngs").disabled = rng.mode !== "seeded";
     $("#brngm").onchange = (e) => { const r = this.rng(); r.mode = e.target.value; $("#brngs").disabled = r.mode !== "seeded"; this.save(); this.applyRng(true); };
@@ -585,6 +614,7 @@ tool("board", {
     if (this.st.palTab === "lib") return this.library();
     if (this.st.palTab === "addons") return this.addonsPalette();
     if (this.st.palTab === "scripts") return this.scriptsPalette();
+    if (this.st.palTab === "world") return this.worldPalette();
     const el = $("#bpl");
     if (!el) return;
     el.innerHTML = `<input class="inp" id="bq" placeholder="find items / recipes" value="${esc(this.st.palQ)}" style="width:100%">
@@ -840,6 +870,322 @@ tool("board", {
     }
   },
 
+  // ── the real world (60_world.lua + pzmap) ──
+  // Places worth a click; coordinates are real B42 world tiles.
+  PLACES: [
+    { label: "Industrial LPG storage tank", note: "SauceTweaks storage-tank entity", at: [7453, 8350, 0] },
+    { label: "Incinerator shed", note: "the unwired drum incinerators", at: [7328, 8194, 0] },
+    { label: "Orange barrel by the tank", note: "SauceTweaks barrels", at: [7452, 8350, 0] },
+  ],
+  async worldPalette() {
+    const el = $("#bpl");
+    if (!el) return;
+    const st = await call("worldStatus").catch((e) => ({ error: e.message }));
+    const last = this.st.worldLast || [7453, 8350, 0];
+    el.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">The real B42 map in the engine: the game's own cell loader builds each square (object classes, entities, rooms) at its real coordinates.</div>
+      <div class="row" style="gap:6px;margin-bottom:6px"><span class="${st.loaded ? "pass" : "dim"}" style="font-size:12px">${st.loaded ? "● world loaded" : st.available ? "○ not loaded yet (first square loads it, ~5s)" : "✗ " + esc(st.error || "kit bridge has no world")}</span></div>
+      ${st.loaded ? `<div class="dim mono" style="font-size:10.5px;margin-bottom:6px">${esc(st.map || "")} · ${st.chunks} chunks loaded</div>` : ""}
+      <button class="btn small primary" id="wmapbtn" style="width:100%;margin-bottom:8px">🗺 open the map and click a tile</button>
+      <div class="bph">go to a tile</div>
+      <div class="row" style="gap:4px"><input class="inp mono" id="wxyz" value="${last.join(",")}" placeholder="x,y,z" style="flex:1"><button class="btn small" id="wgo">+ square</button></div>
+      <div class="bph">places</div>
+      ${this.PLACES.map((pl, i) => `<div class="li bpi" data-place="${i}" title="${esc(pl.note)}"><span class="t">▦ ${esc(pl.label)}</span><span class="s">${pl.at.slice(0, 2).join(",")}</span></div>`).join("")}`;
+    $("#wmapbtn").onclick = () => this.toggleMap(true);
+    const go = () => { const v = $("#wxyz").value.split(/[ ,]+/).map(Number); if (v.length >= 2 && v.every(Number.isFinite)) this.addWorld(v[0], v[1], v[2] || 0); };
+    $("#wgo").onclick = go;
+    $("#wxyz").onkeydown = (e) => { if (e.key === "Enter") go(); };
+    for (const li of $$("[data-place]", el)) li.onclick = () => { const pl = this.PLACES[+li.dataset.place]; this.addWorld(pl.at[0], pl.at[1], pl.at[2]); };
+  },
+  toggleMap(force) {
+    const host = $("#bcan");
+    const open = $("#wmap", host);
+    if (open && force !== true) { open.remove(); return; }
+    if (open) return;
+    const at = this.st.worldLast || [7453, 8350, 0];
+    const div = document.createElement("div");
+    div.className = "wmap"; div.id = "wmap";
+    div.innerHTML = `<div class="wh">🗺 <b>map</b><span>click a tile to put that square on the board · shift-click keeps the map open · drag pans, wheel zooms</span><span style="flex:1"></span><span class="mono" id="wmapat"></span><button class="btn small" id="wmapx">✕</button></div>
+      <iframe src="/pzmap/viewer/v2/index.html?pick=1&at=${at[0]},${at[1]}" title="pzmap"></iframe>`;
+    host.appendChild(div);
+    div.onpointerdown = (e) => e.stopPropagation();
+    div.onwheel = (e) => e.stopPropagation();
+    $("#wmapx", div).onclick = () => div.remove();
+    if (!this._mapListener) {
+      this._mapListener = (ev) => {
+        const m = ev.data;
+        if (!m || m.type !== "pzmap-pick" || S.tool !== "board") return;
+        const lbl = $("#wmapat"); if (lbl) lbl.textContent = `${m.x}, ${m.y}, ${m.z}`;
+        if (!m.shift) { const w = $("#wmap"); if (w) w.remove(); }
+        this.addWorld(m.x, m.y, m.z || 0);
+      };
+      addEventListener("message", this._mapListener);
+    }
+  },
+  async addWorld(x, y, z) {
+    this.st.worldLast = [x, y, z];
+    const p0 = this.centerWorld(), p = this.freshSpot(p0.x, p0.y, 150);
+    const c = this.newCard({ kind: "world", x: p.x, y: p.y, wx: x, wy: y, wz: z || 0, label: `${x},${y},${z || 0}` });
+    this.board().sel = c.id;
+    this.say("loading " + c.label + " from the map…", true);
+    this.save(); this.draw(); this.inspect();
+    await this.refreshWorld(c);
+    this.say("");
+    return c;
+  },
+  async refreshWorld(c) {
+    try { c.info = await call("worldSquare", { x: c.wx, y: c.wy, z: c.wz }); c.err = null; }
+    catch (e) { c.err = e.message; }
+    await this.ensureSprites(arr(c.info && c.info.objects).map((o) => o.sprite).filter(Boolean));
+    this.save(); this.draw();
+    if (this.board().sel === c.id) this.inspect();
+  },
+  // Atlas lookups + page images (pzmap's extracted Tiles2x packs).
+  async ensureSprites(names) {
+    const S2 = (this.st.sprites = this.st.sprites || {});
+    const need = [...new Set(names)].filter((n) => !(n in S2));
+    for (let i = 0; i < need.length; i += 400) {
+      const r = await fetch(`/api/wb/sprites?names=${encodeURIComponent(need.slice(i, i + 400).join(","))}`).then((x) => x.json()).catch(() => ({ sprites: {} }));
+      for (const n of need.slice(i, i + 400)) S2[n] = (r.sprites || {})[n] || null;
+    }
+    const pages = [...new Set(names.map((n) => S2[n] && S2[n].page).filter(Boolean))];
+    const P = (this.st.pages = this.st.pages || {});
+    await Promise.all(pages.filter((u) => !P[u]).map((u) => new Promise((res) => { const im = new Image(); im.onload = () => { P[u] = im; res(); }; im.onerror = () => { P[u] = null; res(); }; im.src = u; })));
+  },
+  // Draw a sprite into a 128x256 frame whose top-left is (fx, fy), scaled.
+  drawSprite(ctx, name, fx, fy, k) {
+    const e = (this.st.sprites || {})[name], im = e && (this.st.pages || {})[e.page];
+    if (!im) return false;
+    ctx.drawImage(im, e.pos[0], e.pos[1], e.size[0], e.size[1], fx + e.off[0] * k, fy + e.off[1] * k, e.size[0] * k, e.size[1] * k);
+    return true;
+  },
+  // One square's stack, iso-framed (the floor diamond at the frame bottom).
+  // Fitted to the stack's bounding box in frame space, so a tall tank and a
+  // flat floor tile both fill the thumbnail.
+  paintSquare(cv, sprites) {
+    const ctx = cv.getContext("2d"), S2 = this.st.sprites || {};
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    let x0 = 128, y0 = 256, x1 = 0, y1 = 0;
+    for (const n of sprites) { const e = S2[n]; if (!e) continue; x0 = Math.min(x0, e.off[0]); y0 = Math.min(y0, e.off[1]); x1 = Math.max(x1, e.off[0] + e.size[0]); y1 = Math.max(y1, e.off[1] + e.size[1]); }
+    if (x1 <= x0 || y1 <= y0) return;
+    const k = Math.min(cv.width / (x1 - x0), cv.height / (y1 - y0));
+    const fx = (cv.width - (x1 - x0) * k) / 2 - x0 * k, fy = cv.height - (y1 - y0) * k - y0 * k;
+    for (const n of sprites) this.drawSprite(ctx, n, fx, fy, k);
+  },
+  // An area around the card's tile, painter-sorted like pzmap (z, x+y, x).
+  async paintArea(cv, c, r) {
+    const t = await call("worldTiles", { x0: c.wx - r, y0: c.wy - r, x1: c.wx + r, y1: c.wy + r, zLo: 0, zHi: Math.max(0, c.wz) + 2 }).catch(() => null);
+    if (!t || !cv.isConnected) return;
+    await this.ensureSprites(t.tiles.flatMap((q) => q.s));
+    const tiles = t.tiles.sort((a, b) => a.z - b.z || (a.x + a.y) - (b.x + b.y) || a.x - b.x);
+    const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+    const span = 2 * r + 1, k = W / (span * 128 + 64);
+    const ox = W / 2, oy = H / 2 - (r + 1) * 32 * k * 0.2;
+    const at = (x, y, z) => [ox + ((x - c.wx) - (y - c.wy)) * 64 * k, oy + ((x - c.wx) + (y - c.wy)) * 32 * k - z * 192 * k];
+    ctx.clearRect(0, 0, W, H);
+    for (const q of tiles) {
+      const [sx, sy] = at(q.x, q.y, q.z);
+      ctx.globalAlpha = q.z > c.wz ? 0.35 : 1;
+      for (const n of q.s) this.drawSprite(ctx, n, sx - 64 * k, sy + 64 * k - 256 * k, k);
+    }
+    ctx.globalAlpha = 1;
+    const [cx, cy] = at(c.wx, c.wy, c.wz);
+    ctx.strokeStyle = "#ffc247"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy + 64 * k); ctx.lineTo(cx + 64 * k, cy + 96 * k); ctx.lineTo(cx, cy + 128 * k); ctx.lineTo(cx - 64 * k, cy + 96 * k); ctx.closePath(); ctx.stroke();
+    // click a tile in the render -> retarget the card
+    cv.onclick = (e) => {
+      const b = cv.getBoundingClientRect(), mx = (e.clientX - b.left) * (W / b.width) - ox, my = (e.clientY - b.top) * (H / b.height) - oy - 96 * k + c.wz * 192 * k;
+      const u = mx / (64 * k), v = my / (32 * k);
+      const dx = Math.round((u + v) / 2), dy = Math.round((v - u) / 2);
+      if (!dx && !dy) return;
+      c.wx += dx; c.wy += dy; c.label = `${c.wx},${c.wy},${c.wz}`;
+      this.refreshWorld(c);
+    };
+  },
+  // Verbs per object (62_worldverbs.lua + addons' worldVerbs): vanilla code
+  // paths run on the real object. Items they make or take become item cards
+  // wired from this world card; the square is re-read after.
+  async bindWorldVerbs(el, c) {
+    const objs = arr(c.info && c.info.objects);
+    await Promise.all(objs.map(async (o, i) => {
+      const row = $(`[data-overbs="${i}"]`, el);
+      if (!row || !o.ref) return;
+      const r = await call("worldVerbs", { ref: o.ref }).catch(() => null);
+      if (!r || !row.isConnected) return;
+      const tb = document.createElement("button");
+      tb.className = "btn small"; tb.textContent = "🛈 tooltip";
+      tb.title = "TooltipLib's real world-object tooltip for this object, drawn through uiview (the panel the game shows on hover)";
+      tb.onclick = () => this.worldTooltip(o, $(`[data-otip="${i}"]`, el));
+      row.appendChild(tb);
+      for (const v of arr(r.verbs)) {
+        const b = document.createElement("button");
+        b.className = "btn small"; b.textContent = v.label; b.title = (v.addon !== "core" ? v.addon + ": " : "") + (v.doc || "");
+        b.onclick = () => {
+          const form = $(`[data-oform="${i}"]`, el);
+          if (arr(v.params).length && !form.dataset.open) {
+            form.dataset.open = "1";
+            form.innerHTML = `<div class="pform" style="margin-top:4px">${paramForm({ params: v.params }, {})}</div><button class="btn small primary">▶ ${esc(v.label)}</button>`;
+            form.querySelector("button").onclick = () => this.runWorldVerb(c, o, v, readParams(form, v.params), i, el);
+            return;
+          }
+          this.runWorldVerb(c, o, v, {}, i, el);
+        };
+        row.appendChild(b);
+      }
+    }));
+  },
+  // uiview: TooltipLib's WorldObjectPanel, recorded in the VM, replayed here.
+  async worldTooltip(o, host) {
+    if (!host) return;
+    host.innerHTML = `<span class="spin"></span>`;
+    const r = await call("worldTooltip", { ref: o.ref }).catch((e) => ({ error: e.message }));
+    if (!host.isConnected) return;
+    if (r.error || r.unavailable || r.empty) { host.innerHTML = `<div class="${r.error ? "fail" : "dim"}" style="font-size:11.5px">${esc(r.error || r.unavailable || r.empty)}${r.providers != null ? ` (${r.providers} object provider(s) registered)` : ""}</div>`; return; }
+    const R = window.UIViewReplay;
+    if (!R) { host.innerHTML = `<div class="fail">uiview replay.js did not load</div>`; return; }
+    const f = r.frame, Z = 1.5;
+    const cv = document.createElement("canvas");
+    cv.width = f.width * Z; cv.height = f.height * Z; cv.style.width = f.width * Z + "px"; cv.style.maxWidth = "100%";
+    host.innerHTML = `<div class="dim" style="font-size:10.5px;margin-top:4px">uiview · TooltipLib WorldObjectPanel · ${r.providers} object provider(s)</div>`;
+    host.appendChild(cv);
+    const images = await R.preload([f], { roots: ["/pzinstall/"] }).catch(() => new Map());
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(Z, 0, 0, Z, 0, 0); ctx.textBaseline = "top";
+    R.drawFrame(ctx, f, { images });
+  },
+  async runWorldVerb(c, o, v, params, i, el) {
+    const out = $(`[data-ores="${i}"]`, el);
+    if (out) out.innerHTML = `<span class="spin"></span>`;
+    let r;
+    try { r = await call("worldVerb", { ref: o.ref, verb: v.id, addon: v.addon, params }); }
+    catch (e) { if (out) out.innerHTML = `<span class="fail">${esc(e.message)}</span>`; return; }
+    const msg = `<span class="${r.state === "refused" ? "warn" : "pass"}">${r.state === "refused" ? "✗" : "✓"} ${esc(r.msg)}</span>`;
+    // made/taken items -> live item cards, wired from this square
+    let k = 0;
+    for (const it of arr(r.items)) {
+      const snap = await call("addonPanels", { ref: it.ref }).catch(() => null);
+      if (!snap) continue;
+      const p = this.freshSpot(c.x + 270, c.y + (k++) * 100);
+      this.newCard({ kind: "item", type: snap.fullType, ref: snap.ref, snap, steps: [], x: p.x, y: p.y, fromWorld: c.id });
+    }
+    this.say(`${v.label} @ ${c.label}: ${r.msg}`);
+    await this.refreshWorld(c);
+    const out2 = $(`[data-ores="${i}"]`);
+    if (out2) out2.innerHTML = msg + (arr(r.items).length ? ` <span class="dim">→ ${r.items.length} item card(s)</span>` : "");
+  },
+  async inspectWorld(el, c) {
+    const info = c.info || {};
+    const short = (n) => String(n || "").replace(/^zombie\.iso\.(objects\.)?/, "");
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>▦ ${esc(c.label)}</b><div class="mono dim" style="font-size:11px">${info.room ? "room: " + esc(info.room) : info.outside ? "outside" : "no room"}${c.err ? ` · <span class="fail">${esc(c.err)}</span>` : ""}</div></div>
+        <button class="btn small" id="wzdn" title="floor down">z-</button><button class="btn small" id="wzup" title="floor up">z+</button>
+        <button class="btn small" id="wmapgo" title="show on the map">🗺</button><button class="btn small" id="idel">✕</button></div>
+      <div class="ibody">
+        <canvas class="warea" id="warea" width="760" height="520" title="click a tile to move this card there"></canvas>
+        <div class="dim" style="font-size:11px;margin:2px 0 8px">the real map around this square · click a tile to move here · floors above dimmed</div>
+        <h3>Objects · ${arr(info.objects).length}</h3>
+        ${arr(info.objects).map((o, i) => `<div class="wobj"><canvas width="96" height="128" data-ospr="${i}"></canvas><div class="wbody">
+          <div><b>${esc(o.entity || o.name || short(o.class))}</b> <span class="dim">${esc(short(o.class))}</span></div>
+          <div class="mono dim">${esc(o.sprite || "?")}</div>
+          ${arr(o.components).length ? `<div>${o.components.map((x) => `<span class="wchip ent">${esc(x)}</span>`).join("")}</div>` : ""}
+          ${arr(o.containers).map((k) => `<div>📦 ${esc(k.type)} · ${k.items} item${k.items === 1 ? "" : "s"}${k.capacity != null ? " / cap " + k.capacity : ""}</div>`).join("")}
+          ${o.fluid ? `<div>💧 ${esc(o.fluid.fluid || "empty")} ${o.fluid.amount != null ? Number(o.fluid.amount).toFixed(1) : "?"} / ${o.fluid.capacity}</div>` : ""}
+          ${o.props ? `<details><summary style="font-size:11px">tile properties</summary><table>${Object.entries(o.props).map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td class="mono">${esc(v)}</td></tr>`).join("")}</table></details>` : ""}
+          <div style="margin-top:3px" class="row" data-overbs="${i}"><button class="btn small" data-oexp="${i}" title="explore the live object as a card">◎ explore</button></div>
+          <div data-oform="${i}"></div><div data-ores="${i}" style="font-size:11.5px"></div><div data-otip="${i}"></div>
+        </div></div>`).join("") || `<div class="dim" style="font-size:12px">${info.empty ? "no square here (nothing on the map, or not loaded)" : "…"}</div>`}
+        ${arr(info.items).length ? `<h3>On the ground</h3>${info.items.map((it) => `<div style="font-size:12px">◇ ${esc(it.name)} <span class="dim mono">${esc(it.fullType)}</span></div>`).join("")}` : ""}
+      </div>`;
+    $("#idel").onclick = () => this.remove(c.id);
+    $("#wzdn").onclick = () => { c.wz -= 1; c.label = `${c.wx},${c.wy},${c.wz}`; this.refreshWorld(c); };
+    $("#wzup").onclick = () => { c.wz += 1; c.label = `${c.wx},${c.wy},${c.wz}`; this.refreshWorld(c); };
+    $("#wmapgo").onclick = () => { this.st.worldLast = [c.wx, c.wy, c.wz]; this.toggleMap(true); };
+    for (const b of $$("[data-oexp]", el)) b.onclick = () => { const o = info.objects[+b.dataset.oexp]; this.exploreRef(o.ref, (o.entity || o.sprite || "object") + " @" + c.label, c.id); };
+    this.bindWorldVerbs(el, c);
+    await this.ensureSprites(arr(info.objects).map((o) => o.sprite).filter(Boolean));
+    for (const cv of $$("[data-ospr]", el)) { const o = info.objects[+cv.dataset.ospr]; if (o.sprite) this.paintSquare(cv, [o.sprite]); }
+    if ($("#warea")) this.paintArea($("#warea"), c, 6);
+  },
+
+  // ── the world clock (65_clock.lua) ──
+  async clockRefresh() {
+    const st = await call("clockStatus").catch(() => null);
+    const el = $("#bclk");
+    if (el) el.textContent = st ? `day ${st.day} ${st.clock}` : "n/a";
+    if (st && el) el.parentNode.title = el.parentNode.title.split("\n")[0] + `\nlisteners: ${Object.entries(st.listeners || {}).map(([k, v]) => k + " " + v).join(", ")}`;
+    return st;
+  },
+  async advanceClock(minutes) {
+    const b = this.board();
+    const live = b.cards.filter((c) => c.kind === "item" && c.ref && !c.consumed && !c.stale);
+    this.say(`advancing ${minutes >= 1440 ? minutes / 1440 + " day(s)" : minutes >= 60 ? minutes / 60 + " hour(s)" : minutes + " min"}…`, true);
+    let r;
+    try { r = await call("clockAdvance", { minutes, refs: live.map((c) => c.ref) }); }
+    catch (e) { this.say("clock: " + e.message); return; }
+    // Live items: re-read every card's snapshot; mark the ones that moved.
+    for (const c of live) {
+      const before = JSON.stringify(c.snap && c.snap.badges);
+      const snap = await call("addonPanels", { ref: c.ref }).catch(() => null);
+      if (snap) { c.snap = snap; c.timeMoved = JSON.stringify(snap.badges) !== before; }
+    }
+    for (const c of b.cards.filter((c) => c.kind === "world")) await this.refreshWorld(c);
+    const fired = Object.entries(r.fired || {}).map(([k, v]) => `${k.replace("Every", "")}×${v}`).join(" ");
+    const moved = live.filter((c) => c.timeMoved).length;
+    this.say(`⏱ day ${r.day} ${r.clock} · ${fired || "no events"} · ${r.aged} item(s) aged${moved ? `, ${moved} changed` : ""}${arr(r.errors).length ? ` · ✗ ${r.errors.length} listener error(s): ${r.errors[0]}` : ""}${arr(r.itemErrors).length ? ` · ✗ aging: ${r.itemErrors[0]}` : ""}`, false);
+    const el = $("#bclk"); if (el) el.textContent = `day ${r.day} ${r.clock}`;
+    this.save(); this.draw();
+    if (b.sel) this.inspect();
+  },
+
+  // ── the item's real tooltip (66_tooltip.lua) ──
+  // TooltipLib's own providers run against this live item through its
+  // recording context; the display list is drawn here in PZ's tooltip style.
+  async itemTooltip(c) {
+    const host = $("#itip");
+    if (!host || !c.ref || c.consumed) return;
+    const detail = !!this.st.tipDetail;
+    const r = await call("itemTooltip", { ref: c.ref, detail }).catch((e) => ({ error: e.message }));
+    if (!$("#itip") || this.board().sel !== c.id) return;
+    if (r.error) { $("#itip").innerHTML = `<div class="fail" style="font-size:11.5px">tooltip: ${esc(r.error)}</div>`; return; }
+    if (r.unavailable) { $("#itip").innerHTML = `<div class="dim" style="font-size:11.5px">${esc(r.unavailable)}</div>`; return; }
+    const col = (x, d) => { if (!x || typeof x !== "object") return d; const v = Array.isArray(x) ? x : [x.r, x.g, x.b, x.a ?? 1]; return v[0] == null ? d : `rgba(${Math.round(v[0] * 255)},${Math.round(v[1] * 255)},${Math.round(v[2] * 255)},${v[3] ?? 1})`; };
+    const txt = (v) => esc(v == null ? "" : typeof v === "number" ? String(Math.round(v * 100) / 100) : String(v));
+    let accent = null;
+    const lineHtml = (l) => {
+      const [op, a, b, c2, d] = l;
+      switch (op) {
+        case "setAccentColor": accent = col(a, null); return "";
+        case "addLabel": return `<div style="color:${col(b, "#e6e6e6")}">${txt(a)}</div>`;
+        case "addText": return `<div style="color:${col(b, "#e6e6e6")};white-space:pre-wrap">${txt(a)}</div>`;
+        case "addHeader": case "beginSection": return `<div class="hd" style="color:${col(b, "#ffffcc")}">${txt(a)}</div>`;
+        case "addDivider": return `<div class="dv" style="border-color:${col(a, "#555")}"></div>`;
+        case "addSpacer": return `<div style="height:6px"></div>`;
+        case "addKeyValue": {
+          if (a && typeof a === "object" && !Array.isArray(a)) return `<div class="kv"><span style="color:${col(a.keyColor, "#e6e6e6")}">${txt(a.key)}</span><span class="v" style="color:${col(a.valueColor || a.valColor, "#e6e6e6")}">${txt(a.value)}</span></div>`;
+          return `<div class="kv"><span style="color:${col(c2, "#e6e6e6")}">${txt(a)}</span><span class="v" style="color:${col(d, "#e6e6e6")}">${txt(b)}</span></div>`;
+        }
+        case "addInteger": case "addFloat": case "addPercentage": {
+          const v = op === "addPercentage" ? (b * 100).toFixed(c2 ?? 0) + "%" : op === "addFloat" ? Number(b).toFixed(c2 ?? 2) : b;
+          const good = (op === "addFloat" || op === "addPercentage" ? d : c2);
+          const vc = good == null ? "#e6e6e6" : (b >= 0) === !!good ? "#7fd07f" : "#e07070";
+          return `<div class="kv"><span>${txt(a)}</span><span class="v" style="color:${vc}">${esc(String(v))}</span></div>`;
+        }
+        case "addProgress": return `<div class="row"><span style="color:${col(c2, "#e6e6e6")}">${txt(a)}</span><div class="bar"><i style="width:${Math.max(0, Math.min(1, +b || 0)) * 100}%;background:${col(d, "#5fbf5f")}"></i></div></div>`;
+        case "addTexture": case "addTextureRow": return `<div class="dim">[${txt(Array.isArray(a) ? a.join(", ") : a)}]</div>`;
+        default: return `<div class="dim mono" style="font-size:10px">${esc(op)}</div>`;
+      }
+    };
+    const body = arr(r.providers).map((p) => `${arr(p.lines).map(lineHtml).join("")}${p.error ? `<div style="color:#e07070;font-size:11px">${esc(p.id)}: ${esc(p.error)}</div>` : ""}`).join("");
+    const h = r.header || {};
+    $("#itip").innerHTML = `<h3>Tooltip <span class="dim" style="text-transform:none;letter-spacing:0">TooltipLib ${esc(r.version || "")} · ${arr(r.providers).length} of ${r.total} providers active</span></h3>
+      <label class="muted" style="font-size:11.5px"><input type="checkbox" id="tipdet" ${detail ? "checked" : ""}> detail key held</label>${r.hiddenDetail && !detail ? ` <span class="dim" style="font-size:11px">· more behind the detail key</span>` : ""}
+      <div class="pztip" style="margin-top:4px">${accent ? `<div class="rail" style="background:${accent}"></div>` : ""}<div class="nm">${esc(h.name || "")}</div>
+        <div class="kv"><span>Weight</span><span class="v">${h.weight != null ? Number(h.weight).toFixed(2) : "?"}</span></div>
+        ${h.conditionMax ? `<div class="row"><span>Condition</span><div class="bar"><i style="width:${(h.condition / h.conditionMax) * 100}%;background:#5fbf5f"></i></div></div>` : ""}
+        ${body}
+        <div class="pv">${arr(r.providers).map((p) => esc(p.id)).join(" · ")}</div></div>
+      ${arr(r.loadErrors).length ? `<details><summary class="dim" style="font-size:11px">${r.loadErrors.length} load note(s)</summary><pre class="box">${esc(r.loadErrors.join("\n"))}</pre></details>` : ""}`;
+    $("#tipdet").onchange = (e) => { this.st.tipDetail = e.target.checked; this.itemTooltip(c); };
+  },
+
   // ── console dock ──
   dock() {
     const st = this.st, open = !!st.dockOpen;
@@ -896,6 +1242,7 @@ tool("board", {
       if (c.kind === "recipe") Object.assign(o, { recipe: c.recipe, label: c.label, inputs: c.inputs.map(tid), outputs: c.outputs.map(tid), ...(c.bench !== undefined ? { bench: c.bench } : {}) });
       else if (c.kind === "object") Object.assign(o, { label: c.label, expr: c.expr || null, from: c.from ? tid(c.from) : null, steps: c.steps || [] });
       else if (c.kind === "script") Object.assign(o, { stype: c.stype, name: c.name });
+      else if (c.kind === "world") Object.assign(o, { wx: c.wx, wy: c.wy, wz: c.wz, label: c.label });
       else if (c.kind === "action") {
         const slots = {}, outMap = {};
         for (const [k, v] of Object.entries(c.slots || {})) if (v) slots[k] = tid(v);
@@ -1033,9 +1380,17 @@ tool("board", {
   },
 
   // ── adding cards ──
-  freshSpot(x, y) {
+  // First spot at or below (x, y) that overlaps no card, by each card's real
+  // rendered height (world cards are taller than item cards). h = the new
+  // card's expected height.
+  freshSpot(x, y, h = 96) {
     const cards = this.board().cards;
-    for (let i = 0; i < 40; i++) { if (!cards.some((c) => Math.abs(c.x - x) < 220 && Math.abs(c.y - y) < 84)) break; y += 92; }
+    const hOf = (c) => { const el = $(`.bc[data-id="${c.id}"]`); return el ? el.offsetHeight : 96; };
+    for (let i = 0; i < 200; i++) {
+      const hit = cards.find((c) => Math.abs(c.x - x) < 240 && y < c.y + hOf(c) + 10 && c.y < y + h + 10);
+      if (!hit) break;
+      y = hit.y + hOf(hit) + 12;
+    }
     return { x, y };
   },
   async add(kind, key, x, y, extra) {
@@ -1273,6 +1628,13 @@ tool("board", {
     const badges = (c) => arr(c.snap && c.snap.badges).map((x) => `<div class="bb ${esc(x.tone || "")}">${esc(x.text)}</div>`).join("");
     el.innerHTML = b.cards.map((c) => {
       const cls = `bc ${c.kind} ${b.sel === c.id ? "sel" : ""} ${c.consumed ? "gone" : ""} ${c.stale ? "stale" : ""}`;
+      if (c.kind === "world") {
+        const objs = arr(c.info && c.info.objects);
+        return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px"><canvas width="128" height="160" data-wsq="${c.id}"></canvas>
+          <div class="bch">▦ ${esc(c.label)}</div><div class="bcs">${esc(c.info ? (c.info.room ? "room: " + c.info.room : c.info.outside ? "outside" : "no room") : c.err ? "error" : "loading…")}</div>
+          <div>${objs.slice(0, 6).map((o) => `<span class="wchip ${o.entity ? "ent" : ""}" title="${esc(o.sprite || "")}">${esc(o.entity || String(o.sprite || o.class || "").replace(/_\d+$/, ""))}</span>`).join("")}${objs.length > 6 ? `<span class="wchip">+${objs.length - 6}</span>` : ""}</div>
+          ${c.err ? `<div class="bres fail" title="${esc(c.err)}">${esc(c.err.slice(0, 40))}</div>` : ""}</div>`;
+      }
       if (c.kind === "object") {
         return `<div class="${cls}" data-id="${c.id}" style="left:${c.x}px;top:${c.y}px">
           <div class="bch">◎ ${esc(c.label)}</div><div class="bcs">${esc(c.cls || (c.expr ? "expression" : "object"))}</div>
@@ -1323,6 +1685,16 @@ tool("board", {
         ${badges(c)}${c.unchanged ? `<div class="bres warn">unchanged by ${esc((this.card(c.origin) || {}).label || "the action")}</div>` : ""}${c.consumed ? `<div class="bres dim">${c.changedBy ? "→ after card holds its new state" : c.gone ? "gone (inside / used up)" : "consumed"}</div>` : ""}${c.onFloor && !c.consumed ? `<div class="bres dim" title="too heavy to carry: vanilla addOrDropItem put it on the ground">⤓ dropped at your feet</div>` : ""}${c.stale && !c.err ? `<div class="bres warn">stale: run all</div>` : ""}${c.err ? `<div class="bres fail" title="${esc(c.err)}">${esc(c.err.length > 34 ? "error" : c.err)}</div>` : ""}
       </div>`;
     }).join("");
+    for (const cv of $$("[data-wsq]", el)) {
+      const c = this.card(cv.dataset.wsq);
+      if (!c) continue;
+      // Restored (storage, blueprint): fetch the square, then its sprite pages.
+      if (!c.info && !c.err) { const L = (this._wloading = this._wloading || new Set()); if (!L.has(c.id)) { L.add(c.id); this.refreshWorld(c).finally(() => L.delete(c.id)); } continue; }
+      const names = arr(c.info && c.info.objects).map((o) => o.sprite).filter(Boolean);
+      const sp = this.st.sprites || {};
+      if (names.some((n) => !(n in sp))) { if (!this._spriteFetch) this._spriteFetch = this.ensureSprites(names).then(() => { this._spriteFetch = null; this.draw(); }); continue; }
+      this.paintSquare(cv, names);
+    }
     for (const btn of $$("[data-craft]", el)) btn.onclick = (e) => { e.stopPropagation(); this.craft(this.card(btn.closest(".bc").dataset.id)); };
     for (const btn of $$("[data-fill]", el)) btn.onclick = (e) => { e.stopPropagation(); this.fill(this.card(btn.closest(".bc").dataset.id)); };
     for (const m of $$("[data-mode]", el)) m.onclick = (e) => { e.stopPropagation(); const c = this.card(m.closest(".bc").dataset.id); c.mode = c.mode === "mp" ? "sp" : "mp"; this.save(); this.draw(); if (this.board().sel === c.id) this.inspect(); };
@@ -1353,6 +1725,10 @@ tool("board", {
         if (cb) h += path(cb, rb, "w in" + (role ? " " + role : "") + (soul(c) ? " soul" : "") + (c && c.consumed ? " used" : ""));
       }
       for (const id of r.outputs) { const c = this.card(id), cb = box(id); if (cb) h += path(rb, cb, "w out" + (soul(c) ? " soul" : "")); }
+    }
+    for (const it of b.cards.filter((c) => c.kind === "item" && c.fromWorld)) {
+      const wb = box(it.fromWorld), ib = box(it.id);
+      if (wb && ib) h += path(wb, ib, "w out");
     }
     // Explore edges: source card -> object card, labelled with the path step.
     for (const o of b.cards.filter((c) => c.kind === "object" && (c.from || c.linkFrom))) {
@@ -1515,6 +1891,7 @@ tool("board", {
     if (c.kind === "recipe") return this.inspectRecipe(el, c);
     if (c.kind === "action") return this.inspectAction(el, c);
     if (c.kind === "object") return this.inspectObject(el, c);
+    if (c.kind === "world") return this.inspectWorld(el, c);
     if (c.kind === "script") return this.inspectScript(el, c);
     const name = (c.snap && c.snap.name) || c.type;
     const origin = c.origin && this.card(c.origin);
@@ -1538,11 +1915,13 @@ tool("board", {
             ${c.snap && c.snap.uses != null ? `<option value="uses">uses =</option>` : ""}${c.snap && c.snap.condition != null ? `<option value="condition">condition =</option>` : ""}</select>
           <input class="inp mono" id="etext" placeholder="BLOODED" value="${esc(arr(c.snap && c.snap.badges)[0] ? c.snap.badges[0].text.split(" ").pop() : "BLOODED")}" style="width:110px"><button class="btn small" id="eadd">pin</button>
           ${c.snap && (c.snap.uses != null || c.snap.condition != null) ? `<span class="dim" style="font-size:11px">now: ${c.snap.uses != null ? "uses " + c.snap.uses : ""}${c.snap.uses != null && c.snap.condition != null ? " · " : ""}${c.snap.condition != null ? "condition " + c.snap.condition + "/" + c.snap.conditionMax : ""}</span>` : ""}</div>
+        <div id="itip"></div>
         <div id="idetail"></div>
         <h3>${c.consumed ? "As it went in" : "Now"}</h3>${panelsHtml(c.consumed ? c.before : c.snap && c.snap.panels, c.consumed ? null : c.lastBefore) || `<span class="dim">no panels</span>`}
       </div>`;
     if ($("#iexp")) $("#iexp").onclick = () => this.exploreCard(c.id, null, (c.snap && c.snap.name) || c.type);
     this.itemDetail(c);
+    this.itemTooltip(c);
     if ($("#v3d")) view3d($("#v3d"), c.snap.visual);
     if ($("#icount")) $("#icount").onchange = (e) => { c.count = Math.max(1, +e.target.value || 1); this.save(); this.draw(); };
     $("#idel").onclick = () => this.remove(c.id);
