@@ -150,7 +150,8 @@ end
 -- pairs(Events) sees only rawset keys, which is exactly the touched set
 -- (the __index autovivifier rawsets on first access).
 local function snapshotSandbox()
-    local snap = { events = {}, isServer = _G.isServer, isClient = _G.isClient }
+    local snap = { events = {}, isServer = _G.isServer, isClient = _G.isClient,
+                   zombRand = _G.ZombRand, zombRandFloat = _G.ZombRandFloat }
     if type(Events) == "table" then
         for evName, evt in pairs(Events) do
             if type(evt) == "table" and type(evt._listeners) == "table" then
@@ -165,6 +166,12 @@ end
 
 local function restoreSandbox(snap)
     _G.isServer, _G.isClient = snap.isServer, snap.isClient
+    -- PZTestKit.Random.seeded() in a test never leaks into the next one; a
+    -- file that swapped ZombRand at LOAD time keeps its swap (it is in the snap).
+    _G.ZombRand, _G.ZombRandFloat = snap.zombRand, snap.zombRandFloat
+    if PZTestKit and PZTestKit.Random and snap.zombRand == PZTestKit._midZombRand then
+        PZTestKit.Random.mode = "midpoint"
+    end
     if type(Events) == "table" then
         for evName, evt in pairs(Events) do
             if type(evt) == "table" and type(evt._listeners) == "table" then
@@ -188,6 +195,7 @@ for _, name in ipairs(names) do
     total = total + 1
 
     local sandbox = snapshotSandbox()
+    if PZTestKit then PZTestKit._randCalls = {} end
 
     -- Reset player state between tests
     _pz_player._primaryHand = nil
@@ -290,6 +298,18 @@ for _, name in ipairs(names) do
         end
     end)
     print = basePrint
+    -- A test that called the MIDPOINT ZombRand many times with the same
+    -- arguments was almost certainly sampling a distribution, and saw one
+    -- outcome. Say so (once per test); it is not a failure.
+    if PZTestKit and PZTestKit._randCalls then
+        local worstKey, worst = nil, 0
+        for k, c in pairs(PZTestKit._randCalls) do if c > worst then worstKey, worst = k, c end end
+        if worst >= 100 then
+            basePrint("    note: " .. name .. " called ZombRand(" .. worstKey .. ") " .. worst
+                .. " times; the kit's ZombRand is the MIDPOINT, so every call returned the same value. "
+                .. "Sampled rolls see ONE outcome -- use PZTestKit.Random.seeded(n), or enumerate the candidates.")
+        end
+    end
     restoreSandbox(sandbox)
 
     if not ok and tostring(err):find(assertMarker, 1, true) then

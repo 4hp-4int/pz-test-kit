@@ -929,6 +929,55 @@ public final class EngineBridge {
             } catch (Throwable t) { frame.push(null); }
             return 1;
         });
+        // Change sandbox options the way a running game does: an admin's edit
+        // reaches the server through GameServer.receiveSandboxOptions (load +
+        // applySettings + toLua) and fires NO Lua event -- the mid-run class of
+        // bug (VPS affix gates going stale, 2026-10-05). Sets every option in
+        // the table through its typed option (out-of-range values are refused,
+        // the old one stays), runs the engine's applySettings(), and mirrors
+        // what the engine KEPT into the Lua SandboxVars (the kit's SandboxVars
+        // is its own table, so the engine's toLua() -- which would replace it
+        // wholesale and drop pz-test.lua's values -- is not called).
+        // Keys: "Mod.Option" (SandboxVars.Mod.Option) or "Option" (top level).
+        // Returns { [key] = kept value }; an unknown key maps to false.
+        pzEngine.rawset("sandboxApply", (JavaFunction) (frame, n) -> {
+            KahluaTable out = platform.newTable();
+            try {
+                Object in = n > 0 ? frame.get(0) : null;
+                if (!(in instanceof KahluaTable)) { frame.push(out); return 1; }
+                Object sbo = cls("zombie.SandboxOptions").getField("instance").get(null);
+                java.lang.reflect.Method byName = sbo.getClass().getMethod("getOptionByName", String.class);
+                Object sv = env.rawget("SandboxVars");
+                if (!(sv instanceof KahluaTable)) { sv = platform.newTable(); env.rawset("SandboxVars", sv); }
+                se.krka.kahlua.vm.KahluaTableIterator it = ((KahluaTable) in).iterator();
+                while (it.advance()) {
+                    if (!(it.getKey() instanceof String)) continue;
+                    String key = (String) it.getKey();
+                    Object opt = byName.invoke(sbo, key);
+                    if (opt == null) { out.rawset(key, Boolean.FALSE); continue; }
+                    Object cfg = opt.getClass().getMethod("asConfigOption").invoke(opt);
+                    cfg.getClass().getMethod("setValueFromObject", Object.class).invoke(cfg, it.getValue());
+                    Object got = cfg.getClass().getMethod("getValueAsObject").invoke(cfg);
+                    if (got instanceof Integer i) got = i.doubleValue();
+                    out.rawset(key, got);
+                    int dot = key.indexOf('.');
+                    KahluaTable page = (KahluaTable) sv;
+                    String field = key;
+                    if (dot > 0) {
+                        Object p = page.rawget(key.substring(0, dot));
+                        if (!(p instanceof KahluaTable)) { p = platform.newTable(); page.rawset(key.substring(0, dot), p); }
+                        page = (KahluaTable) p;
+                        field = key.substring(dot + 1);
+                    }
+                    page.rawset(field, got);
+                }
+                sbo.getClass().getMethod("applySettings").invoke(sbo);
+            } catch (Throwable t) {
+                log.println("[engine] sandboxApply: " + t);
+            }
+            frame.push(out);
+            return 1;
+        });
         pzEngine.rawset("gameTime", (JavaFunction) (frame, n) -> {
             try { frame.push(cls("zombie.GameTime").getField("instance").get(null)); }
             catch (Throwable t) { frame.push(null); }

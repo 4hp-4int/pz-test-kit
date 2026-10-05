@@ -37,7 +37,18 @@ function getActivatedMods()
     return { size = function(self) return 0 end, get = function(self, i) return "" end }
 end
 
-function ZombRand(a, b)
+-- ZombRand is the MIDPOINT by default, so suites are deterministic. The trap:
+-- a test that SAMPLES rolls (loop N times, count outcomes) sees exactly one
+-- outcome and reports it as the distribution -- a VPS probe "rolled" 18,000
+-- affixes and checked one candidate 18,000 times (2026-10-05). So the
+-- midpoint counts repeated identical calls per test (the executor notes
+-- them), and PZTestKit.Random.seeded(n) gives a test real, replayable rolls.
+PZTestKit = PZTestKit or {}
+PZTestKit._randCalls = {}
+
+local function midZombRand(a, b)
+    local key = tostring(a) .. "," .. tostring(b)
+    PZTestKit._randCalls[key] = (PZTestKit._randCalls[key] or 0) + 1
     if b then return math.floor((a + b) / 2)
     else return 0 end
 end
@@ -45,10 +56,46 @@ end
 -- Deterministic midpoint, same policy as ZombRand. Vanilla uses this in
 -- e.g. ISTransferAction.GetDropItemOffset — its absence cost a debugging
 -- round (opaque "Object tried to call nil" from a delegated drop branch).
-function ZombRandFloat(min, max)
+local function midZombRandFloat(min, max)
     if min and max then return (min + max) / 2 end
     return 0.0
 end
+
+ZombRand, ZombRandFloat = midZombRand, midZombRandFloat
+
+--- Opt-in real randomness for a test. PZ semantics: ZombRand(n) -> 0..n-1,
+--- ZombRand(min, max) -> min..max-1, ZombRandFloat(min, max) -> [min, max).
+--- Park-Miller from a seed, so the same seed replays the same rolls (the
+--- Workbench's setRandom uses the same generator). The executor restores the
+--- midpoint after every test, so seeding never leaks into the next one.
+local M = 2147483647
+PZTestKit.Random = {
+    mode = "midpoint",
+    seeded = function(seed)
+        local s = math.floor(math.abs(tonumber(seed) or 1)) % M
+        local state = (s == 0) and 1 or s
+        local function unit() state = (state * 16807) % M; return state / M end
+        ZombRand = function(a, b)
+            local lo, hi = 0, a
+            if b ~= nil then lo, hi = a, b end
+            lo, hi = math.floor(lo or 0), math.floor(hi or 0)
+            if hi <= lo then return lo end
+            return lo + math.floor(unit() * (hi - lo))
+        end
+        ZombRandFloat = function(a, b)
+            a, b = a or 0, b or 1
+            return a + unit() * (b - a)
+        end
+        PZTestKit.Random.mode = "seeded"
+    end,
+    midpoint = function()
+        ZombRand, ZombRandFloat = midZombRand, midZombRandFloat
+        PZTestKit.Random.mode = "midpoint"
+    end,
+}
+
+-- The kit's own midpoint functions, for the executor's per-test restore.
+PZTestKit._midZombRand, PZTestKit._midZombRandFloat = midZombRand, midZombRandFloat
 
 function instanceof(obj, className)
     if obj == nil then return false end
