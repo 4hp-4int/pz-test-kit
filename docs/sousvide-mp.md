@@ -191,6 +191,38 @@ Findings:
   until it reconnects. Healing option: on "already in destination", send the
   client a remove for the stale source.
 
+**Client UI, finished.** Both sides now boot with **zero** vanilla, mod or
+start-event failures (SaucedCarts: server 36 files, client 72, about 1.5 s
+each). What it took:
+- **`require` returns the file's value**, as the game's does (`SandboxVars =
+  require "Sandbox/Apocalypse"`).
+- **Folder-scoped loading.** While a `shared/` vanilla file runs, its
+  requires and class reads see only `shared/`, the game's shared pass
+  (`LuaManager.paths` grows per `LoadDirBase`). That ended the
+  ISInventoryPane → corpseStorageCheck → ISVehicleMenu cycle faithfully.
+- **Lazy class loading.** A global read of a not-yet-loaded vanilla class
+  loads its file (class → file index from `mp.js`); "every vanilla file has
+  run" done on demand. A missed `require` warns and returns nil, as in game.
+- Role-VM stand-ins:
+  - the real cell behind `getCell()`;
+  - `getCore():isDedicated()`;
+  - `LuaEventManager.AddEvent`;
+  - `Hook`'s eight tables;
+  - `getPlayerScreen*`;
+  - `getSandboxOptions():initSandboxVars()`, which merges mod sandbox
+    defaults back.
+- Exposed: `org.joml.Vector2f/Vector3f`.
+
+The four remaining require misses are faithful. Two are client files that
+shared files require during the shared pass. Two are for a file that does
+not exist in the install (`ISUI/InventoryWindow/ISLootWindowControlHandler`).
+
+**`full` boot mode (opt-in, `mp_start {full: true}`)** runs every vanilla file
+of a side in game order (~1,400 for a client, ~5 s). It currently surfaces
+about 250 vanilla failures from Java the bench does not expose yet
+(TraitFactory, ProfessionFactory, SurvivorFactory pools, Fitness, Foraging,
+keybindings...). That's the fidelity frontier, worked through as needed.
+
 Still to do in phase 2: world containers (squares, ground carts, vehicles,
 corpses: `transmitCompleteItemToClients`, `transmitRemoveItemFromSquare`),
 `mpChecks` (mod-declared invariants), and the rest of the client UI tree

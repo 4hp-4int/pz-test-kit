@@ -28,15 +28,18 @@ const path = require("path");
 // folders that side runs. Index: class -> { file, parent }, from a scan of
 // the install's media/lua (top-level `X = Parent:derive(...)` / `X = {}`).
 let VANILLA = null;
+let VANILLA_FILES = [];   // every vanilla file, "client/Vehicles/ISUI/ISVehicleMenu"
 function vanillaIndex(pzLua) {
   if (VANILLA) return VANILLA;
   const idx = new Map();
+  VANILLA_FILES = [];
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
       else if (e.name.endsWith(".lua")) {
         const rel = path.relative(pzLua, p).split(path.sep).join("/").replace(/\.lua$/, "");
+        VANILLA_FILES.push(rel);
         const text = fs.readFileSync(p, "utf8");
         for (const m of text.matchAll(/^([A-Z][A-Za-z0-9_]*)\s*=\s*(?:([A-Za-z0-9_.]+):derive\s*\(|\{\s*\}|\1\s+or\s+\{)/gm)) {
           if (!idx.has(m[1])) idx.set(m[1], { file: rel, parent: m[2] || null });
@@ -162,9 +165,14 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
   const STORM = 300;            // packets delivered by one flush before we call it a storm
 
   class Session {
-    constructor(mod, ctx, clients) {
+    constructor(mod, ctx, clients, opts) {
       this.mod = mod;
       this.ctx = ctx;
+      // full: load EVERY vanilla file of a side's folders in the game's
+      // order (LoadDirBase), instead of only the classes the mod names
+      // (opt-in: it surfaces a long tail of unexposed Java the targeted mode
+      // never touches -- docs/sousvide-mp.md)
+      this.full = !!(opts && opts.full === true);
       this.n = Math.max(1, Math.min(4, clients || 1));
       this.server = new Bridge(mod, ctx, { role: "server" });
       this.clients = [];
@@ -202,8 +210,22 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
           let ui = { sources: [], skip: [] };
           if (name !== "server") { try { ui = uiLayer(pzLua && fs.existsSync(pzLua) ? pzLua : null); } catch (_) {} }
           if (name !== "server" && ui.skip.length) vanilla = vanilla.filter((f) => !ui.skip.includes(f.split("/").slice(1).join("/")));
-          const r = await b.call("mpBoot", { clients: this.n, vanilla, ui: ui.sources, uiSkip: ui.skip });
+          // every vanilla file in this side's folders: in game they ALL run,
+          // so a name a mod or vanilla file relies on exists even when its
+          // require() misses (the game's require only tries <folder>/<name>)
+          const vanillaFiles = VANILLA_FILES.filter((f) => folders.includes(f.split("/")[0]));
+          // class -> file for every vanilla class this side runs: a global
+          // read of one that isn't loaded yet loads it (80_mp.lua)
+          const classes = {};
+          if (VANILLA) for (const [cls, e] of VANILLA) {
+            if (!folders.includes(e.file.split("/")[0])) continue;
+            if (name !== "server" && (UI_PROVIDED.includes(cls) || ui.skip.includes(e.file.split("/").slice(1).join("/")))) continue;
+            classes[cls] = e.file;
+          }
+          const t0 = Date.now();
+          const r = await b.call("mpBoot", { clients: this.n, vanilla: this.full ? [] : vanilla, ui: ui.sources, uiSkip: ui.skip, vanillaFiles, classes, full: this.full });
           this.boot[name] = r.value;
+          if (r.value && typeof r.value === "object") r.value.mpBootMs = Date.now() - t0;
         }
         this.state = "ready";
         // Start events can send (a client announcing itself): route them.
@@ -276,18 +298,18 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
     }
     status() {
       return {
-        mod: this.mod.id, state: this.state, error: this.error || null, clients: this.n, hold: this.hold,
+        mod: this.mod.id, state: this.state, error: this.error || null, clients: this.n, hold: this.hold, full: this.full,
         queued: this.queue.length, packets: this.seq, boot: this.boot,
         sides: this.sides().map(([name, b]) => ({ side: name, state: b.state, error: b.error, bootMs: b.bootMs || null })),
       };
     }
   }
 
-  function sessionFor(mod, ctx, clients) {
+  function sessionFor(mod, ctx, clients, opts) {
     let s = sessions.get(mod.id);
     if (!s || s.state === "dead" || (clients && clients !== s.n && s.state !== "ready")) {
       if (s) s.stop();
-      s = new Session(mod, ctx, clients);
+      s = new Session(mod, ctx, clients, opts);
       sessions.set(mod.id, s);
     }
     return s;
@@ -301,7 +323,7 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
     try {
       if (action === "start" && req.method === "POST") {
         const body = await readBody(req);
-        const s = sessionFor(mod, ctx, body.clients);
+        const s = sessionFor(mod, ctx, body.clients, { full: body.full });
         await s.start();
         json(res, 200, s.status());
         return true;

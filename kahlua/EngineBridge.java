@@ -89,6 +89,10 @@ public final class EngineBridge {
         "zombie.ai.states.ClimbDownSheetRopeState",
         "zombie.ai.states.CloseWindowState",
         "zombie.ai.states.OpenWindowState",
+        // JOML vectors (LuaManager.java:1720-1721): vanilla builds them at
+        // file load (ISVehicleMenu: local SORTVARS = { pos = Vector3f.new() }).
+        "org.joml.Vector2f",
+        "org.joml.Vector3f",
         "zombie.entity.components.crafting.recipe.HandcraftLogic",
         "zombie.entity.components.crafting.recipe.CraftRecipeData",
         // A bench's recipe list is CraftRecipeManager.queryRecipes(its
