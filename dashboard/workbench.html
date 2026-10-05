@@ -2288,6 +2288,15 @@ tool("board", {
     const api = (action, body) => fetch(`/api/mp/${encodeURIComponent(S.mod)}/${action}`, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }).then((r) => r.json());
     const st = await api("status").catch((e) => ({ error: e.message }));
     const A = (x) => Array.isArray(x) ? x : [];
+    // The page is served fresh from disk, but /api/mp lives in the dashboard
+    // process: one started before mp.js existed has no such route.
+    if (st.error === "unknown endpoint") {
+      el.innerHTML = `<div class="ihead"><b>🍳 SousVide MP</b></div><div class="ibody"><div class="warn" style="font-size:12.5px">
+        This dashboard process started before SousVide MP existed, so it has no <span class="mono">/api/mp</span> route yet.
+        Restart the dashboard (stop it, then <span class="mono">node pz-test-kit/dashboard/server.js</span>) and the panel comes up.
+        A restart stops the VMs it is running.</div></div>`;
+      return;
+    }
     const sides = A(st.sides);
     el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>🍳 SousVide MP</b><div class="mono dim" style="font-size:11px">${esc(S.mod)} · ${esc(st.state || "idle")}${st.state === "ready" ? ` · ${st.clients} client(s) · ${st.packets} packet(s)${st.hold ? " · <span class='warn'>HELD</span>" : ""}` : ""}</div></div>
         ${st.state === "ready" ? `<button class="btn small" id="mpstop">stop</button>` : ""}</div>
