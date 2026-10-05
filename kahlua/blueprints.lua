@@ -183,7 +183,17 @@ local function benchIndex()
             local block = text:sub(e0, j)
             local cb = block:match("component%s+CraftBench%s*(%b{})")
             local tags = cb and cb:match("Recipes%s*=%s*([^,\n]+)")
-            local sprite = block:match("row%s*=%s*([%w_]+)")
+            -- The first REAL tile of the first row: multi-square layouts pad
+            -- the grid with `false` (Charcoal_Pit's top row is
+            -- "false crafted_01_126"), and a bench built on "false" has no
+            -- CraftBench, so the craft silently ran in hand.
+            local sprite
+            for row in block:gmatch("row%s*=%s*([^,\n]+)") do
+                for tok in row:gmatch("[%w_]+") do
+                    if tok ~= "false" then sprite = tok; break end
+                end
+                if sprite then break end
+            end
             if tags and sprite then
                 local set = {}
                 for t in tags:gmatch("[^;]+") do set[t:gsub("^%s+", ""):gsub("%s+$", ""):lower()] = true end
@@ -424,6 +434,66 @@ function BP.run(bp)
     return { results = results, stuck = stuck, cards = cards }
 end
 
+-- Listeners registered while a board runs, carried into later boards.
+-- The executor scopes Events per test (snapshot before, restore after), but
+-- what registers here is mostly MODULE LOADS -- the workbench, addons, a
+-- mod's adapter required lazily by the first board that needs it -- and
+-- those load once and stay cached. Scoped away, every board after the
+-- first ran without them: the story adapter's LoadGridsquare (queued
+-- placements, the heirloom coming home) and RadioHost's OnLoadRadioScripts
+-- (the walkie) both vanished, and those boards only ever passed when
+-- alphabetical order made them first. In game these register once per
+-- session; carried here, a board sees the session the boards before it
+-- built. The executor still restores every TEST to its own snapshot.
+local carried = {}
+local function listenersOf(evName)
+    local e = type(Events) == "table" and rawget(Events, evName)
+    return type(e) == "table" and type(e._listeners) == "table" and e._listeners or nil
+end
+local function restoreCarried()
+    for evName, fns in pairs(carried) do
+        local e = type(Events) == "table" and Events[evName]
+        if type(e) == "table" then
+            e._listeners = e._listeners or {}
+            local have = {}
+            for _, fn in ipairs(e._listeners) do have[fn] = true end
+            for _, fn in ipairs(fns) do
+                if not have[fn] then e._listeners[#e._listeners + 1] = fn; have[fn] = true end
+            end
+        end
+    end
+end
+local function snapshotListeners()
+    local snap = {}
+    if type(Events) ~= "table" then return snap end
+    for evName in pairs(Events) do
+        local l = listenersOf(evName)
+        if l then
+            local set = {}
+            for _, fn in ipairs(l) do set[fn] = true end
+            snap[evName] = set
+        end
+    end
+    return snap
+end
+local function carryNew(before)
+    if type(Events) ~= "table" then return end
+    for evName in pairs(Events) do
+        local l = listenersOf(evName)
+        if l then
+            local was = before[evName] or {}
+            for _, fn in ipairs(l) do
+                if not was[fn] then
+                    carried[evName] = carried[evName] or {}
+                    local dup = false
+                    for _, x in ipairs(carried[evName]) do if x == fn then dup = true end end
+                    if not dup then carried[evName][#carried[evName] + 1] = fn end
+                end
+            end
+        end
+    end
+end
+
 -- Every <mod>/workbench/blueprints/*.json as a test case.
 function BP.tests(dir)
     local Assert = PZTestKit.Assert
@@ -433,7 +503,11 @@ function BP.tests(dir)
         if n:sub(-5) == ".json" then
             tests["blueprint: " .. n:gsub("%.json$", "")] = function()
                 local bp = decode(read(dir .. "/" .. n))
-                local r = BP.run(bp)
+                restoreCarried()
+                local before = snapshotListeners()
+                local okRun, r = pcall(BP.run, bp)
+                carryNew(before)
+                if not okRun then error(r, 0) end
                 local all = true
                 if r.stuck > 0 then
                     Assert.isTrue(false, r.stuck .. " step(s) could not run (inputs missing or used twice)")

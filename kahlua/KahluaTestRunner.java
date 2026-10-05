@@ -1742,6 +1742,11 @@ public class KahluaTestRunner {
             return null;
         };
         env.rawset("_pz_kit_dir", kit.toString().replace('\\', '/'));
+        // Every env, not only configs with vanilla_requires: the blueprint
+        // runner's bench index scans the install's entity scripts, and without
+        // this every vanilla bench (kilns, forges, the charcoal pit) silently
+        // resolved to none, so suite boards crafted in hand.
+        if (pz != null) env.rawset("_pz_install_dir", pz.toString());
         env.rawset("_pz_mod_root", modRoot.toAbsolutePath().normalize().toString().replace('\\', '/'));
         env.rawset("_pz_read_file", (JavaFunction) (frame, n) -> {
             Path p = n > 0 ? allowed.apply(frame.get(0)) : null;

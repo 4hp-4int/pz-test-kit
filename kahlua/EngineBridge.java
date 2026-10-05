@@ -80,6 +80,12 @@ public final class EngineBridge {
         "zombie.characters.IsoZombie",   // PZEngine.newZombie (event lab)
         "zombie.entity.components.crafting.recipe.HandcraftLogic",
         "zombie.entity.components.crafting.recipe.CraftRecipeData",
+        // A bench's recipe list is CraftRecipeManager.queryRecipes(its
+        // Recipes string); the game exposes it to Lua (the debug recipe
+        // panels use it). Its results, and CraftRecipe.getTags(), are
+        // PZUnmodifiableList, unindexable from Lua until exposed.
+        "zombie.entity.components.crafting.recipe.CraftRecipeManager",
+        "zombie.util.list.PZUnmodifiableList",
         "zombie.entity.components.crafting.CraftRecipeMonitor",
         "zombie.scripting.entity.components.crafting.CraftRecipe",
         "zombie.scripting.entity.components.crafting.InputScript",

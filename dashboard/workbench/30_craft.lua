@@ -449,13 +449,27 @@ WB.register("craft", function(a)
                 .. "which has no thread headless. Craft again with the monitor off to see what the game does.)"
         end
     end
-    local success = ok and #outputs > 0 and not gated
+    -- A recipe with no outputs block (scrap jewellery, sharpen a blade,
+    -- burn a page) succeeds by running: requiring outputs would make every
+    -- one of them read as refused on the board and in blueprint tests.
+    local declared = try(function() return recipe:getOutputs():size() end) or 0
+    local success = ok and (#outputs > 0 or declared == 0) and not gated
+    -- Without enforce the recipe runs even where the game would refuse it
+    -- (to show what WOULD happen). Say so: ran + consumed alone read as
+    -- "it works", and canPerform is the game's actual verdict.
+    local wouldRefuse = (not a.enforce) and not canPerform
+    -- ok answers "would the game craft this"; `ran` says what was executed.
+    if wouldRefuse then success = false end
+    if wouldRefuse then
+        why[#why + 1] = "the game would REFUSE this craft (canPerformCurrentRecipe = false); it ran only because enforce is off"
+    end
     return {
         ok = success, ran = ok, err = errMsg, ms = ms,
         recipe = s(recipe:getName()), mode = a.mode or "action",
         hooked = C.hooked, canPerform = canPerform, hooks = hookLog,
         qualified = qualified, initErrors = initErrors, manualInputs = manual and manual.ok or false,
         workstation = workstation, needsWorkstation = needsStation, atWorkstation = atStation, gated = gated or nil,
+        wouldRefuse = wouldRefuse or nil,
         consumed = consumed, kept = kept, outputs = outputs, inventory = after,
         commands = cmds, monitor = lines, why = why, monitored = a.monitor and true or false,
         logic = WB.describe(logic), player = WB.describe(p),

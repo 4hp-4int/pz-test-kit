@@ -184,10 +184,17 @@ function benchIndex(mod) {
     const cb = /component\s+CraftBench\s*\{([\s\S]*?)\}/.exec(text);
     if (!cb) continue;
     const rm = /Recipes\s*=\s*([^,\n]+)/.exec(cb[1]);
-    const sprite = /\brow\s*=\s*([\w]+)/.exec(text);
+    // First REAL tile: multi-square layouts pad rows with `false`
+    // (Charcoal_Pit: "row = false crafted_01_126"), and no CraftBench lives
+    // on "false", so the craft silently ran in hand.
+    let sprite = null;
+    for (const m of text.matchAll(/\brow\s*=\s*([^,\n]+)/g)) {
+      sprite = m[1].split(/\s+/).find((t) => t && t !== "false") || null;
+      if (sprite) break;
+    }
     if (!rm) continue;
     out.push({ full: defs[0].full, tags: rm[1].split(";").map((t) => t.trim().toLowerCase()).filter(Boolean),
-               sprite: sprite ? sprite[1] : null, origin: defs[defs.length - 1].origin });
+               sprite, origin: defs[defs.length - 1].origin });
   }
   out.sort((a, b) => a.full.localeCompare(b.full));
   idx.benches = out;
