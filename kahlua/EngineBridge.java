@@ -255,6 +255,15 @@ public final class EngineBridge {
         "zombie.iso.objects.IsoTrap",
         "zombie.iso.objects.IsoTree",
         "zombie.iso.objects.IsoWaveSignal",
+        // Recorded media (LuaManager.java setExposed + the getZomboidRadio
+        // global): the tape registry vanilla ISRecordedMedia.init fills from
+        // RecMedia, its lines, and the device a TV/radio plays them on.
+        "zombie.radio.ZomboidRadio",
+        "zombie.radio.media.RecordedMedia",
+        "zombie.radio.media.MediaData",
+        "zombie.radio.media.MediaData$MediaLineData",
+        "zombie.radio.devices.DeviceData",
+        "zombie.inventory.types.Radio",
         "zombie.iso.objects.IsoWheelieBin",
         "zombie.iso.objects.IsoWindow",
         "zombie.iso.objects.IsoWindowFrame",
@@ -516,6 +525,9 @@ public final class EngineBridge {
                 files += parseFile(sm, parse, initMode, e.file(), e.modId(), ctx, log);
             }
             log.println("[engine] parsed " + files + " script files");
+            // Kept for PZEngine.reloadScripts: the game's own reload re-reads
+            // files through ZomboidFileSystem, which the harness never maps.
+            bootCollected = collected; bootCtx = ctx; bootParse = parse; bootModRoot = modRoot;
 
             // The mod under test's sandbox options, through the engine's own
             // parser (CustomSandboxOptions.readFile) and registration
@@ -839,6 +851,32 @@ public final class EngineBridge {
                 return 2;
             }
             return 1;
+        });
+        // The game's debug script reload (ScriptManager.ReloadScripts): clear the
+        // named buckets (PreReloadScripts), re-read every script file from disk,
+        // run the post-load passes -- an edited craftRecipe/item/entity is picked
+        // up WITHOUT the append-on-redefine doubling a plain LoadFile would give.
+        // Arg: comma-separated ScriptType names. Returns (ms, hadErrors) or (nil, error).
+        pzEngine.rawset("reloadScripts", (JavaFunction) (frame, n) -> {
+            try {
+                Class<?> stC = cls("zombie.scripting.ScriptType");
+                java.util.EnumSet set = java.util.EnumSet.noneOf((Class) stC);
+                for (String t : String.valueOf(frame.get(0)).split(",")) {
+                    if (t.isBlank()) continue;
+                    set.add(Enum.valueOf((Class) stC, t.trim()));
+                }
+                Class<?> smC = cls("zombie.scripting.ScriptManager");
+                Object sm = smC.getField("instance").get(null);
+                java.lang.reflect.Field errs = smC.getDeclaredField("hasLoadErrors");
+                errs.setAccessible(true);
+                errs.setBoolean(sm, false);
+                frame.push(reloadScriptTypes(set));
+                frame.push(errs.getBoolean(sm));
+            } catch (Throwable t) {
+                frame.push(null);
+                frame.push(describe(t));
+            }
+            return 2;
         });
         pzEngine.rawset("cell", (JavaFunction) (frame, n) -> { frame.push(harnessCell); return 1; });
         // The real world, opt-in (see loadWorld/loadCell): returns (summary) or (nil, error).
@@ -1223,6 +1261,70 @@ public final class EngineBridge {
     }
 
     // ── the real world (opt-in: the workbench, never an ordinary suite) ──────
+    private static ScriptFiles bootCollected;
+    private static FileContext bootCtx;
+    private static Method bootParse;
+    private static Path bootModRoot;
+
+    /** ScriptManager.loadScripts' Reload branch, with the bridge's file loop:
+     *  clear the chosen buckets, re-parse every collected file in Reload mode
+     *  (the mod tree is re-scanned so new files count), then the collections'
+     *  load and post-load passes. Returns ms. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static double reloadScriptTypes(java.util.EnumSet set) throws Exception {
+        if (bootCollected == null) throw new IllegalStateException("no boot script list (engine booted without scripts?)");
+        long t0 = System.currentTimeMillis();
+        Class<?> smC = cls("zombie.scripting.ScriptManager");
+        Object sm = smC.getField("instance").get(null);
+        Class<?> modeC = cls("zombie.scripting.ScriptLoadMode");
+        Object reload = enumConst(modeC, "Reload");
+        // Anonymous subclasses (ScriptManager$29...): look methods up on the
+        // public base class, or reflection refuses the call.
+        Class<?> SBC = cls("zombie.scripting.ScriptBucketCollection");
+        java.util.List<Object> colls = (java.util.List<Object>) field(smC, "bucketCollectionList").get(sm);
+        java.util.List<Object> chosen = new ArrayList<>();
+        for (Object c : colls) if (set.contains(SBC.getMethod("getScriptType").invoke(c))) chosen.add(c);
+        for (Object c : chosen) {
+            SBC.getMethod("setReloadBuckets", boolean.class).invoke(c, true);
+            SBC.getMethod("PreReloadScripts").invoke(c);
+        }
+        // A reload refuses NEW scripts of a type without AllowNewScriptDiscovery-
+        // OnReload (ScriptBucket.CreateFromTokenPP). Entity and Item drop it on
+        // purpose (world-dictionary types: registry ids are assigned at world
+        // load). For the live loop, grant it while reloading -- a script added
+        // this way works in the VM but has no registry id, so a SAVED square
+        // would not keep it (restart the VM for that).
+        Class<?> stC = cls("zombie.scripting.ScriptType");
+        Class<?> flagC = cls("zombie.scripting.ScriptType$Flags");
+        java.lang.reflect.Field flagsF = field(stC, "flags");
+        java.util.Map<Object, Object> savedFlags = new java.util.HashMap<>();
+        Object allowNew = enumConst(flagC, "AllowNewScriptDiscoveryOnReload");
+        for (Object t : set) {
+            java.util.Set<Object> cur = (java.util.Set<Object>) flagsF.get(t);
+            if (!cur.contains(allowNew)) {
+                savedFlags.put(t, cur);
+                java.util.Set<Object> more = new java.util.HashSet<>(cur);
+                more.add(allowNew);
+                flagsF.set(t, java.util.Collections.unmodifiableSet(more));
+            }
+        }
+        try {
+        if (bootModRoot != null) bootCollected.addTree(bootModRoot.resolve("media/scripts"), modIdOf(bootModRoot));
+        for (ScriptFiles.Entry e : bootCollected.byPath.values()) parseFile(sm, bootParse, reload, e.file(), e.modId(), bootCtx, System.out);
+        for (Object c : chosen) SBC.getMethod("setReloadBuckets", boolean.class).invoke(c, false);
+        for (String m : new String[] { "LoadScripts", "PostLoadScripts", "OnScriptsLoaded" })
+            for (Object c : chosen) SBC.getMethod(m, modeC).invoke(c, reload);
+        for (String m : new String[] { "OnLoadedAfterLua", "OnPostTileDefinitions", "OnPostWorldDictionaryInit" })
+            for (Object c : chosen) {
+                try { SBC.getMethod(m).invoke(c); }
+                catch (java.lang.reflect.InvocationTargetException ite) { System.out.println("[engine] reload " + m + ": " + describe(ite)); }
+            }
+        } finally {
+            for (java.util.Map.Entry<Object, Object> e : savedFlags.entrySet()) flagsF.set(e.getKey(), e.getValue());
+        }
+        return System.currentTimeMillis() - t0;
+    }
+
     private static boolean worldLoaded;
     private static String worldError;
     private static final java.util.Set<Long> loadedChunks = new java.util.HashSet<>();

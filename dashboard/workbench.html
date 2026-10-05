@@ -34,6 +34,13 @@ header select, .inp, textarea { background: var(--bg); border: 1px solid var(--l
 .btn.primary { background: var(--accent); color: #17130a; border-color: var(--accent); font-weight: 600; }
 .btn.small { padding: 1px 7px; font-size: 11px; }
 .btn:disabled { opacity: .5; cursor: default; }
+.crt { position: relative; background: #0a0d0a; border: 2px solid #2b2b2b; border-radius: 10px; padding: 10px 12px; height: 300px; overflow-y: auto; font: 13px/1.45 ui-monospace, Consolas, monospace; box-shadow: inset 0 0 40px rgba(0,0,0,.9); }
+.crt::after { content: ""; position: sticky; display: block; bottom: 0; height: 0; }
+.crt .ln { margin: 2px 0; text-shadow: 0 0 4px currentColor; }
+.crt .ln .t { color: #5d6a5d; font-size: 10px; margin-right: 6px; text-shadow: none; }
+.crt .fx { margin: 1px 0 4px 34px; font-size: 11px; text-shadow: none; }
+.crt .fx span { display: inline-block; border: 1px solid #333; border-radius: 3px; padding: 0 4px; margin: 0 3px 2px 0; }
+.crt .fx .up { color: var(--pass); border-color: #2c5532; } .crt .fx .dn { color: var(--fail); border-color: #5a2a28; } .crt .fx .md { color: var(--link); border-color: #2a4258; }
 .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; vertical-align: -1px; }
 @keyframes rot { to { transform: rotate(360deg); } }
 
@@ -556,7 +563,10 @@ tool("board", {
       <div class="bcan" id="bcan">
         <div class="bbar"><button class="btn small" id="breplay" title="Rebuild every live object and re-run every recipe in order">↻ run all</button>
           <button class="btn small" id="bsave" title="Save this board to the library as a blueprint">save blueprint</button>
+          <button class="btn small" id="blive" title="Live: edits to this mod's Lua, scripts and workbench addons land in the running engine (no restart), then the board re-runs">⟳ live</button>
           <button class="btn small" id="bmap" title="Open the real map: click a tile to put that square on the board (shift-click: several)">🗺 map</button>
+          <button class="btn small" id="brecipe" title="Recipe builder: draft a craftRecipe, write it into the mod, reload, and craft it here">✎ recipe</button>
+          <button class="btn small" id="bvhs" title="VHS player: play a recorded tape (vanilla or the mod's) through the engine's TV pipeline and watch what every line does to the listener">📼 vhs</button>
           <button class="btn small" id="bfit" title="Fit everything (f)">fit</button><button class="btn small" id="bclear">clear</button>
           <span class="brng" title="Random rolls (ZombRand). seeded: varied, and run all replays the same rolls. random: a new seed every run all. fixed: the test kit's midpoint, every roll identical">🎲
             <select class="inp" id="brngm"><option value="seeded">seeded</option><option value="random">random</option><option value="midpoint">fixed (kit)</option></select>
@@ -575,6 +585,10 @@ tool("board", {
     $("#bsave").onclick = () => this.saveDialog();
     $("#bfit").onclick = () => this.fit();
     $("#bmap").onclick = () => this.toggleMap();
+    $("#brecipe").onclick = () => this.recipeBuilder();
+    $("#bvhs").onclick = () => this.vhsPanel();
+    $("#blive").onclick = () => this.setLive(!this.st.live);
+    if (this.st.live) this.setLive(true);
     $("#bclkgo").onclick = () => this.advanceClock(+$("#bclkstep").value);
     this.clockRefresh();
     const rng = this.rng();
@@ -678,7 +692,9 @@ tool("board", {
             <button class="btn small" data-insert title="Add it next to what's on the board">add</button>
             ${bp.source === "local" ? `<button class="btn small" data-delbp title="Delete from my library">✕</button>` : ""}</div></div>`;
       }).join("")}`).join("") || `<div class="dim" style="font-size:12px">No blueprints yet. Build a board and <b>save blueprint</b>.</div>`}
-      <div class="muted" style="font-size:11px;margin-top:10px">Templates come from <span class="mono">&lt;mod&gt;/workbench/blueprints/</span>; yours from <span class="mono">dashboard/.blueprints/</span>.</div>`;
+      <div class="muted" style="font-size:11px;margin-top:10px">Templates come from <span class="mono">&lt;mod&gt;/workbench/blueprints/</span>; yours from <span class="mono">dashboard/.blueprints/</span>.</div>
+      <div id="bptests" class="blib" style="margin-top:8px;font-size:11.5px"><span class="spin"></span></div>`;
+    this.blueprintTestsBox();
     $("#blq").oninput = debounce((e) => { this.st.libQ = e.target.value; this.library().then(() => { const i = $("#blq"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 150);
     for (const box of $$("[data-bp]", el)) {
       const bp = arr(lib.blueprints).find((x) => x.id === box.dataset.bp);
@@ -1016,6 +1032,27 @@ tool("board", {
       tb.title = "TooltipLib's real world-object tooltip for this object, drawn through uiview (the panel the game shows on hover)";
       tb.onclick = () => this.worldTooltip(o, $(`[data-otip="${i}"]`, el));
       row.appendChild(tb);
+      if (!o.entity && o.sprite) {
+        const eb = document.createElement("button");
+        eb.className = "btn small"; eb.textContent = "⚙ make entity";
+        eb.title = "Claim this tile as a scripted entity: write the entity script into the mod, reload it, and build it on this real object";
+        eb.onclick = () => this.entityBinder(c, o, $(`[data-oform="${i}"]`, el));
+        row.appendChild(eb);
+      }
+      if (/IsoTelevision|IsoRadio/.test(o.class || "")) {
+        const vb = document.createElement("button");
+        vb.className = "btn small"; vb.textContent = "📼 play a tape";
+        vb.title = "VHS player bound to this set: the listener stands next to it, and range, floor and wall rules apply";
+        vb.onclick = () => this.vhsPanel({ ref: o.ref, label: `${o.sprite || "set"} @ ${c.label}` });
+        row.appendChild(vb);
+      }
+      if (o.sprite) {
+        const sb = document.createElement("button");
+        sb.className = "btn small"; sb.textContent = "🏷 stamp";
+        sb.title = "Property stamper: change this sprite's tile properties live (verbs and tooltips react at once), then export the boot-time Lua into the mod";
+        sb.onclick = () => this.stamper(c, o, $(`[data-oform="${i}"]`, el));
+        row.appendChild(sb);
+      }
       for (const v of arr(r.verbs)) {
         const b = document.createElement("button");
         b.className = "btn small"; b.textContent = v.label; b.title = (v.addon !== "core" ? v.addon + ": " : "") + (v.doc || "");
@@ -1051,6 +1088,140 @@ tool("board", {
     const ctx = cv.getContext("2d");
     ctx.setTransform(Z, 0, 0, Z, 0, 0); ctx.textBaseline = "top";
     R.drawFrame(ctx, f, { images });
+  },
+  // Entity binder: tile -> entity script (written into the mod) -> reloaded
+  // -> built on this very object. Then craft at it, open it, fill it.
+  entityBinder(c, o, host) {
+    if (!host) return;
+    const base = String((o.props && o.props.CustomName) || o.sprite).replace(/[^A-Za-z0-9]/g, "");
+    const prefix = String(S.mod).replace(/[^A-Za-z0-9]/g, "");
+    const ci = o.props && o.props.CustomItem;
+    host.innerHTML = `<div class="rrow other" style="margin-top:4px">
+      ${ci ? `<div class="warn" style="font-size:11.5px;margin-bottom:4px">This tile carries <span class="mono">CustomItem = ${esc(ci)}</span>: in game its entity is built from that ITEM's script (GameEntityFactory: CustomItem wins), so a sprite-bound entity here would be ignored on a real cell load. Put the components on <span class="mono">${esc(ci)}</span> instead (a thin item override).</div>` : ""}
+      <div class="pform">
+        <label>entity <input class="inp mono" data-eb="name" value="${esc(prefix + "_" + base)}" style="width:220px"></label>
+        <label>window title <input class="inp" data-eb="displayName" value="${esc((o.props && o.props.CustomName) || base)}" style="width:160px"></label>
+        <label title="CraftBench: recipes whose Tags include this craft here (leave empty for none)">workstation tag <input class="inp mono" data-eb="craftBench" placeholder="e.g. ${esc(base)}" style="width:150px"></label>
+        <label title="FluidContainer capacity (empty: no fluid container)">fluid capacity <input class="inp mono" data-eb="capacity" type="number" placeholder="none" style="width:80px"></label>
+        <label title="RainFactor: how much rain it collects (vanilla round barrel 0.25)">rain <input class="inp mono" data-eb="rain" type="number" step="0.05" placeholder="0" style="width:60px"></label>
+      </div>
+      <pre class="box" data-eb="preview" style="max-height:200px;font-size:10.5px"></pre>
+      <div class="row" style="gap:6px"><button class="btn small primary" data-eb="go">write + build</button><span class="dim" data-eb="file" style="font-size:11px"></span></div></div>`;
+    const val = (k) => { const x = $(`[data-eb="${k}"]`, host); return x ? x.value.trim() : ""; };
+    const spec = () => ({ name: val("name"), sprite: o.sprite, displayName: val("displayName"), craftBench: val("craftBench") || undefined,
+                          fluid: val("capacity") ? { capacity: +val("capacity"), rainFactor: val("rain") ? +val("rain") : undefined } : undefined });
+    const post = (body) => fetch(`/api/wb/${encodeURIComponent(S.mod)}/entity-bind`, { method: "POST", body: JSON.stringify(body) }).then((x) => x.json().then((j) => ({ status: x.status, ...j })));
+    const preview = debounce(async () => {
+      const r = await post({ ...spec(), dry: true }).catch((e) => ({ error: e.message }));
+      $(`[data-eb="preview"]`, host).textContent = r.text || r.error || "";
+      $(`[data-eb="file"]`, host).textContent = r.file ? `→ ${r.file}${r.exists ? " (exists: will ask)" : ""}` : "";
+    }, 200);
+    for (const inp of $$("input[data-eb]", host)) inp.oninput = preview;
+    preview();
+    $(`[data-eb="go"]`, host).onclick = async () => {
+      let w = await post(spec());
+      if (w.status === 409) { if (!confirm(w.error + "\n\nOverwrite it?")) return; w = await post({ ...spec(), overwrite: true }); }
+      if (w.error) { this.say("✗ " + w.error); return; }
+      this.say(`wrote ${w.file}; reloading entity scripts…`, true);
+      const rl = await call("devReload", { scripts: ["Entity"] }).catch((e) => ({ error: e.message }));
+      if (rl.error || (rl.scripts && rl.scripts.err)) { this.say("✗ reload: " + (rl.error || rl.scripts.err)); return; }
+      const b = await call("worldBindEntity", { ref: o.ref, name: "Base." + w.name }).catch((e) => ({ ok: false, msg: e.message }));
+      this.say(`${b.ok ? "✓" : "✗"} ${w.name} @ ${c.label}: ${b.msg}${b.ok && spec().craftBench ? ` · recipes tagged ${spec().craftBench} now craft here` : ""}`);
+      await this.refreshWorld(c);
+    };
+  },
+  // Property stamper (63_stamper.lua): the sprite's PropertyContainer is
+  // shared, so a stamp changes every object wearing the sprite, in this VM.
+  // Export writes the boot-time Lua that makes it real in game.
+  async stamper(c, o, host) {
+    if (!host) return;
+    const sprite = o.sprite;
+    const PRESETS = {
+      "disassemble: wood": { set: { CanScrap: "", Material: "Wood" } },
+      "disassemble: metal (torch)": { set: { CanScrap: "", Material: "MetalPlates" } },
+      "disassemble: metal + pipes": { set: { CanScrap: "", Material: "MetalPlates", Material2: "MetalPipe" } },
+      "pick up (moveable)": { set: { IsMoveAble: "", PickUpWeight: "10" } },
+      "container (new objects)": { set: { container: "crate", ContainerCapacity: "50" } },
+      "jukebox (new objects)": { set: { IsoType: "IsoJukebox" }, tileType: "jukebox" },
+    };
+    let d, list;
+    try { [d, list] = await Promise.all([call("spriteProps", { sprite }), call("stampList", {})]); }
+    catch (e) { host.innerHTML = `<div class="fail">${esc(e.message)}</div>`; return; }
+    const mine = arr(list.stamps).find((s) => s.sprite === sprite);
+    const stamped = new Set(mine ? [...Object.keys(mine.set || {}), ...arr(mine.unset)] : []);
+    const props = Object.entries(d.props || {}).sort(([a], [b]) => a.localeCompare(b));
+    host.innerHTML = `<div class="rrow other" style="margin-top:4px">
+      <div class="dim" style="font-size:11px;margin-bottom:4px">🏷 <span class="mono">${esc(sprite)}</span> · shared PropertyContainer: every object with this sprite sees a stamp · tile type <span class="mono">${esc(d.tileType)}</span>${mine ? ` · <span class="warn">stamped in this VM</span>` : ""}</div>
+      <table style="font-size:11.5px">${props.map(([k, v]) => `<tr><td class="k${stamped.has(k) ? " warn" : ""}">${esc(k)}</td><td class="mono">${esc(v)}</td><td><button class="btn small" data-st-unset="${esc(k)}" title="unset ${esc(k)}">✕</button></td></tr>`).join("")}</table>
+      <div style="margin:3px 0">${arr(d.flags).map((f) => `<span class="wchip">${esc(f)}</span>`).join("")}</div>
+      <div class="pform">
+        <label>key <input class="inp mono" data-st="key" style="width:130px" placeholder="CanScrap"></label>
+        <label>value <input class="inp mono" data-st="val" style="width:110px" placeholder="(none)"></label>
+        <button class="btn small" data-st="set">set</button>
+        <label title="IsoFlagType name">flag <input class="inp mono" data-st="flag" style="width:100px" placeholder="solidfloor"></label>
+        <button class="btn small" data-st="addflag">+ flag</button>
+        <label title="IsoObjectType name: chooses the object class for objects created AFTER the stamp">tile type <input class="inp mono" data-st="tt" style="width:90px" placeholder="jukebox"></label>
+        <button class="btn small" data-st="settt">set</button>
+      </div>
+      <div class="row" style="gap:6px;margin:4px 0">
+        <select class="inp" data-st="preset"><option value="">preset…</option>${Object.keys(PRESETS).map((k) => `<option>${esc(k)}</option>`).join("")}</select>
+        ${mine ? `<button class="btn small" data-st="undo">↶ undo this sprite</button>` : ""}
+        <button class="btn small" data-st="export" ${arr(list.stamps).length ? "" : "disabled"} title="boot-time Lua for every sprite stamped in this VM">⇩ export (${arr(list.stamps).length})</button>
+        <span data-st="msg" style="font-size:11px"></span>
+      </div>
+      <div data-st="exp"></div></div>`;
+    const q = (k) => $(`[data-st="${k}"]`, host);
+    const msg = (t, cls) => { q("msg").innerHTML = `<span class="${cls || "dim"}">${esc(t)}</span>`; };
+    // Re-read the square (verbs, tooltips and props follow the stamp), then
+    // reopen the stamper on the same sprite.
+    const reopen = async () => {
+      await this.refreshWorld(c);
+      const idx = arr(c.info && c.info.objects).findIndex((x) => x.sprite === sprite);
+      const h = $(`[data-oform="${idx}"]`);
+      if (idx >= 0 && h) this.stamper(c, c.info.objects[idx], h);
+    };
+    const stamp = async (args) => {
+      try { await call("stampSprite", { sprite, ...args }); await reopen(); }
+      catch (e) { msg("✗ " + e.message, "fail"); }
+    };
+    for (const b of $$("[data-st-unset]", host)) b.onclick = () => stamp({ unset: [b.dataset.stUnset] });
+    q("set").onclick = () => { const k = q("key").value.trim(); if (k) stamp({ set: { [k]: q("val").value.trim() } }); };
+    q("addflag").onclick = () => { const f = q("flag").value.trim(); if (f) stamp({ flags: [f] }); };
+    q("settt").onclick = () => { const t = q("tt").value.trim(); if (t) stamp({ tileType: t }); };
+    q("preset").onchange = () => { const p = PRESETS[q("preset").value]; if (p) stamp(p); };
+    if (q("undo")) q("undo").onclick = async () => { await call("stampUndo", { sprite }).catch((e) => msg("✗ " + e.message, "fail")); await reopen(); };
+    q("export").onclick = () => this.stampExportForm(q("exp"), o);
+  },
+  stampExportForm(host, o) {
+    const folder = String(S.mod).replace(/[^A-Za-z0-9_]/g, "");
+    const cn = o.props && o.props.CustomName;
+    host.innerHTML = `<div class="pform" style="margin-top:4px">
+        <label>file <input class="inp mono" data-sx="name" value="TileStamps" style="width:130px"></label>
+        <label title="media/lua/shared/&lt;folder&gt;/">folder <input class="inp mono" data-sx="folder" value="${esc(folder)}" style="width:120px"></label>
+        <label title="stamp only sprites whose property matches (a sheet reshuffle then no-ops)">guard <input class="inp mono" data-sx="gk" value="${cn ? "CustomName" : ""}" style="width:100px"> = <input class="inp mono" data-sx="gv" value="${esc(cn || "")}" style="width:110px"></label>
+        <label title="manifest tweak id (mods with &lt;folder&gt;.implement/.bind, like SauceTweaks)">tweak <input class="inp mono" data-sx="tweak" style="width:120px" placeholder="(none)"></label>
+      </div>
+      <pre class="box" data-sx="preview" style="max-height:260px;font-size:10.5px"></pre>
+      <div class="row" style="gap:6px"><button class="btn small primary" data-sx="go">write into the mod</button><span class="dim" data-sx="file" style="font-size:11px"></span></div>`;
+    const v = (k) => $(`[data-sx="${k}"]`, host).value.trim();
+    const spec = () => ({ name: v("name"), folder: v("folder"), guard: v("gk") ? { key: v("gk"), value: v("gv") } : undefined, tweak: v("tweak") || undefined });
+    let last = null;
+    const preview = debounce(async () => {
+      last = await call("stampExport", spec()).catch((e) => ({ error: e.message }));
+      $(`[data-sx="preview"]`, host).textContent = last.text || last.error || "";
+      $(`[data-sx="file"]`, host).textContent = last.path ? `→ ${last.path}${last.manifest ? " · manifest-gated" : ""}` : "";
+    }, 200);
+    for (const inp of $$("input[data-sx]", host)) inp.oninput = preview;
+    preview();
+    $(`[data-sx="go"]`, host).onclick = async () => {
+      if (!last || !last.text) return;
+      const post = (body) => fetch(`/api/wb/${encodeURIComponent(S.mod)}/mod-file`, { method: "POST", body: JSON.stringify(body) })
+        .then((x) => x.json().then((j) => ({ status: x.status, ...j })));
+      let w = await post({ path: last.path, text: last.text }).catch((e) => ({ error: e.message }));
+      if (w.status === 404 || w.status === 405) { this.say("✗ this dashboard predates the mod-file endpoint: restart the dashboard once"); return; }
+      if (w.status === 409) { if (!confirm(w.error + "\n\nOverwrite it?")) return; w = await post({ path: last.path, text: last.text, overwrite: true }); }
+      this.say(w.error ? "✗ " + w.error : `✓ wrote ${w.file} (stamps apply in game at OnGameStart / OnServerStarted)`);
+    };
   },
   async runWorldVerb(c, o, v, params, i, el) {
     const out = $(`[data-ores="${i}"]`, el);
@@ -1103,6 +1274,58 @@ tool("board", {
     await this.ensureSprites(arr(info.objects).map((o) => o.sprite).filter(Boolean));
     for (const cv of $$("[data-ospr]", el)) { const o = info.objects[+cv.dataset.ospr]; if (o.sprite) this.paintSquare(cv, [o.sprite]); }
     if ($("#warea")) this.paintArea($("#warea"), c, 6);
+  },
+
+  // Templates as tests: is the mod's EngineBlueprintTests.lua there?
+  async blueprintTestsBox() {
+    const el = $("#bptests");
+    if (!el) return;
+    const r = await fetch(`/api/wb/${encodeURIComponent(S.mod)}/blueprint-tests`).then((x) => x.json()).catch((e) => ({ error: e.message }));
+    if (!$("#bptests")) return;
+    if (r.error) { el.innerHTML = `<span class="fail">${esc(r.error)}</span>`; return; }
+    el.innerHTML = r.exists
+      ? `<b class="pass">✓ templates run as tests</b><div class="dim mono" style="font-size:10.5px">${esc(r.file)}</div><div class="muted">every blueprint saved to this mod's library is a pz-test-kit test case (same replay + checks as the board)</div>`
+      : `<b>Templates as tests</b><div class="muted">Write <span class="mono">${esc(r.file)}</span>: from then on every blueprint in <span class="mono">workbench/blueprints/</span> runs in <span class="mono">pztest</span> with the same replay and checks as the board.</div><button class="btn small primary" id="bptmk" style="margin-top:4px">make templates tests</button>`;
+    if ($("#bptmk")) $("#bptmk").onclick = async () => {
+      const w = await fetch(`/api/wb/${encodeURIComponent(S.mod)}/blueprint-tests`, { method: "POST" }).then((x) => x.json()).catch((e) => ({ error: e.message }));
+      this.say(w.error ? "✗ " + w.error : "✓ wrote " + w.file);
+      this.blueprintTestsBox();
+    };
+  },
+
+  // ── the live dev loop (70_dev.lua + the server's DevWatch) ──
+  async setLive(on) {
+    this.st.live = on;
+    const btn = $("#blive");
+    if (btn) { btn.classList.toggle("primary", on); btn.textContent = on ? "⟳ live ●" : "⟳ live"; }
+    const r = await fetch(`/api/wb/${encodeURIComponent(S.mod)}/dev`, { method: "POST", body: JSON.stringify({ on }) }).then((x) => x.json()).catch(() => null);
+    this.st.devSeq = r ? r.seq : 0;
+    clearInterval(this._devTimer);
+    if (on) this._devTimer = setInterval(() => this.pollDev(), 1200);
+    this.say(on ? "live: watching this mod's media/lua, media/scripts and workbench/ — save a file to reload it into the engine" : "");
+  },
+  async pollDev() {
+    if (S.tool !== "board" || !this.st.live) return;
+    const r = await fetch(`/api/wb/${encodeURIComponent(S.mod)}/dev?since=${this.st.devSeq || 0}`).then((x) => x.json()).catch(() => null);
+    if (!r || !arr(r.events).length) return;
+    this.st.devSeq = r.seq;
+    for (const ev of r.events) {
+      const res = ev.result || {};
+      const bad = arr(res.lua).filter((m) => !m.ok);
+      const parts = [];
+      if (arr(res.lua).length) parts.push(`${res.lua.length} module(s)`);
+      if (res.scripts) parts.push(`scripts ${arr(res.scripts.types).join("/")} ${res.scripts.ms != null ? Math.round(res.scripts.ms) + "ms" : ""}${res.scripts.hadErrors ? " ✗ load errors" : ""}`);
+      if (arr(ev.tools).length) parts.push("addons");
+      if (arr(ev.needsRestart).length) parts.push(`${ev.needsRestart.join("/")} scripts changed: restart VM to pick them up (they don't hot-reload safely)`);
+      const what = `⟳ ${arr(ev.files).slice(0, 3).join(", ")}${arr(ev.files).length > 3 ? " +" + (ev.files.length - 3) : ""}: ${parts.join(" · ") || ev.skipped || ev.error || "no reload needed"}`;
+      if (bad.length || ev.error || (res.scripts && (res.scripts.err || res.scripts.hadErrors))) {
+        this.say(`${what} · ✗ ${bad.map((m) => m.module + ": " + m.err).join(" | ") || ev.error || res.scripts.err || "script load errors (see the dashboard log)"}`);
+        continue;
+      }
+      this.say(what + (this.board().cards.length ? " · re-running the board…" : ""), true);
+      if (this.board().cards.length) await this.replay(true);
+      this.say(what + " · ✓ board re-ran");
+    }
   },
 
   // ── the world clock (65_clock.lua) ──
@@ -2051,10 +2274,199 @@ tool("board", {
       ${arr(d.source && d.source.defs).map((x) => `<div class="muted mono" style="font-size:11px;margin-top:6px">${esc(x.origin || "")} ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("")}</details>`;
     for (const b of $$("[data-additem]", host)) b.onclick = () => this.add("item", b.dataset.additem, r.x + 300, r.y);
   },
+  // VHS player (65_vhs.lua): a real tape through the engine's TV pipeline.
+  // The VM plays the whole tape at once (every OnDeviceText listener, the
+  // listener's stats/XP/recipes/ModData diffed per line); the screen then
+  // replays it at the engine's own line timing, effects under each line.
+  async vhsPanel(tv) {
+    const el = $("#binsp");
+    if (!el) return;
+    this.board().sel = null; this.draw();
+    const V = (this.st.vhs = this.st.vhs || { q: "", id: null, dx: 1, dy: 0, dz: 0, volume: 0.5, forget: true, asleep: false, speed: 8 });
+    if (tv !== undefined) V.tv = tv;
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>📼 VHS player</b><div class="mono dim" style="font-size:11px">${V.tv ? "on " + esc(V.tv.label) : "held device: no range, floor or wall checks"}</div></div>
+        ${V.tv ? `<button class="btn small" id="vunbind" title="play as an equipped device instead">unbind set</button>` : ""}</div>
+      <div class="ibody">
+        <div class="row" style="gap:6px"><input class="inp" id="vq" placeholder="search tapes" value="${esc(V.q)}" style="flex:1"></div>
+        <div id="vlist" style="max-height:190px;overflow-y:auto;margin:4px 0 8px;border:1px solid var(--line, #333);border-radius:4px"><div class="dim" style="padding:6px"><span class="spin"></span></div></div>
+        <div class="pform">
+          ${V.tv ? `<label title="where the listener stands, relative to the set">listener dx <input class="inp mono" data-v="dx" type="number" value="${V.dx}" style="width:50px"></label>
+          <label>dy <input class="inp mono" data-v="dy" type="number" value="${V.dy}" style="width:50px"></label>
+          <label>dz <input class="inp mono" data-v="dz" type="number" value="${V.dz}" style="width:50px"></label>
+          <label title="DeviceData volume 0-1: getDeviceVolumeRange = 5 + baseRange x volume">volume <input class="inp mono" data-v="volume" type="number" step="0.1" min="0" max="1" value="${V.volume}" style="width:60px"></label>` : ""}
+          <label title="clear the listener's heard-line memory for this tape first (vanilla applies codes once per line, ever)"><input type="checkbox" data-v="forget" ${V.forget ? "checked" : ""}> fresh ears</label>
+          <label title="vanilla and most mods ignore a sleeping listener"><input type="checkbox" data-v="asleep" ${V.asleep ? "checked" : ""}> asleep</label>
+          <label>speed <select class="inp" data-v="speed">${[1, 4, 8, 32, 0].map((s) => `<option value="${s}" ${+V.speed === s ? "selected" : ""}>${s ? s + "×" : "instant"}</option>`).join("")}</select></label>
+          <button class="btn primary" id="vplay" ${V.id ? "" : "disabled"}>▶ play</button>
+        </div>
+        <div id="vout"></div>
+      </div>`;
+    if ($("#vunbind")) $("#vunbind").onclick = () => { V.tv = null; this.vhsPanel(); };
+    const read = () => { for (const x of $$("[data-v]", el)) V[x.dataset.v] = x.type === "checkbox" ? x.checked : (x.tagName === "SELECT" || x.type === "number") ? +x.value : x.value; };
+    for (const x of $$("[data-v]", el)) x.onchange = read;
+    let tapes = [];
+    const list = () => {
+      const q = V.q.toLowerCase();
+      const rows = tapes.filter((t) => !q || (t.title + " " + (t.subtitle || "") + " " + t.id + " " + t.category + " " + (t.author || "")).toLowerCase().includes(q));
+      let cat = null;
+      $("#vlist").innerHTML = rows.slice(0, 400).map((t) => {
+        const head = t.category !== cat ? `<div class="dim" style="font-size:10.5px;padding:4px 6px 0;text-transform:uppercase;letter-spacing:.08em">${esc((cat = t.category))}${t.mod ? " · this mod" : ""}</div>` : "";
+        return head + `<div class="li" data-vid="${esc(t.id)}" style="padding:2px 6px;cursor:pointer;${V.id === t.id ? "background:rgba(217,164,65,.18)" : ""}"><span class="t">${esc(t.title)}</span>${t.subtitle ? ` <span class="dim">· ${esc(t.subtitle)}</span>` : ""} <span class="s dim" style="font-size:10.5px">${t.lines} lines${t.author ? " · " + esc(t.author) : ""} · <span class="mono">${esc(t.id.length > 28 ? t.id.slice(0, 8) + "…" : t.id)}</span></span></div>`;
+      }).join("") || `<div class="dim" style="padding:6px">no tapes match</div>`;
+      for (const r of $$("[data-vid]", el)) r.onclick = () => { V.id = r.dataset.vid; $("#vplay").disabled = false; list(); };
+    };
+    $("#vq").oninput = (e) => { V.q = e.target.value; list(); };
+    $("#vplay").onclick = () => { read(); this.vhsPlay(V); };
+    try { tapes = arr((await call("vhsTapes", {})).tapes); list(); }
+    catch (e) { $("#vlist").innerHTML = `<div class="fail" style="padding:6px;font-size:12px">${esc(e.message)}</div>`; }
+  },
+  // PZ chat markup: [col=r,g,b]..[/], [img=music], [br/]
+  vhsMarkup(s) {
+    let open = 0;
+    let h = esc(s).replace(/\[col=(\d+),(\d+),(\d+)\]/g, (_, r, g, b) => { open++; return `<span style="color:rgb(${r},${g},${b})">`; })
+      .replace(/\[\/\]/g, () => { if (!open) return ""; open--; return "</span>"; })
+      .replace(/\[img=music\]/g, "♪").replace(/\[br\/\]/g, " ");
+    return h + "</span>".repeat(open);
+  },
+  async vhsPlay(V) {
+    const out = $("#vout");
+    if (!out) return;
+    const token = (this.st.vhsToken = (this.st.vhsToken || 0) + 1);
+    out.innerHTML = `<div class="dim" style="font-size:12px;margin-top:6px"><span class="spin"></span> playing the tape in the engine…</div>`;
+    let r;
+    try {
+      r = await call("vhsPlay", { id: V.id, tv: V.tv ? V.tv.ref : undefined, dx: V.dx, dy: V.dy, dz: V.dz, volume: V.tv ? V.volume : undefined, forget: V.forget, asleep: V.asleep });
+    } catch (e) { out.innerHTML = `<pre class="fail">${esc(e.message)}</pre>`; return; }
+    if (token !== this.st.vhsToken || !out.isConnected) return;
+    const s = r.source || {};
+    const errs = new Map();
+    for (const l of arr(r.lines)) for (const e of arr(l.errors)) errs.set(e, (errs.get(e) || 0) + 1);
+    const num = (v) => typeof v === "number" ? (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(3).replace(/\.?0+$/, "")) : v;
+    const chip = (c) => c.kind === "stat" ? `<span class="${c.to > c.from ? "dn" : "up"}">${esc(c.key.toLowerCase())} ${num(c.from)}→${num(c.to)}</span>`
+      : c.kind === "xp" ? `<span class="up">+${num(c.to - c.from)} ${esc(c.key)} xp</span>`
+      : c.kind === "recipe" ? `<span class="up">learned ${esc(c.key)}</span>`
+      : `<span class="md" title="${esc(c.key)}: ${esc(c.from ?? "∅")} → ${esc(c.to ?? "∅")}">modData ${esc(c.key.split(".").slice(-2).join("."))}</span>`;
+    const fx = (l) => {
+      const parts = [...arr(l.halos).map((h) => `<span class="${h.up === false ? "dn" : "up"}">${h.up === false ? "↓" : h.up ? "↑" : "✦"} ${esc(h.text)}</span>`),
+        ...arr(l.changes).filter((c) => c.kind !== "modData" || !arr(l.halos).length).map(chip),
+        ...arr(l.commands).map((c) => `<span class="md">→ ${esc(c.module)}/${esc(c.command)}</span>`)];
+      const meta = `<span style="border:none;color:#5d6a5d;padding:0">${esc(l.codes)}${l.heardBefore ? " · heard before" : ""}</span>`;
+      return `<div class="fx">${parts.join("")}${meta}</div>`;
+    };
+    const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+    out.innerHTML = `<div style="margin:8px 0 4px"><b>${esc(r.title)}</b>${r.subtitle ? ` <span class="dim">· ${esc(r.subtitle)}</span>` : ""}${r.author ? ` <span class="dim">· ${esc(r.author)}</span>` : ""} <span class="dim mono" style="font-size:11px">${esc(r.category)} · ${r.played}/${r.lineCount} lines · ${mmss(r.seconds)} at 1×</span></div>
+      <div class="dim" style="font-size:11px;margin-bottom:4px">${esc(s.kind || "")}${s.x != null ? ` at ${s.x},${s.y},${s.z} · listener ${s.listener.x},${s.listener.y},${s.listener.z} · ${s.inVanillaBox ? `<span class="pass">inside</span>` : `<span class="warn">outside</span>`} vanilla's 5-tile box${s.volumeRange != null ? ` · volume range ${s.volumeRange}` : ""}${s.sameSide === false ? ` · <span class="warn">other side of a wall</span>` : ""}` : ""}
+        · ${r.listeners} OnDeviceText listener(s)${arr(r.modules).map((m) => ` · ${esc(m.module)}${m.ok ? "" : ` <span class="fail">failed: ${esc(m.err)}</span>`}`).join("")}</div>
+      ${errs.size ? `<div class="warn" style="font-size:11.5px;margin-bottom:4px">${[...errs].map(([e, n]) => `⚠ ${n} line(s): ${esc(e)}`).join("<br>")}${[...errs.keys()].some((e) => /CharacterStat, got String/.test(e)) ? `<div class="dim">This VM booted before the kit's CharacterStat fix: restart it and vanilla's stat codes apply.</div>` : ""}</div>` : ""}
+      <div class="crt" id="vcrt"></div>
+      <h3>Over the whole tape</h3>
+      <div style="font-size:12px">${arr(r.totals).map((c) => `<div>${c.kind === "stat" ? `${esc(c.key.toLowerCase())} <span class="mono">${num(c.from)} → ${num(c.to)}</span>` : c.kind === "xp" ? `<span class="pass">+${num(c.to - (c.from || 0))}</span> ${esc(c.key)} xp` : c.kind === "recipe" ? `learned <b>${esc(c.key)}</b>` : `<span class="mono dim">${esc(c.key)}</span> = <span class="mono">${esc(c.to ?? "∅")}</span>`}</div>`).join("") || `<div class="dim">nothing changed for this listener${V.forget ? "" : " (lines already heard? tick fresh ears)"}</div>`}</div>`;
+    const crt = $("#vcrt");
+    const lines = arr(r.lines);
+    const show = (l) => {
+      const d = document.createElement("div");
+      d.innerHTML = `<div class="ln" style="color:rgb(${Math.round(l.r * 255)},${Math.round(l.g * 255)},${Math.round(l.b * 255)})"><span class="t">${mmss(l.at)}</span>${this.vhsMarkup(l.text)}</div>${l.codes && (arr(l.halos).length || arr(l.changes).length || arr(l.commands).length || l.heardBefore) ? fx(l) : ""}`;
+      crt.appendChild(d);
+      crt.scrollTop = crt.scrollHeight;
+    };
+    if (!+V.speed) { lines.forEach(show); return; }
+    const t0 = performance.now();
+    let i = 0;
+    const step = () => {
+      if (token !== this.st.vhsToken || !crt.isConnected) return;
+      const now = (performance.now() - t0) / 1000 * V.speed;
+      while (i < lines.length && lines[i].at <= now) show(lines[i++]);
+      if (i < lines.length) setTimeout(step, 50);
+    };
+    step();
+  },
+  // Recipe builder (64_recipes.lua): draft -> craftRecipe text (generated in
+  // the VM, which also checks items exist) -> mod-file -> CraftRecipe reload
+  // (new recipes are discoverable) -> a recipe card on the board to craft.
+  recipeBuilder(draft) {
+    const el = $("#binsp");
+    if (!el) return;
+    this.board().sel = null; this.draw();
+    const d = (this.st.rdraft = draft || this.st.rdraft || { name: "", time: 50, timedAction: "Making", tags: "InHandCraft", category: "",
+      inputs: [{ amount: 1, items: "", mode: "", flags: "" }], outputs: [{ amount: 1, item: "" }], extra: [] });
+    d.inputs = arr(d.inputs); d.outputs = arr(d.outputs); d.extra = arr(d.extra);
+    const f = (k, label, w, ph, title) => `<label title="${esc(title || "")}">${label} <input class="inp mono" data-rd="${k}" value="${esc(d[k] ?? "")}" style="width:${w}px" placeholder="${esc(ph || "")}"></label>`;
+    const inRow = (i, n) => i.line != null
+      ? `<div class="row" style="gap:4px;margin:2px 0"><input class="inp mono" data-ri="${n}" data-k="line" value="${esc(i.line)}" style="flex:1" title="kept verbatim (not a plain item line)"><button class="btn small" data-rdel="i${n}">✕</button></div>`
+      : `<div class="row" style="gap:4px;margin:2px 0">
+          <input class="inp mono" data-ri="${n}" data-k="amount" type="number" step="any" value="${esc(i.amount ?? 1)}" style="width:50px">
+          <input class="inp mono" data-ri="${n}" data-k="items" value="${esc(i.items || "")}" placeholder="Base.Saw;Base.Log" style="width:170px" title="item full types, ; separated">
+          <input class="inp mono" data-ri="${n}" data-k="tags" value="${esc(i.tags || "")}" placeholder="or tags: base:saw" style="width:110px" title="item tags instead of items">
+          <select class="inp" data-ri="${n}" data-k="mode">${["", "keep", "destroy"].map((m) => `<option value="${m}" ${(i.mode || "") === m ? "selected" : ""}>${m || "use up"}</option>`).join("")}</select>
+          <input class="inp mono" data-ri="${n}" data-k="flags" value="${esc(i.flags || "")}" placeholder="flags" style="width:110px" title="e.g. MayDegradeLight;Prop1">
+          <button class="btn small" data-rdel="i${n}">✕</button></div>`;
+    const outRow = (o, n) => o.line != null
+      ? `<div class="row" style="gap:4px;margin:2px 0"><input class="inp mono" data-ro="${n}" data-k="line" value="${esc(o.line)}" style="flex:1"><button class="btn small" data-rdel="o${n}">✕</button></div>`
+      : `<div class="row" style="gap:4px;margin:2px 0"><input class="inp mono" data-ro="${n}" data-k="amount" type="number" step="any" value="${esc(o.amount ?? 1)}" style="width:50px">
+          <input class="inp mono" data-ro="${n}" data-k="item" value="${esc(o.item || "")}" placeholder="Base.Plank" style="width:200px"><button class="btn small" data-rdel="o${n}">✕</button></div>`;
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>✎ Recipe builder</b><div class="mono dim" style="font-size:11px">writes media/scripts/recipes/ in ${esc(S.mod)}</div></div>
+        <button class="btn small" id="rdnew" title="start over">new</button></div>
+      <div class="ibody">
+        <div class="pform">${f("name", "name", 180, "MyRecipe")}${f("category", "category", 110, "Carpentry")}${f("time", "time", 60, "50")}${f("timedAction", "action", 100, "Making")}</div>
+        <div class="pform">${f("tags", "Tags", 220, "InHandCraft", "where it crafts: InHandCraft, AnySurfaceCraft, or a workstation tag (e.g. one from the entity binder)")}
+          <label><input type="checkbox" data-rd="needToBeLearn" ${d.needToBeLearn ? "checked" : ""}> must be learned</label></div>
+        <div class="pform">${f("skillRequired", "skill", 120, "Woodwork:2")}${f("xpAward", "xp", 120, "Woodwork:10")}${f("onCreate", "OnCreate", 200, "MyMod.onCreate", "a Lua function the recipe calls on completion")}</div>
+        ${d.extra.length ? `<div class="pform">${d.extra.map((x, n) => `<input class="inp mono" data-rx="${n}" value="${esc(x)}" style="width:220px" title="kept verbatim">`).join("")}</div>` : ""}
+        <h3>Inputs <span class="dim" style="text-transform:none;letter-spacing:0">${this.roleChip("use")}use up ${this.roleChip("keep")}keep (tool)</span></h3>
+        <div id="rdins">${d.inputs.map(inRow).join("")}</div><button class="btn small" id="rdaddi">+ input</button>
+        <h3>Outputs</h3>
+        <div id="rdouts">${d.outputs.map(outRow).join("")}</div><button class="btn small" id="rdaddo">+ output</button>
+        <div id="rdwarn" style="font-size:11.5px;margin-top:6px"></div>
+        <pre class="box" id="rdprev" style="max-height:280px;font-size:10.5px;margin-top:6px"></pre>
+        <div class="row" style="gap:6px"><button class="btn primary" id="rdgo">write + reload + card</button><span class="dim" id="rdfile" style="font-size:11px"></span></div>
+      </div>`;
+    const read = () => {
+      for (const x of $$("[data-rd]", el)) d[x.dataset.rd] = x.type === "checkbox" ? x.checked : (x.dataset.rd === "time" ? (+x.value || x.value) : x.value.trim());
+      for (const x of $$("[data-ri]", el)) { const i = d.inputs[+x.dataset.ri]; i[x.dataset.k] = x.dataset.k === "amount" ? +x.value : x.value.trim(); }
+      for (const x of $$("[data-ro]", el)) { const o = d.outputs[+x.dataset.ro]; o[x.dataset.k] = x.dataset.k === "amount" ? +x.value : x.value.trim(); }
+      for (const x of $$("[data-rx]", el)) d.extra[+x.dataset.rx] = x.value.trim();
+    };
+    let last = null;
+    const preview = debounce(async () => {
+      read();
+      last = await call("recipeDraft", { draft: d, mod: S.mod }).catch((e) => ({ error: e.message }));
+      if (!el.isConnected) return;
+      $("#rdprev").textContent = last.text || last.error || "";
+      $("#rdfile").textContent = last.path ? "→ " + last.path : "";
+      const w = arr(last.warnings).map((x) => `<div class="warn">⚠ ${esc(x)}</div>`);
+      if (last.exists) w.unshift(`<div class="warn">⚠ ${esc(last.full)} already exists. A second craftRecipe block APPENDS to its input/output lists rather than replacing them: unless this file IS that recipe's file, pick a new name.</div>`);
+      $("#rdwarn").innerHTML = w.join("");
+    }, 250);
+    for (const x of $$("input,select", el)) { x.oninput = preview; x.onchange = preview; }
+    for (const b of $$("[data-rdel]", el)) b.onclick = () => { read(); const k = b.dataset.rdel; (k[0] === "i" ? d.inputs : d.outputs).splice(+k.slice(1), 1); this.recipeBuilder(d); };
+    $("#rdaddi").onclick = () => { read(); d.inputs.push({ amount: 1, items: "", mode: "", flags: "" }); this.recipeBuilder(d); };
+    $("#rdaddo").onclick = () => { read(); d.outputs.push({ amount: 1, item: "" }); this.recipeBuilder(d); };
+    $("#rdnew").onclick = () => { this.st.rdraft = null; this.recipeBuilder(); };
+    preview();
+    $("#rdgo").onclick = async () => {
+      read();
+      last = await call("recipeDraft", { draft: d, mod: S.mod }).catch((e) => ({ error: e.message }));
+      if (!last.text) { this.say("✗ " + (last.error || "nothing to write")); return; }
+      if (last.exists && !confirm(`${last.full} already exists; writing a second definition appends to its lists. Write anyway?`)) return;
+      const post = (body) => fetch(`/api/wb/${encodeURIComponent(S.mod)}/mod-file`, { method: "POST", body: JSON.stringify(body) })
+        .then((x) => x.json().catch(() => ({})).then((j) => ({ status: x.status, ...j })));
+      let w = await post({ path: last.path, text: last.text }).catch((e) => ({ error: e.message }));
+      if (w.status === 404) { this.say("✗ this dashboard predates the mod-file endpoint: restart the dashboard once"); return; }
+      if (w.status === 409) { if (!confirm(w.error + "\n\nOverwrite it?")) return; w = await post({ path: last.path, text: last.text, overwrite: true }); }
+      if (w.error) { this.say("✗ " + w.error); return; }
+      this.say(`wrote ${w.file}; reloading recipes…`, true);
+      const rl = await call("devReload", { scripts: ["CraftRecipe"] }).catch((e) => ({ error: e.message }));
+      if (rl.error || (rl.scripts && rl.scripts.err)) { this.say("✗ reload: " + (rl.error || rl.scripts.err)); return; }
+      const chk = await call("recipe", { name: last.full }).catch(() => null);
+      if (!chk) { this.say(`✗ wrote ${w.file} but ${last.full} did not load: check the script (the debug log names the parse error)`); return; }
+      this.say(`✓ ${last.full} loaded · craft it on the board`);
+      await this.add("recipe", last.full, 60, 60);
+    };
+  },
   inspectRecipe(el, r) {
     const res = r.result, ins = r.inputs.map((id) => this.card(id)).filter(Boolean);
     el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>⚒ ${esc(r.label || r.recipe)}</b><div class="mono dim" style="font-size:11px">${esc(r.recipe)}</div></div>
-        <button class="btn small" id="idel">✕</button></div>
+        <button class="btn small" id="ifork" title="Open this recipe in the recipe builder as a starting point">✎ fork</button><button class="btn small" id="idel">✕</button></div>
       <div class="ibody">
         <div class="row" style="gap:6px"><button class="btn primary" id="icraft">▶ Craft</button><button class="btn small" id="ifill">fill inputs</button>
           <label class="muted" style="font-size:11.5px" title="Turn on Core.debug so CraftRecipeMonitor logs the engine's account of the craft"><input type="checkbox" id="imon" ${r.monitor ? "checked" : ""}> engine monitor</label></div>
@@ -2075,6 +2487,15 @@ tool("board", {
       </div>`;
     $("#icraft").onclick = () => this.craft(r);
     $("#ifill").onclick = () => this.fill(r);
+    $("#ifork").onclick = async () => {
+      const d = await call("recipe", { name: r.recipe }).catch(() => null);
+      const text = d && d.source && arr(d.source.defs).map((x) => x.text).join("\n");
+      if (!text) { this.say("✗ no script source found for " + r.recipe); return; }
+      const draft = await call("recipeParse", { text }).catch((e) => ({ error: e.message }));
+      if (draft.error) { this.say("✗ " + draft.error); return; }
+      draft.name = draft.name + "_Fork";
+      this.recipeBuilder(draft);
+    };
     $("#imon").onchange = (e) => { r.monitor = e.target.checked; this.save(); };
     if ($("#ibench")) $("#ibench").onchange = (e) => { const v = e.target.value; r.bench = v === "" ? undefined : v === "-" ? false : v; this.save(); this.inspect(); };
     $("#idel").onclick = () => this.remove(r.id);

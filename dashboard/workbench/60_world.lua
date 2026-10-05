@@ -20,6 +20,33 @@ WB.world = W
 
 local function s(v) if v == nil then return nil end return tostring(v) end
 
+-- The kit's SandboxVars mock carries only what tests set; world code reads
+-- vanilla options (scrap: LevelForDismantleXPCutoff). Fill every MISSING key
+-- from the engine's SandboxOptions defaults, laid out as toTable does
+-- (SandboxOptions.java:1397: tableName page, else top level).
+function WB.fillSandboxDefaults()
+    local so = try(function() return SandboxOptions.instance end)
+    if not (so and SandboxVars) then return 0 end
+    local added = 0
+    for i = 0, (try(function() return so:getNumOptions() end) or 0) - 1 do
+        local o = so:getOptionByIndex(i)
+        local page = try(function() return o:getTableName() end)
+        local key = tostring(o:getShortName())
+        local t = SandboxVars
+        if page then
+            page = tostring(page)
+            if type(SandboxVars[page]) ~= "table" then SandboxVars[page] = {} end
+            t = SandboxVars[page]
+        end
+        if t[key] == nil then
+            local v = try(function() return o:asConfigOption():getValueAsObject() end)
+            if v ~= nil then t[key] = v; added = added + 1 end
+        end
+    end
+    return added
+end
+pcall(WB.fillSandboxDefaults)
+
 local function asServer(fn)
     local prev = PZEngine.setServer and PZEngine.setServer(true)
     local ok, a, b = pcall(fn)

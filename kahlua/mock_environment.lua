@@ -345,6 +345,12 @@ CharacterStat = {
     FITNESS = "FITNESS",
     STRENGTH = "STRENGTH",
 }
+-- In engine mode the REAL enum must win: the exposer fills the existing
+-- global, so these strings would survive and every vanilla
+-- stats:add(CharacterStat.BOREDOM, ...) would die with "expected argument of
+-- type CharacterStat, got String" (TV/radio codes, eating, reading). The
+-- marker makes EngineBridge drop this mock first, as for ItemTag below.
+setmetatable(CharacterStat, { __pz_open_registry = "CharacterStat" })
 
 -- ItemTag / ItemBodyLocation — open registries in B42, not closed enums.
 --

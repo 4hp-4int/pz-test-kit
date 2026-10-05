@@ -96,12 +96,30 @@ local function moveables()
     WB.vanilla("shared/Moveables/ISMoveableDefinitions")
     WB.vanilla("shared/Moveables/ISMoveableSpriteProps")
     WB.vanilla("shared/Moveables/ISMoveableTools")
+    -- Scrap definitions are filled on OnGameBoot (ISMoveableDefinitions.lua
+    -- end), which fired before this file was loaded in most VMs.
+    local defs = ISMoveableDefinitions and ISMoveableDefinitions:getInstance()
+    local empty = true
+    for _ in pairs((defs and defs.scrapDefinitions) or {}) do empty = false; break end
+    if defs and empty and ISMoveableDefinitions.load then ISMoveableDefinitions.load() end
     return ISMoveableSpriteProps
 end
 
+-- Vanilla reaches neighbouring squares through getCell() (multi-tile
+-- furniture: getSpriteGridCache); the kit's getCell() is a mock, so for the
+-- run it answers with the real cell. ISInventoryPage.dirtyUI (redraw the
+-- inventory panes after a world change) is client UI absent headless: a
+-- no-op for the run when the VM lacks it.
 local function asServer(fn)
     local prev = PZEngine.setServer and PZEngine.setServer(true)
+    local mockCell = getCell
+    local real = PZEngine.cell and PZEngine.cell()
+    if real then getCell = function() return real end end
+    local hadPage = rawget(_G, "ISInventoryPage")
+    if not hadPage then rawset(_G, "ISInventoryPage", { dirtyUI = function() end }) end
     local ok, a, b = pcall(fn)
+    if not hadPage then rawset(_G, "ISInventoryPage", nil) end
+    getCell = mockCell
     if PZEngine.setServer then PZEngine.setServer(prev) end
     if not ok then error(a, 0) end
     return a, b
@@ -118,6 +136,34 @@ local function standOn(sq)
 end
 
 WB.standOn = standOn
+
+-- Items on the floor around a square (vanilla drops yields and debris
+-- there: scrap results, a broken pickup's debris, multi-tile pickups).
+local function floorItems(sq)
+    local out = {}
+    local cell = PZEngine.cell()
+    for dx = -1, 1 do for dy = -1, 1 do
+        local s2 = cell:getGridSquare(sq:getX() + dx, sq:getY() + dy, sq:getZ())
+        local wobs = s2 and try(function() return s2:getWorldObjects() end)
+        for _, w in ipairs(wobs and WB.list(wobs) or {}) do
+            local it = try(function() return w:getItem() end)
+            if it then out[#out + 1] = it end
+        end
+    end end
+    return out
+end
+
+-- New items in the inventory AND on the floor around the square.
+local function madeItems(inv, sq, fn)
+    local before = {}
+    for _, it in ipairs(WB.list(inv:getItems())) do before[it] = true end
+    for _, it in ipairs(floorItems(sq)) do before[it] = true end
+    local r1, r2 = fn()
+    local added = {}
+    for _, it in ipairs(WB.list(inv:getItems())) do if not before[it] then added[#added + 1] = it end end
+    for _, it in ipairs(floorItems(sq)) do if not before[it] then added[#added + 1] = it end end
+    return added, r1, r2
+end
 
 local function inventoryDiff(inv, fn)
     local before = {}
@@ -161,7 +207,7 @@ WB.worldVerbsCore = {
                 if not try(function() return o:isObjectNoContainerOrEmpty() end) then why[#why + 1] = "its container is not empty" end
                 return "REFUSED by canPickUpMoveable" .. (#why > 0 and (": " .. table.concat(why, ", ")) or ""), "refused"
             end
-            local added = inventoryDiff(ctx.player:getInventory(), function() mp:pickUpMoveable(ctx.player, sq, true) end)
+            local added = madeItems(ctx.player:getInventory(), sq, function() mp:pickUpMoveable(ctx.player, sq, true) end)
             ctx.items(added)
             local gone = not sq:getObjects():contains(o)
             if #added == 0 and gone then
@@ -183,17 +229,59 @@ WB.worldVerbsCore = {
             local MSP = moveables()
             local mp = MSP.fromObject(o)
             if not mp then return "not scrappable (fromObject gave nil)" end
+            local given = {}
             if p.giveTools ~= false then
                 for _, t in ipairs({ "Base.Hammer", "Base.Screwdriver", "Base.Saw", "Base.BlowTorch", "Base.WeldingMask", "Base.Wrench" }) do
-                    if not ctx.player:getInventory():containsTypeRecurse(t:gsub("^Base%.", "")) then ctx.player:getInventory():AddItem(t) end
+                    if not ctx.player:getInventory():containsTypeRecurse((t:gsub("^Base%.", ""))) then
+                        local it = ctx.player:getInventory():AddItem(t)
+                        if it then given[#given + 1] = it end
+                    end
                 end
             end
-            local can = mp:canScrapObject(ctx.player)
-            if type(can) == "table" then can = can.canScrap end
-            if not can then return "REFUSED by canScrapObject", "refused" end
-            local added = inventoryDiff(ctx.player:getInventory(), function() mp:scrapObject(ctx.player) end)
-            ctx.items(added)
-            return "scrapped: " .. #added .. " item(s)", "changed"
+            local function takeBack() for _, it in ipairs(given) do pcall(function() ctx.player:getInventory():Remove(it) end) end end
+            local res = mp:canScrapObject(ctx.player)
+            local can
+            if type(res) == "table" then can = res.canScrap else can = res end
+            if not can then
+                -- canScrapObject's result table says which check failed.
+                local why = {}
+                if type(res) == "table" then
+                    if res.craftValid == false then why[#why + 1] = "no scrap definition for Material " .. tostring(mp.material) end
+                    if res.haveTool == false or res.haveTool2 == false then why[#why + 1] = "missing the material's scrap tool(s)" end
+                    if res.containerFull then
+                        -- IsoObject.isObjectNoContainerOrEmpty: an unexplored
+                        -- container (loot not rolled yet) counts as full.
+                        local unexplored = false
+                        for i = 0, (try(function() return o:getContainerCount() end) or 0) - 1 do
+                            local c = o:getContainerByIndex(i)
+                            if c and not c:isExplored() then unexplored = true end
+                        end
+                        why[#why + 1] = unexplored and "its container is unexplored (loot not rolled; vanilla counts that as full -- open it first)"
+                            or "its container (or another tile of it) is not empty"
+                    end
+                end
+                if not mp.canScrap then why[#why + 1] = "the sprite is not CanScrap for ISMoveableSpriteProps (props are read when it is built)" end
+                if mp.isMultiSprite and not mp:getSpriteGridInfo(sq, true) then
+                    why[#why + 1] = "multi-tile object is incomplete (getSpriteGridInfo found no full grid)"
+                end
+                if try(function() return o:hasFluid() end) then why[#why + 1] = "it holds fluid" end
+                takeBack()
+                return "REFUSED by canScrapObject" .. (#why > 0 and (": " .. table.concat(why, "; ")) or ""), "refused"
+            end
+            -- Tools handed over for the check come back out, so they are not
+            -- counted as yields (and do not linger for the next verb).
+            local inv = ctx.player:getInventory()
+            local added = madeItems(inv, sq, function() mp:scrapObject(ctx.player) end)
+            local yields = {}
+            for _, it in ipairs(added) do if it:getContainer() ~= inv then yields[#yields + 1] = it end end
+            ctx.items(yields)
+            takeBack()
+            local gone = not sq:getObjects():contains(o)
+            if not gone and #yields == 0 then
+                return "nothing happened: canScrapObject passed but scrapObject made no items and left the object (no scrap definition yield for Material "
+                    .. tostring(mp.material) .. "?)", "refused"
+            end
+            return "scrapped" .. (gone and " (object removed)" or "") .. ": " .. #yields .. " item(s) on the floor", "changed"
         end,
     },
     {
@@ -227,6 +315,30 @@ local function verbList()
     end
     return list
 end
+
+-- The entity binder's last step: the script is written and reloaded; give the
+-- real map object its entity, as the game does when a chunk first streams in
+-- (GameEntityFactory.CreateIsoEntityFromCellLoading -> createEntity). Sprite
+-- configs re-register first so SpriteConfig finds the tile as its master.
+WB.register("worldBindEntity", function(a)
+    local o = WB.deref(a.ref)
+    if not o then error("object $" .. tostring(a.ref) .. " is gone (VM restarted?) - reload the square") end
+    if try(function() return o:hasComponents() end) then
+        return { ok = false, msg = "this object already has an entity (" .. tostring(try(function() return o:getEntityScript():getName() end)) .. "); a saved object keeps the entity it was built with" }
+    end
+    local es = getScriptManager():getGameEntityScript(a.name)
+    if not es then error("no entity script " .. tostring(a.name) .. " (reload scripts: Entity)") end
+    PZEngine.initSpriteConfigs()
+    if WB.craft then WB.craft.spriteConfigs = true; WB.craft.benches = {} end
+    asServer(function() GameEntityFactory.CreateIsoObjectEntity(o, es, true) end)
+    local comps = {}
+    for _, n in ipairs({ "SpriteConfig", "UiConfig", "CraftBench", "FluidContainer", "Script" }) do
+        local ct = ComponentType[n]
+        if ct and try(function() return o:hasComponent(ct) end) then comps[#comps + 1] = n end
+    end
+    return { ok = #comps > 1, components = comps,
+             msg = #comps > 1 and ("built: " .. table.concat(comps, ", ")) or "entity built but only SpriteConfig attached (not the multi-square master? check the sprite)" }
+end)
 
 WB.register("worldVerbs", function(a)
     local o = WB.deref(a.ref)

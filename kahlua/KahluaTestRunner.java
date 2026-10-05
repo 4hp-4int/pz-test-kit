@@ -1285,6 +1285,9 @@ public class KahluaTestRunner {
         // where complete() runs on the acting client. Born from the
         // VorpallySauced v1.13.0 journal-study incident.
         loadFile(thread, env, kahluaDir.resolve("TimedActionSim.lua"));
+        // Engine Workbench blueprints as tests (PZTestKit.Blueprints.tests()):
+        // defines functions only; nothing runs until a test file asks.
+        loadFile(thread, env, kahluaDir.resolve("blueprints.lua"));
 
         // 1b. Override context functions. mock_environment defaults to client.
         if (isServer) {
@@ -1305,6 +1308,7 @@ public class KahluaTestRunner {
         // 2. Module index + require resolver
         installModuleIndex(env, index);
         installCompiler(env);
+        installFileReader(env, modRoot, kahluaDir);
         loadFile(thread, env, kahluaDir.resolve("require_resolver.lua"));
 
         // 2b. Coverage instrumentation runtime (opt-in via --coverage). Loaded
@@ -1703,6 +1707,44 @@ public class KahluaTestRunner {
         } catch (Throwable t) {
             return Collections.emptySet();
         }
+    }
+
+    /** Read-only file access for kit Lua that works from files rather than
+     *  modules -- PZTestKit.Blueprints loads the Engine Workbench's tools and
+     *  a mod's workbench/blueprints/*.json. Confined to the kit, the mod's
+     *  parent folder (the mod and its sibling dependencies) and the PZ install:
+     *    _pz_read_file(path) -> text | nil      _pz_list_dir(path) -> {names} | nil
+     *  _pz_kit_dir / _pz_mod_root carry the two anchors. */
+    private static void installFileReader(KahluaTable env, Path modRoot, Path kahluaDir) {
+        final Path kit = kahluaDir.toAbsolutePath().getParent().normalize();
+        final Path mods = modRoot.toAbsolutePath().getParent().normalize();
+        final Path pzRaw = pzInstallCached();
+        final Path pz = pzRaw != null ? pzRaw.toAbsolutePath().normalize() : null;
+        java.util.function.Function<Object, Path> allowed = (o) -> {
+            if (!(o instanceof String)) return null;
+            Path p = Paths.get((String) o).toAbsolutePath().normalize();
+            if (p.startsWith(kit) || p.startsWith(mods) || (pz != null && p.startsWith(pz))) return p;
+            return null;
+        };
+        env.rawset("_pz_kit_dir", kit.toString().replace('\\', '/'));
+        env.rawset("_pz_mod_root", modRoot.toAbsolutePath().normalize().toString().replace('\\', '/'));
+        env.rawset("_pz_read_file", (JavaFunction) (frame, n) -> {
+            Path p = n > 0 ? allowed.apply(frame.get(0)) : null;
+            try { frame.push(p != null && Files.isRegularFile(p) ? Files.readString(p) : null); }
+            catch (Exception e) { frame.push(null); }
+            return 1;
+        });
+        env.rawset("_pz_list_dir", (JavaFunction) (frame, n) -> {
+            Path p = n > 0 ? allowed.apply(frame.get(0)) : null;
+            if (p == null || !Files.isDirectory(p)) { frame.push(null); return 1; }
+            KahluaTable t = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+            try (java.util.stream.Stream<Path> s = Files.list(p)) {
+                int i = 1;
+                for (Path f : s.sorted().toArray(Path[]::new)) t.rawset(Double.valueOf(i++), f.getFileName().toString());
+            } catch (Exception e) { frame.push(null); return 1; }
+            frame.push(t);
+            return 1;
+        });
     }
 
     private static void installCompiler(KahluaTable env) {

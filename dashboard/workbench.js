@@ -701,6 +701,158 @@ function listBlueprints(mod) {
 }
 const slug = (s) => String(s || "blueprint").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "blueprint";
 
+// ── the live dev loop ──────────────────────────────────────────────────────
+// With live mode on, the mod's media/lua, media/scripts and workbench/ are
+// polled (mtime: Windows fs.watch reports reads too) and every change lands in
+// the running VM: Lua modules re-required (70_dev.lua), script types reloaded
+// through the game's own reload, addon/tool files re-run (loadTools). The
+// board polls /dev for the results and re-runs itself.
+const KW_TYPE = { item: "Item", craftRecipe: "CraftRecipe", entity: "Entity", fixing: "Fixing", evolvedrecipe: "EvolvedRecipe",
+  model: "Model", sound: "Sound", soundTimeline: "SoundTimeline", vehicle: "Vehicle", template: "VehicleTemplate",
+  fluid: "FluidDefinition", fluidFilter: "FluidFilter", itemFilter: "ItemFilter", energy: "EnergyDefinition",
+  timedAction: "TimedAction", animationsMesh: "AnimationMesh", spriteModel: "SpriteModel", mannequin: "Mannequin",
+  physicsShape: "PhysicsShape", clock: "Clock", stringList: "StringList", itemConfig: "ItemConfig",
+  xuiLayout: "XuiLayout", xuiStyle: "XuiStyle", xuiSkin: "XuiSkin", xuiConfig: "XuiConfig" };
+// The top-level block kinds a script file defines, via the same brace-matching
+// parser as the source index (a keyword scan also matches `item 1 [...]`
+// lines INSIDE recipes, which would reload Item scripts for a recipe edit --
+// and reloading items under live objects desyncs them from recipe inputs).
+function scriptTypesIn(file) {
+  const into = {};
+  parseScriptFile(file, into, "mod");
+  const out = new Set();
+  for (const defs of Object.values(into)) if (KW_TYPE[defs[0].kind]) out.add(KW_TYPE[defs[0].kind]);
+  return [...out];
+}
+// The script types whose BLOCKS changed in this file: the source index still
+// holds the previous text of every block, so compare block by block (an edit
+// to one recipe in a file that also defines items is a recipe-only reload).
+function changedScriptTypes(mod, file) {
+  const norm = (x) => x.replace(/\\/g, "/").toLowerCase();
+  const old = {};
+  for (const defs of Object.values(scriptIndex(mod).byKey)) {
+    for (const d of defs) if (norm(d.file) === norm(file)) old[d.kind + ":" + d.full.toLowerCase()] = d.text;
+  }
+  const fresh = {};
+  parseScriptFile(file, fresh, "mod");
+  const out = new Set();
+  for (const [key, defs] of Object.entries(fresh)) if (old[key] !== defs[defs.length - 1].text && KW_TYPE[defs[0].kind]) out.add(KW_TYPE[defs[0].kind]);
+  for (const key of Object.keys(old)) if (!fresh[key] && KW_TYPE[key.split(":")[0]]) out.add(KW_TYPE[key.split(":")[0]]);
+  return [...out];
+}
+
+function listFiles(dir, ext, out) {
+  if (!fs.existsSync(dir)) return out;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) listFiles(p, ext, out);
+    else if (ext.some((x) => e.name.endsWith(x))) out.push(p);
+  }
+  return out;
+}
+class DevWatch {
+  constructor(mod, ctx) { this.mod = mod; this.ctx = ctx; this.on = false; this.events = []; this.seq = 0; this.mtimes = new Map(); this.timer = null; }
+  files() {
+    const r = this.mod.root;
+    return [...listFiles(path.join(r, "media", "lua"), [".lua"], []), ...listFiles(path.join(r, "media", "scripts"), [".txt"], []),
+            ...listFiles(path.join(r, "workbench"), [".lua"], [])];
+  }
+  scan() { const m = new Map(); for (const f of this.files()) { try { m.set(f, fs.statSync(f).mtimeMs); } catch (_) {} } return m; }
+  start() {
+    if (this.on) return;
+    this.on = true; this.mtimes = this.scan();
+    this.timer = setInterval(() => this.tick().catch((e) => this.push({ error: e.message })), 800);
+  }
+  stop() { this.on = false; clearInterval(this.timer); this.timer = null; }
+  push(ev) { ev.seq = ++this.seq; ev.at = Date.now(); this.events.push(ev); while (this.events.length > 50) this.events.shift(); }
+  async tick() {
+    if (this.busy) return;
+    const now = this.scan(), changed = [];
+    for (const [f, t] of now) if (this.mtimes.get(f) !== t) changed.push(f);
+    this.mtimes = now;
+    if (!changed.length) return;
+    this.busy = true;
+    try {
+      const r = this.mod.root, lua = [], sources = {}, scripts = new Set(), tools = [];
+      for (const f of changed) {
+        const rel = path.relative(r, f).replace(/\\/g, "/");
+        if (rel.startsWith("workbench/")) { tools.push(rel); continue; }
+        const m = /^media\/lua\/(?:shared|client|server)\/(.+)\.lua$/.exec(rel);
+        if (m && !/(^|\/)Tests?\//.test(m[1])) { lua.push(m[1]); try { sources[m[1]] = fs.readFileSync(f, "utf8"); } catch (_) {} }
+        if (rel.startsWith("media/scripts/")) for (const t of changedScriptTypes(this.mod, f)) scripts.add(t);
+      }
+      if (scripts.size) scriptCache.delete(r);          // source index (sourceOf) rereads too
+      if (lua.length) luaFileCache.delete(r);
+      const b = bridgeFor(this.mod, this.ctx);
+      if (b.state !== "ready") { this.push({ files: changed.map((f) => path.relative(r, f)), skipped: "VM not running" }); return; }
+      const ev = { files: changed.map((f) => path.relative(r, f).replace(/\\/g, "/")) };
+      // Item scripts do not hot-reload safely: new items bind to the item
+      // registry's ORIGINAL script objects while reloaded recipe inputs point
+      // at the new ones, and every craft refuses. Say so instead.
+      const UNSAFE = new Set(["Item"]);
+      const hot = [...scripts].filter((t) => !UNSAFE.has(t)), cold = [...scripts].filter((t) => UNSAFE.has(t));
+      if (cold.length) ev.needsRestart = cold;
+      if (lua.length || hot.length) {
+        const res = await b.call("devReload", { lua, sources, scripts: hot });
+        ev.result = res.value || res;
+      }
+      if (tools.length) { await b.loadTools(); ev.tools = tools; }
+      this.push(ev);
+    } finally { this.busy = false; }
+  }
+}
+const devWatches = new Map();
+function devFor(mod, ctx) { let d = devWatches.get(mod.id); if (!d) devWatches.set(mod.id, (d = new DevWatch(mod, ctx))); return d; }
+
+// ── entity binder: claim a map tile as a scripted entity ─────────────────────
+// The shape SauceTweaks' working entities use (one entity per sprite: only a
+// multi-square MASTER gets non-SpriteConfig components), plus the xuiSkin
+// entity style every UiConfig needs.
+function entityScript(o) {
+  const name = String(o.name || "").replace(/[^A-Za-z0-9_]/g, "_");
+  const sprite = String(o.sprite || "").replace(/[^A-Za-z0-9_]/g, "");
+  if (!name || !sprite) throw new Error("entity name and sprite are required");
+  const L = [];
+  L.push("/*", "   " + name + ": " + sprite + " as an entity. Written by the Engine Workbench entity binder;", "   edit freely. One entity per sprite (only a multi-square master gets components).", "*/", "module Base", "{");
+  if (o.ui !== false) {
+    L.push("    xuiSkin default", "    {", "        entity ES_" + name, "        {", "            LuaWindowClass = ISEntityWindow,",
+           "            DisplayName = " + String(o.displayName || name).replace(/[,{}\n]/g, " ") + ",", ...(o.icon ? ["            Icon = " + String(o.icon).replace(/[,{}\s]/g, "") + ","] : []), "        }", "    }", "");
+  }
+  L.push("    entity " + name, "    {");
+  if (o.ui !== false) L.push("        component UiConfig", "        {", "            xuiSkin = default,", "            entityStyle = ES_" + name + ",", "            uiEnabled = true,", "        }");
+  if (o.craftBench) L.push("        component CraftBench", "        {", "            Recipes = " + String(o.craftBench).replace(/[^A-Za-z0-9_;]/g, "") + ",", "        }");
+  if (o.fluid) {
+    L.push("        component FluidContainer", "        {", "            ContainerName = " + name + ",", "            Capacity = " + (Number(o.fluid.capacity) || 100).toFixed(1) + ",");
+    if (o.fluid.rainFactor) L.push("            RainFactor = " + Number(o.fluid.rainFactor) + ",");
+    L.push("        }");
+  }
+  L.push("        component SpriteConfig", "        {", "            face S", "            {", "                layer", "                {", "                    row = " + sprite + ",", "                }", "            }", "        }", "    }", "}", "");
+  return { name, text: L.join("\n") };
+}
+
+// ── templates as tests (pz-test-kit kahlua/blueprints.lua) ────────────────
+const BLUEPRINT_TEST_SRC = `-- Every Engine Workbench template in workbench/blueprints/ as a test: the
+-- same replay and expectations as the board (pz-test-kit blueprints.lua), on
+-- the real engine. Build a board in the workbench, save it to the mod's
+-- library, and it runs here from then on.
+if not (PZEngine and PZEngine.available()) then return {} end
+return PZTestKit.Blueprints.tests()
+`;
+// The mod's existing Tests folder (media/lua/<ctx>/<Name>/Tests), else
+// media/lua/client/<modId>/Tests.
+function blueprintTestFile(mod) {
+  let dir = null;
+  for (const ctxDir of ["client", "shared", "server"]) {
+    const base = path.join(mod.root, "media", "lua", ctxDir);
+    if (!fs.existsSync(base)) continue;
+    for (const d of fs.readdirSync(base)) if (fs.existsSync(path.join(base, d, "Tests"))) { dir = path.join(base, d, "Tests"); break; }
+    if (dir) break;
+  }
+  dir = dir || path.join(mod.root, "media", "lua", "client", mod.id, "Tests");
+  const abs = path.join(dir, "EngineBlueprintTests.lua");
+  return { abs, rel: path.relative(mod.root, abs).replace(/\\/g, "/") };
+}
+
 // ── uiview (kit uiview/): the recording UI layer + the canonical replay ────
 const UIVIEW_LUA = path.join(KIT_ROOT, "uiview", "media", "lua", "client", "UIView");
 const UIVIEW_FILES = ["Recorder", "FontMetrics", "TextureSizes", "UIMock", "Render"];
@@ -907,6 +1059,58 @@ async function handle(req, res, url, ctx) {
       json(res, 200, { ok: true });
       return true;
     }
+    if (action === "entity-bind" && req.method === "POST") {
+      // { name, sprite, displayName?, icon?, ui?, craftBench?, fluid?: {capacity, rainFactor}, dry? }
+      const body = await readBody(req);
+      const gen = entityScript(body);
+      const rel = "media/scripts/entities/" + (mod.id + "_" + gen.name).toLowerCase() + ".txt";
+      const abs = path.join(mod.root, rel);
+      if (!body.dry) {
+        if (fs.existsSync(abs) && !body.overwrite) { json(res, 409, { error: rel + " exists (overwrite: true to replace)", file: rel }); return true; }
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, gen.text);
+        scriptCache.delete(mod.root);            // the workstation index sees it now
+      }
+      json(res, 200, { name: gen.name, file: rel, text: gen.text, written: !body.dry, exists: fs.existsSync(abs) });
+      return true;
+    }
+    if (action === "mod-file" && req.method === "POST") {
+      // { path, text, overwrite?, dry? } -- what the builders generate in the VM
+      // (stamper export, recipe builder) lands in the mod. media/lua and
+      // media/scripts only, .lua/.txt only; an existing file needs overwrite.
+      const body = await readBody(req);
+      const rel = String(body.path || "").replace(/\\/g, "/");
+      const abs = path.resolve(mod.root, rel);
+      const inside = ["lua", "scripts"].some((d) => abs.startsWith(path.join(mod.root, "media", d) + path.sep));
+      if (!inside || !/\.(lua|txt)$/.test(abs) || rel.includes("..")) { json(res, 400, { error: "path must be under media/lua or media/scripts and end .lua/.txt" }); return true; }
+      const exists = fs.existsSync(abs);
+      if (!body.dry) {
+        if (exists && !body.overwrite) { json(res, 409, { error: rel + " exists (overwrite: true to replace)", file: rel, exists }); return true; }
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, String(body.text || ""));
+        if (rel.startsWith("media/scripts/")) scriptCache.delete(mod.root);
+      }
+      json(res, 200, { file: rel, written: !body.dry, exists });
+      return true;
+    }
+    if (action === "blueprint-tests") {
+      // GET -> { exists, file }   POST -> write the opt-in test file
+      const f = blueprintTestFile(mod);
+      if (req.method === "POST" && !fs.existsSync(f.abs)) {
+        fs.mkdirSync(path.dirname(f.abs), { recursive: true });
+        fs.writeFileSync(f.abs, BLUEPRINT_TEST_SRC);
+      }
+      json(res, 200, { exists: fs.existsSync(f.abs), file: f.rel });
+      return true;
+    }
+    if (action === "dev") {
+      // GET ?since=N -> { on, seq, events }   POST { on } -> toggle live mode
+      const d = devFor(mod, ctx);
+      if (req.method === "POST") { const body = await readBody(req); if (body.on) d.start(); else d.stop(); }
+      const since = +(url.searchParams.get("since") || 0);
+      json(res, 200, { on: d.on, seq: d.seq, events: d.events.filter((e) => e.seq > since) });
+      return true;
+    }
     if (action === "reload" && req.method === "POST") {
       // Re-run the tool Lua against the live VM (edit a tool, no reboot).
       const b = bridgeFor(mod, ctx);
@@ -935,6 +1139,16 @@ async function handle(req, res, url, ctx) {
           } else body.args.bench = null;
         }
         if (body.tool === "itemTooltip" && body.args && !body.args.modules) body.args.modules = tooltipModules(mod);
+        if (body.tool === "devReload" && body.args && Array.isArray(body.args.lua) && !body.args.sources) {
+          // Fresh source for each module (the VM's require compiles from a boot-time copy).
+          body.args.sources = {};
+          for (const name of body.args.lua) {
+            for (const root of [mod.root, ...depRoots(mod)]) {
+              const hit = ["shared", "client", "server"].map((c) => path.join(root, "media", "lua", c, name + ".lua")).find((f) => fs.existsSync(f));
+              if (hit) { body.args.sources[name] = fs.readFileSync(hit, "utf8"); break; }
+            }
+          }
+        }
         if ((body.tool === "itemTooltip" || body.tool === "worldTooltip") && body.args && !b.translated) {
           // The mod's + its dependencies' EN strings (the files the kit's
           // translate = "EN" option reads), once per VM.

@@ -48,6 +48,43 @@ function T.strings(strings)
     end
 end
 
+-- Vanilla's EN strings, read once from the PZ install (the server sends only
+-- the mod's and its dependencies'). Without them every vanilla getText in the
+-- VM returns its key: halo notes (IGUI_HaloNote_Boredom), perk names,
+-- recipe and item names. Layered UNDER what is already there, so a mod's
+-- override of a vanilla key still wins, as in game. Radio broadcasts, names
+-- and map labels are skipped (big, and nothing here reads them).
+local SKIP = { RadioData = true, SurvivorNames = true, Credits = true, Credits_Translator = true,
+               MapLabel = true, Stash = true, language = true }
+function T.vanilla()
+    if T.vanillaLoaded ~= nil then return T.vanillaLoaded end
+    T.vanillaLoaded = 0
+    local dir = _pz_install_dir and (_pz_install_dir .. "/media/lua/shared/Translate/EN")
+    local decode = PZTestKit and PZTestKit.Blueprints and PZTestKit.Blueprints.decode
+    if not (dir and _pz_read_file and _pz_list_dir and decode) then return 0 end
+    local add = {}
+    local files = try(function() return _pz_list_dir(dir) end)
+    if type(files) ~= "table" then files = WB.list(files) end
+    for _, f in ipairs(files) do
+        local name = tostring(f):match("([^/\\]+)%.json$")
+        if name and not SKIP[name] and not name:find(", KY", 1, true) then
+            local ok, t = pcall(function() return decode(_pz_read_file(dir .. "/" .. name .. ".json")) end)
+            if ok and type(t) == "table" then
+                for k, v in pairs(t) do
+                    if type(v) == "string" and add[k] == nil and (getTextOrNull and getTextOrNull(k)) == nil then add[k] = v end
+                end
+            else
+                T.errors["Translate/EN/" .. name] = tostring(t)
+            end
+        end
+    end
+    local n = 0
+    for _ in pairs(add) do n = n + 1 end
+    T.strings(add)
+    T.vanillaLoaded = n
+    return n
+end
+
 local function ensure(modules)
     if not TooltipLib then pcall(require, "TooltipLib/Core") end
     if not TooltipLib then return false end
@@ -109,6 +146,7 @@ T.ensure = ensure
 
 WB.register("itemTooltip", function(a)
     T.strings(a.strings)
+    T.vanilla()
     local it = WB.deref(a.ref)
     if not it then error("item $" .. tostring(a.ref) .. " is gone (VM restarted?) - run all") end
     local out = { header = vanillaHeader(it), providers = {}, detail = a.detail and true or false }

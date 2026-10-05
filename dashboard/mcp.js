@@ -1,0 +1,201 @@
+#!/usr/bin/env node
+/*
+ * pz-workbench MCP server: the Engine Workbench as tools an agent can call.
+ *
+ * stdio JSON-RPC 2.0 (MCP), no dependencies. Every tool goes through the
+ * dashboard's HTTP API (dashboard/workbench.js), so an agent and the browser
+ * drive the SAME live engine VMs: what the agent loads, crafts or reloads
+ * shows up on the board, and the reverse. The dashboard is started if it is
+ * not already running.
+ *
+ *   node pz-test-kit/dashboard/mcp.js
+ *   env: PZTEST_DASH_URL (default http://127.0.0.1:8760)
+ */
+"use strict";
+const http = require("http");
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const { spawn } = require("child_process");
+
+const BASE = process.env.PZTEST_DASH_URL || "http://127.0.0.1:8760";
+const KIT = path.resolve(__dirname, "..");
+const MONO = path.resolve(KIT, "..");
+
+// ── HTTP to the dashboard ───────────────────────────────────────────────────
+function request(method, p, body, timeoutMs = 600000) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(p, BASE);
+    const data = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    const req = http.request(u, { method, headers: data ? { "Content-Type": "application/json", "Content-Length": data.length } : {}, timeout: timeoutMs }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        try { resolve(JSON.parse(text)); } catch (_) { resolve({ raw: text }); }
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("timed out")));
+    req.on("error", reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+let started = null;
+async function ensureDashboard() {
+  try { await request("GET", "/api/wb/mods", undefined, 3000); return; } catch (_) {}
+  if (!started) {
+    const port = new URL(BASE).port || "8760";
+    started = spawn(process.execPath, [path.join(__dirname, "server.js"), port], { cwd: KIT, detached: true, stdio: "ignore", windowsHide: true });
+    started.unref();
+  }
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try { await request("GET", "/api/wb/mods", undefined, 2000); return; } catch (_) {}
+  }
+  throw new Error("dashboard did not come up at " + BASE);
+}
+
+async function call(mod, tool, args) {
+  await ensureDashboard();
+  const r = await request("POST", `/api/wb/${encodeURIComponent(mod)}/call`, { tool, args: args || {} });
+  if (r.ok === false || r.error) throw new Error(r.error || JSON.stringify(r));
+  const v = r.value;
+  if (v && typeof v === "object" && v.error) throw new Error(String(v.error));
+  return { value: v, out: r.out };
+}
+
+// ── tests: pztest with a JSON report ───────────────────────────────────────
+function bashPath() {
+  for (const c of [process.env.PZTEST_BASH, "C:/Program Files/Git/bin/bash.exe", "C:/Program Files/Git/usr/bin/bash.exe", "bash"]) {
+    if (c && (c === "bash" || fs.existsSync(c))) return c;
+  }
+  return "bash";
+}
+function runTests(modRoot, only) {
+  return new Promise((resolve) => {
+    const report = path.join(os.tmpdir(), `pzwb-mcp-${process.pid}-${Date.now()}.json`);
+    const args = [path.join(KIT, "pztest"), "--report-json", report];
+    if (only) args.push("--only", only);
+    const proc = spawn(bashPath(), args, { cwd: modRoot, windowsHide: true });
+    let log = "";
+    proc.stdout.on("data", (c) => { log += c; });
+    proc.stderr.on("data", (c) => { log += c; });
+    proc.on("close", (code) => {
+      let rep = null;
+      try { rep = JSON.parse(fs.readFileSync(report, "utf8")); fs.unlinkSync(report); } catch (_) {}
+      if (!rep) return resolve({ code, error: "no report written", tail: log.slice(-3000) });
+      const failing = [];
+      for (const f of rep.files || []) {
+        if (f.error) failing.push({ file: f.file, error: f.error });
+        for (const c of f.cases || []) if (c.status !== "pass" && c.status !== "skip") failing.push({ file: f.file, test: c.name, status: c.status, output: String(c.output || "").slice(-1500) });
+      }
+      resolve({ totals: rep.totals, engine: rep.engine, gameVersion: rep.gameVersion, failing });
+    });
+  });
+}
+
+// ── tools ───────────────────────────────────────────────────────────────────
+const MOD = { type: "string", description: "Mod id as the dashboard lists it (wb_mods), e.g. VorpallySauced, SauceTweaks" };
+const TOOLS = [
+  {
+    name: "wb_mods",
+    description: "List the mods the Engine Workbench knows (pz-mods monorepo), whether each runs on the real engine, and its VM state.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => { await ensureDashboard(); return request("GET", "/api/wb/mods"); },
+  },
+  {
+    name: "wb_eval",
+    description: "Run Lua in a mod's live engine VM (real projectzomboid.jar classes, the mod's Lua loaded). `return` values come back as data; print output too. Globals: PZEngine (instanceItem, cell, loadWorld, gameTime...), WB (WB.tools.<name>(args) calls any workbench tool directly; WB.ref/deref for live objects). Use PZEngine.cell() for real squares (getCell() is a mock), with PZEngine.setServer(true) around world lookups.",
+    inputSchema: { type: "object", properties: { mod: MOD, lua: { type: "string" } }, required: ["mod", "lua"] },
+    run: async (a) => call(a.mod, "eval", { src: a.lua }),
+  },
+  {
+    name: "wb_call",
+    description: "Call any workbench tool in a mod's VM. Tools: items{q}, item{fullType}, recipes{q}, recipe{name}, craftPlan{recipe}, craft{recipe, items:[{type,count,steps?,input?}|{ref}], bench?, enforce?}, addonPanels{type|ref}, addonRun{ref, addon, action, params}, addons{}, scriptTypes{}, scriptList{type,q}, scriptInfo{type,name}, worldLoad{}, worldArea{x,y,r}, worldSquare{x,y,z}, worldTiles{x0,y0,x1,y1}, worldVerbs{ref}, worldVerb{ref,verb,params}, clockStatus{}, clockAdvance{minutes,refs}, itemTooltip{ref,detail}, worldTooltip{ref}, devReload{lua,scripts}, setRandom{mode,seed}, resolvePath{expr|ref,steps}, inspect{ref}, invoke{ref,method,args}, spriteProps{sprite}, stampSprite{sprite,set,flags,unset,tileType}, stampUndo{sprite}, stampList{}, stampExport{name,folder,guard,tweak} (boot-time Lua for the stamps), recipeDraft{draft,mod} (craftRecipe text + item checks), recipeParse{text}, worldBindEntity{ref,name}, vhsTapes{q} (recorded media registry), vhsPlay{id|ref, tv?, dx?, dy?, dz?, volume?, forget?, asleep?} (play a tape through OnDeviceText; per-line halos, stat/xp/recipe/modData changes).",
+    inputSchema: { type: "object", properties: { mod: MOD, tool: { type: "string" }, args: { type: "object" } }, required: ["mod", "tool"] },
+    run: async (a) => call(a.mod, a.tool, a.args),
+  },
+  {
+    name: "wb_world_square",
+    description: "The real B42 map square at world coordinates (loads the world and the surrounding chunks on first use, ~5s): room, every object's class, sprite, entity, components, containers, fluid, tile properties, and live refs for wb_call worldVerbs/worldVerb/worldTooltip.",
+    inputSchema: { type: "object", properties: { mod: MOD, x: { type: "number" }, y: { type: "number" }, z: { type: "number" } }, required: ["mod", "x", "y"] },
+    run: async (a) => call(a.mod, "worldSquare", { x: a.x, y: a.y, z: a.z || 0 }),
+  },
+  {
+    name: "wb_craft",
+    description: "Run a real craftRecipe through the engine (HandcraftLogic + vanilla performRecipe + the mod's Lua hooks), gated on canPerformCurrentRecipe like the game. items: [{type, count?, steps?:[{addon,action,params}], input?: slotIndex}] or [{ref}] for live items. Workstation recipes run at a real CraftBench entity automatically; bench:false crafts in hand. Returns consumed/kept/outputs with addon panels, hooks called, commands sent.",
+    inputSchema: { type: "object", properties: { mod: MOD, recipe: { type: "string" }, items: { type: "array" }, bench: {}, monitor: { type: "boolean" } }, required: ["mod", "recipe", "items"] },
+    run: async (a) => call(a.mod, "craft", { recipe: a.recipe, items: a.items, qualify: true, mode: "action", enforce: true, bench: a.bench, monitor: !!a.monitor }),
+  },
+  {
+    name: "wb_reload",
+    description: "Live dev loop: reload edited mod code into the running VM without restarting. lua: require names (e.g. 'SauceTweaks/Packing'; fresh source is read from disk, old event listeners are replaced). scripts: ScriptType names to re-parse (CraftRecipe, Entity, Fixing...; Item does not hot-reload safely -- restart the VM for item edits).",
+    inputSchema: { type: "object", properties: { mod: MOD, lua: { type: "array", items: { type: "string" } }, scripts: { type: "array", items: { type: "string" } } }, required: ["mod"] },
+    run: async (a) => call(a.mod, "devReload", { lua: a.lua || [], scripts: a.scripts || [] }),
+  },
+  {
+    name: "wb_clock",
+    description: "Advance the engine's world clock: fires EveryOneMinute/TenMinutes/Hours/Days on their real boundaries and ages the given live items (refs) via the engine's own code (food rot etc.).",
+    inputSchema: { type: "object", properties: { mod: MOD, minutes: { type: "number" }, refs: { type: "array", items: { type: "number" } } }, required: ["mod", "minutes"] },
+    run: async (a) => call(a.mod, "clockAdvance", { minutes: a.minutes, refs: a.refs || [] }),
+  },
+  {
+    name: "wb_test",
+    description: "Run a mod's pz-test-kit suite (or one file via `only`, a path relative to the mod root) and return totals plus every failing case with its output.",
+    inputSchema: { type: "object", properties: { mod: MOD, only: { type: "string" } }, required: ["mod"] },
+    run: async (a) => {
+      const root = path.join(MONO, a.mod);
+      if (!fs.existsSync(path.join(root, "pz-test.lua"))) throw new Error("no pz-test.lua under " + root);
+      return runTests(root, a.only);
+    },
+  },
+];
+
+// ── MCP stdio plumbing ──────────────────────────────────────────────────────
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\n"); }
+async function handle(msg) {
+  const { id, method, params } = msg;
+  if (method === "initialize") {
+    return send({ jsonrpc: "2.0", id, result: {
+      protocolVersion: (params && params.protocolVersion) || "2024-11-05",
+      capabilities: { tools: {} },
+      serverInfo: { name: "pz-workbench", version: "0.1.0" },
+      instructions: "The pz-test-kit Engine Workbench: Project Zomboid B42's real engine (projectzomboid.jar) running each mod's Lua headless, with the real map, crafting, timed actions, a world clock and tooltips. Prefer verifying PZ behaviour here over reasoning from decompiled source. Same VMs as the browser board at " + BASE + "/workbench.",
+    } });
+  }
+  if (method === "notifications/initialized" || (method && method.startsWith("notifications/"))) return;
+  if (method === "ping") return send({ jsonrpc: "2.0", id, result: {} });
+  if (method === "tools/list") {
+    return send({ jsonrpc: "2.0", id, result: { tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) } });
+  }
+  if (method === "tools/call") {
+    const t = TOOLS.find((x) => x.name === (params && params.name));
+    if (!t) return send({ jsonrpc: "2.0", id, error: { code: -32602, message: "unknown tool " + (params && params.name) } });
+    try {
+      const r = await t.run((params && params.arguments) || {});
+      let text = JSON.stringify(r, null, 1);
+      if (text.length > 60000) text = text.slice(0, 60000) + "\n... (truncated)";
+      return send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
+    } catch (e) {
+      return send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "error: " + e.message }], isError: true } });
+    }
+  }
+  if (id !== undefined) send({ jsonrpc: "2.0", id, error: { code: -32601, message: "method not found: " + method } });
+}
+
+let buf = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buf += chunk;
+  let nl;
+  while ((nl = buf.indexOf("\n")) >= 0) {
+    const line = buf.slice(0, nl).trim();
+    buf = buf.slice(nl + 1);
+    if (!line) continue;
+    let msg;
+    try { msg = JSON.parse(line); } catch (_) { continue; }
+    handle(msg).catch((e) => { if (msg.id !== undefined) send({ jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: e.message } }); });
+  }
+});

@@ -55,6 +55,8 @@ for _, t in ipairs(TYPES) do BY_ID[t.id] = t end
 WB.scriptTypes = BY_ID
 
 local cache = {}
+WB.scriptCaches = WB.scriptCaches or {}
+WB.scriptCaches[#WB.scriptCaches + 1] = cache   -- cleared after a script reload (70_dev.lua)
 local function entries(t)
     if cache[t.id] then return cache[t.id] end
     local out = {}

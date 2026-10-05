@@ -154,11 +154,44 @@ function WB.runTimed(action, opts)
 end
 
 WB.serverLoaded = WB.serverLoaded or {}
+-- Loaded once per VM -- but a test run clears event listeners between test
+-- cases, so "already loaded" is only true while the listeners that load
+-- registered are still in place. Record them; reload when any is gone.
+local function listenerSnapshot()
+    local s = {}
+    for name, evt in pairs(Events or {}) do
+        if type(evt) == "table" and evt._listeners then
+            local set = {}
+            for _, fn in ipairs(evt._listeners) do set[fn] = true end
+            s[name] = set
+        end
+    end
+    return s
+end
+local function stillRegistered(added)
+    for _, e in ipairs(added or {}) do
+        local evt = Events and rawget(Events, e.event)
+        local found = false
+        for _, fn in ipairs((evt and evt._listeners) or {}) do if fn == e.fn then found = true; break end end
+        if not found then return false end
+    end
+    return true
+end
+
 function WB.serverRequire(name)
-    if WB.serverLoaded[name] then return true end
+    local prev = WB.serverLoaded[name]
+    if prev and stillRegistered(prev) then return true end
+    local before = listenerSnapshot()
     _pz_package_loaded[name] = nil
     inContext(false, true, function() require(name) end)
-    WB.serverLoaded[name] = true
+    local added = {}
+    for evName, evt in pairs(Events or {}) do
+        if type(evt) == "table" and evt._listeners then
+            local was = before[evName] or {}
+            for _, fn in ipairs(evt._listeners) do if not was[fn] then added[#added + 1] = { event = evName, fn = fn } end end
+        end
+    end
+    WB.serverLoaded[name] = added
     return true
 end
 

@@ -17,6 +17,8 @@ local function s(v) if v == nil then return nil end return tostring(v) end
 
 -- ── caches (built once per VM; scripts don't change under a resident VM) ──
 local cache = {}
+WB.scriptCaches = WB.scriptCaches or {}
+WB.scriptCaches[#WB.scriptCaches + 1] = cache   -- cleared after a script reload (70_dev.lua)
 
 local function allItems()
     if cache.items then return cache.items end

@@ -54,6 +54,7 @@ WB.register("worldTooltip", function(a)
     if not o then error("object $" .. tostring(a.ref) .. " is gone (VM restarted?) - reload the square") end
     loadUiview(a.sources)
     if WB.tooltip and WB.tooltip.strings then WB.tooltip.strings(a.strings) end
+    if WB.tooltip and WB.tooltip.vanilla then WB.tooltip.vanilla() end
     local saved = { isClient, isServer, getPlayer, getSpecificPlayer }
     -- Providers gate on the local player (range, line of sight): stand the
     -- workbench player on the object's square, as you would to hover it.
