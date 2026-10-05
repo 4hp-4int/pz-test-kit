@@ -811,7 +811,8 @@ class DevWatch {
         const res = await b.call("devReload", { lua, sources, scripts: hot });
         ev.result = res.value || res;
       }
-      if (tools.length) { await b.loadTools(); ev.tools = tools; }
+      // Addons bind module tables at load; a mod-Lua reload re-binds them too.
+      if (tools.length || lua.length) { await b.loadTools(); ev.tools = tools.length ? tools : "rebound"; }
       this.push(ev);
     } finally { this.busy = false; }
   }
@@ -1184,6 +1185,14 @@ async function handle(req, res, url, ctx) {
           body.args.sources = UIVIEW_FILES.map((n) => ({ name: "UIView/" + n, src: fs.readFileSync(path.join(UIVIEW_LUA, n + ".lua"), "utf8") }));
         }
         const r = await b.call(body.tool, body.args);
+        // Mod modules reloaded: re-run the tool + addon Lua too. Addons bind
+        // module tables at load (VPS: UpgradeManager = VS.UpgradeManager), so
+        // without this their tools keep calling the OLD code after a reload
+        // -- the 2026-10-05 "Invalid bonding ID nil" spam was exactly that.
+        if (body.tool === "devReload" && body.args && Array.isArray(body.args.lua) && body.args.lua.length) {
+          await b.loadTools();
+          if (r.value && typeof r.value === "object") r.value.toolsRebound = true;
+        }
         augment(mod, body.tool, r.value, body.args);
         json(res, 200, { ok: true, ms: Date.now() - t0, value: r.value, out: r.out });
       } catch (e) {

@@ -205,6 +205,27 @@ public class KahluaTestRunner {
         // its name set as _pz_only. Blank lines and # comments are ignored; a
         // bare file line (no ::) runs that whole file.
         Map<String, Set<String>> onlyMap = null;
+        // `--only Foo.lua` (the MCP `test` tool's `only`, and anyone typing it)
+        // names ONE TEST FILE, not a list: run exactly that file. And a list
+        // path that is not absolute resolves against the MOD ROOT -- the
+        // runner cd's into kahlua/, so a relative path read from cwd never
+        // existed (NoSuchFileException at this line, 2026-10-05).
+        if (onlyListPath != null && onlyListPath.toLowerCase().endsWith(".lua")) {
+            String f = onlyListPath.replace('\\', '/');
+            Path abs = Paths.get(f);
+            if (abs.isAbsolute()) {
+                Path root = modRoot.toAbsolutePath().normalize();
+                Path n = abs.toAbsolutePath().normalize();
+                f = n.startsWith(root) ? root.relativize(n).toString().replace('\\', '/') : n.toString();
+            }
+            onlyMap = new LinkedHashMap<>();
+            onlyMap.put(f, new LinkedHashSet<>());
+            tests = new ArrayList<>(onlyMap.keySet());
+            onlyListPath = null;
+        } else if (onlyListPath != null && !Paths.get(onlyListPath).isAbsolute()
+                   && !Files.exists(Paths.get(onlyListPath))) {
+            onlyListPath = modRoot.resolve(onlyListPath).toString();
+        }
         if (onlyListPath != null) {
             onlyMap = new LinkedHashMap<>();
             for (String ln : Files.readAllLines(Paths.get(onlyListPath))) {
