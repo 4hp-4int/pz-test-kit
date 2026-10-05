@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PZ Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  --bg: #0e1012; --panel: #15181b; --panel2: #1b1f23; --line: #272c31; --line2: #33393f;
+  --text: #d5d8db; --muted: #858c93; --dim: #5d646b;
+  --pass: #5fb36b; --fail: #e0564f; --err: #e0913c; --accent: #d9a441; --link: #7fb2e0; --turn: #c97be0;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, "Segoe UI", sans-serif; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--link); text-decoration: none; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); } .dim { color: var(--dim); } .acc { color: var(--accent); } .bad { color: var(--fail); }
+#app { display: grid; grid-template-rows: 44px 1fr; height: 100vh; }
+header { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 13px; letter-spacing: .14em; margin: 0; color: var(--accent); font-weight: 700; white-space: nowrap; }
+header h1 small { color: var(--muted); letter-spacing: .05em; font-weight: 400; margin-left: 6px; }
+select, .inp, textarea { background: var(--bg); border: 1px solid var(--line2); border-radius: 3px; padding: 3px 7px; }
+.btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: #17130a; border-color: var(--accent); font-weight: 600; }
+.btn.small { padding: 1px 7px; font-size: 11px; }
+.btn.on { border-color: var(--accent); color: var(--accent); }
+.badge { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border: 1px solid var(--line2); border-radius: 3px; color: var(--muted); }
+.spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; vertical-align: -1px; }
+@keyframes rot { to { transform: rotate(360deg); } }
+main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 400px; min-height: 0; }
+aside { border-right: 1px solid var(--line); background: var(--panel); padding: 10px; overflow: auto; }
+#side { border-left: 1px solid var(--line); border-right: 0; }
+#view { overflow: auto; padding: 12px 16px 60px; min-width: 0; }
+.h { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin: 12px 0 4px; }
+.field { margin: 6px 0; } .field label { display: block; font-size: 11px; color: var(--muted); } .field .inp, .field select { width: 100%; }
+.field .doc { font-size: 10.5px; color: var(--dim); }
+.tabs { display: flex; gap: 4px; margin: 0 0 10px; }
+.studio { padding: 5px 7px; border-radius: 3px; cursor: pointer; border: 1px solid transparent; }
+.studio:hover { border-color: var(--line2); } .studio.sel { border-color: var(--accent); background: var(--panel2); }
+.studio .d { font-size: 10.5px; color: var(--dim); }
+.row { padding: 6px 8px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 70px 1fr; gap: 8px; }
+.row:hover { background: var(--panel); } .row.sel { background: var(--panel2); outline: 1px solid var(--accent); }
+.row .at { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.row .txt { white-space: pre-wrap; }
+.chips { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-family: var(--mono); font-size: 10.5px; padding: 0 5px; border: 1px solid var(--line2); border-radius: 2px; color: var(--muted); }
+.chip.turn { border-color: var(--turn); color: var(--turn); } .chip.era { color: var(--accent); }
+table { border-collapse: collapse; width: 100%; } td, th { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 11px; position: sticky; top: 0; background: var(--bg); }
+.num { text-align: right; font-family: var(--mono); font-size: 11.5px; }
+.ab { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.ab .cell { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: pre-wrap; }
+.ab .cell.chg { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; margin: 0 0 12px; padding: 8px; }
+.chart h4 { margin: 0 0 4px; font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; margin-top: 4px; }
+.legend span { cursor: pointer; } .legend span.off { opacity: .35; }
+.ov { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 11.5px; }
+.empty { color: var(--dim); padding: 20px; text-align: center; }
+pre.log { background: var(--bg); border: 1px solid var(--line); padding: 6px; font-size: 11px; color: var(--muted); max-height: 160px; overflow: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>PZ STUDIO<small>text generators, read the way players hear them</small></h1>
+    <select id="mod" title="Mod whose workbench addons declare studios"></select>
+    <span id="state" class="badge">idle</span>
+    <span id="info" class="muted mono" style="font-size:11px"></span>
+    <span style="flex:1"></span>
+    <button class="btn small" id="reload" title="Re-run workbench tools and addons in the live VM (after editing story JSON or an addon)">reload tools</button>
+    <a class="btn small" href="/workbench">workbench</a>
+    <a class="btn small" href="/">tests dashboard</a>
+  </header>
+  <main>
+    <aside>
+      <div class="h">Studios</div>
+      <div id="studios"><div class="dim">loading...</div></div>
+      <div class="h">Parameters</div>
+      <div id="params"></div>
+    </aside>
+    <section id="view">
+      <div class="tabs" id="tabs"></div>
+      <div id="pane"><div class="empty">Pick a studio.</div></div>
+    </section>
+    <aside id="side">
+      <div class="h">Anatomy</div>
+      <div id="anatomy" class="dim">Click a line to see why it was said.</div>
+      <div class="h">A/B overrides</div>
+      <div id="overrides"></div>
+    </aside>
+  </main>
+</div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const arr = (v) => Array.isArray(v) ? v : [];   // the Lua encoder writes an empty table as {}
+const S = { mod: null, studios: [], cur: null, tab: "listen", params: {}, listen: null, sel: -1, frags: {}, fragList: [], overrides: [], curves: null, ab: null, hidden: {} };
+const PALETTE = ["#d9a441", "#7fb2e0", "#5fb36b", "#e0564f", "#c97be0", "#e0913c", "#4fc1b8", "#b8b04f", "#9aa0a6", "#e07fb2", "#7f8fe0", "#8fe07f"];
+
+async function call(tool, args) {
+  setState("busy");
+  try {
+    const r = await fetch(`/api/wb/${S.mod}/call`, { method: "POST", body: JSON.stringify({ tool, args: args || {} }) }).then((r) => r.json());
+    if (!r.ok) throw new Error(r.error || "call failed");
+    if (r.value && r.value.error) throw new Error(r.value.error);
+    $("#info").textContent = r.ms ? `${tool} ${r.ms} ms` : "";
+    return r.value || {};
+  } finally { setState(); }
+}
+async function setState(s) {
+  const b = $("#state");
+  if (s === "busy") { b.innerHTML = '<span class="spin"></span> working'; return; }
+  const st = await fetch(`/api/wb/${S.mod}/status`).then((r) => r.json()).catch(() => null);
+  b.textContent = st ? st.state : "?";
+}
+
+// ---- studios + params -------------------------------------------------------
+async function loadStudios() {
+  $("#studios").innerHTML = '<div class="dim"><span class="spin"></span> booting the VM (first call can take a while)...</div>';
+  let v;
+  try { v = await call("studios"); }
+  catch (e) { $("#studios").innerHTML = `<div class="bad">${esc(e.message)}</div>`; return; }
+  S.studios = arr(v.studios);
+  const errs = arr(v.loadErrors);
+  $("#studios").innerHTML = (S.studios.length ? S.studios.map((s, i) =>
+    `<div class="studio" data-i="${i}"><b>${esc(s.label)}</b> <span class="dim">${esc(s.addonName)}</span>${s.disabled ? `<div class="bad">${esc(s.disabled)}</div>` : ""}<div class="d">${esc(s.doc || "")}</div></div>`).join("")
+    : '<div class="dim">This mod declares no studios. Add <span class="mono">studios = {...}</span> to a workbench addon (see 45_studios.lua).</div>')
+    + errs.map((e) => `<div class="bad mono">${esc(e.file)}: ${esc(e.error)}</div>`).join("");
+  $("#studios").querySelectorAll(".studio").forEach((el) => el.onclick = () => pickStudio(+el.dataset.i));
+  const hp = new URLSearchParams(location.hash.slice(1));
+  const want = hp.get("studio");
+  if (hp.get("tab")) S.tab = hp.get("tab");
+  const idx = Math.max(0, S.studios.findIndex((s) => s.id === want));
+  if (S.studios.length) pickStudio(idx);
+}
+
+function pickStudio(i) {
+  S.cur = S.studios[i];
+  S.listen = S.curves = S.ab = null; S.sel = -1; S.frags = {}; S.fragList = []; S.overrides = []; S.hidden = {};
+  $("#studios").querySelectorAll(".studio").forEach((el) => el.classList.toggle("sel", +el.dataset.i === i));
+  history.replaceState(null, "", `#mod=${encodeURIComponent(S.mod)}&studio=${encodeURIComponent(S.cur.id)}&tab=${S.tab}`);
+  S.params = {};
+  for (const p of arr(S.cur.params)) S.params[p.name] = p.default ?? "";
+  renderParams(); renderTabs(); renderOverrides(); $("#anatomy").innerHTML = '<span class="dim">Click a line to see why it was said.</span>';
+  if (S.cur.has.fragments) loadFragments();
+  run();
+}
+
+function renderParams() {
+  $("#params").innerHTML = arr(S.cur.params).map((p) => {
+    const v = S.params[p.name];
+    const input = p.type === "select"
+      ? `<select data-p="${esc(p.name)}">${arr(p.options).map((o) => `<option ${String(o) === String(v) ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+      : p.type === "bool" ? `<input type="checkbox" data-p="${esc(p.name)}" ${v ? "checked" : ""}>`
+      : `<input class="inp" data-p="${esc(p.name)}" value="${esc(v)}">`;
+    return `<div class="field"><label>${esc(p.label)}</label>${input}${p.doc ? `<div class="doc">${esc(p.doc)}</div>` : ""}</div>`;
+  }).join("") + `<button class="btn primary" id="go" style="margin-top:8px;width:100%">Run</button>`;
+  $("#params").querySelectorAll("[data-p]").forEach((el) => el.onchange = () => {
+    S.params[el.dataset.p] = el.type === "checkbox" ? el.checked : el.value;
+  });
+  $("#go").onclick = run;
+}
+
+function renderTabs() {
+  const h = S.cur.has;
+  const tabs = [["listen", "Listen"], ["wear", "Wear"]];
+  if (h.curves) tabs.push(["curves", "Curves"]);
+  if (h.ab) tabs.push(["ab", "A/B"]);
+  if (!tabs.some((t) => t[0] === S.tab)) S.tab = "listen";
+  $("#tabs").innerHTML = tabs.map(([id, l]) => `<button class="btn ${S.tab === id ? "on" : ""}" data-t="${id}">${l}</button>`).join("");
+  $("#tabs").querySelectorAll("button").forEach((b) => b.onclick = () => {
+    S.tab = b.dataset.t; renderTabs(); run(true);
+    history.replaceState(null, "", `#mod=${encodeURIComponent(S.mod)}&studio=${encodeURIComponent(S.cur.id)}&tab=${S.tab}`);
+  });
+}
+
+async function loadFragments() {
+  try {
+    const v = await call("studioRun", { addon: S.cur.addon, studio: S.cur.id, view: "fragments", params: S.params });
+    S.fragList = arr(v.fragments);
+    for (const f of S.fragList) S.frags[f.id] = f;
+    renderOverrides();
+  } catch (e) { /* optional view */ }
+}
+
+// ---- running ----------------------------------------------------------------
+async function run(cachedOk) {
+  const pane = $("#pane");
+  const base = { addon: S.cur.addon, studio: S.cur.id, params: S.params };
+  try {
+    if (S.tab === "listen" || S.tab === "wear") {
+      if (!(cachedOk && S.listen)) { pane.innerHTML = '<div class="empty"><span class="spin"></span></div>'; S.listen = await call("studioRun", { ...base, view: "listen" }); }
+      S.tab === "listen" ? renderListen() : renderWear();
+    } else if (S.tab === "curves") {
+      if (!(cachedOk && S.curves)) { pane.innerHTML = '<div class="empty"><span class="spin"></span></div>'; S.curves = await call("studioRun", { ...base, view: "curves" }); }
+      renderCurves();
+    } else if (S.tab === "ab") {
+      if (!S.overrides.length) { pane.innerHTML = '<div class="empty">Add an override on the right (edit a fragment\'s text or weight), then run.</div>'; return; }
+      if (!(cachedOk && S.ab)) { pane.innerHTML = '<div class="empty"><span class="spin"></span></div>'; S.ab = await call("studioRun", { ...base, view: "ab", overrides: S.overrides }); }
+      renderAB();
+    }
+  } catch (e) { pane.innerHTML = `<div class="bad mono" style="white-space:pre-wrap">${esc(e.message)}</div>`; }
+}
+
+// ---- listen + anatomy -------------------------------------------------------
+function subjectChips(tr) {
+  const out = [`<span class="chip era">${esc(tr.era || "?")}</span>`, `<span class="chip">${esc(tr.shape || "")}</span>`];
+  if (tr.magnitude != null) out.push(`<span class="chip">m${tr.magnitude}</span>`);
+  if (tr.clear) out.push(`<span class="chip turn">clear line</span>`);
+  for (const sl of arr(tr.slots)) {
+    if (sl.slot !== "subject" || sl.empty) continue;
+    out.push(`<span class="chip ${sl.turn ? "turn" : ""}" title="${esc(sl.frag)}">${esc(sl.family)}${sl.turn ? " · turn" : ""}</span>`);
+  }
+  return `<div class="chips">${out.join("")}</div>`;
+}
+function renderListen() {
+  const v = S.listen, rows = arr(v.rows), m = v.meta || {};
+  const head = `<div class="muted" style="margin-bottom:8px">${rows.length} airings${m.profile ? ` · ${esc(m.profile)}, ${esc(m.days)} days` : ""}${m.predecessor ? ` · predecessor ${esc(m.predecessor)} (${esc(m.fate)})` : ""}${m.fidelity != null ? ` · end fidelity ${Math.round(m.fidelity)}` : ""}
+    <label style="margin-left:12px"><input type="checkbox" id="why" ${S.why ? "checked" : ""}> show why</label></div>`;
+  $("#pane").innerHTML = head + (rows.length ? rows.map((r, i) =>
+    `<div class="row ${i === S.sel ? "sel" : ""}" data-i="${i}"><div class="at">${esc(r.at)}</div><div><div class="txt">${esc(r.text)}</div>${S.why && r.trace ? subjectChips(r.trace) : ""}</div></div>`).join("")
+    : '<div class="empty">This voice never aired in that life. Try another profile, more days, or sample mode.</div>');
+  $("#why").onchange = (e) => { S.why = e.target.checked; renderListen(); };
+  $("#pane").querySelectorAll(".row").forEach((el) => el.onclick = () => { S.sel = +el.dataset.i; renderListen(); renderAnatomy(rows[S.sel]); });
+}
+function renderAnatomy(r) {
+  if (!r) return;
+  const tr = r.trace || {};
+  const kv = (k, v) => v == null ? "" : `<tr><td class="muted">${esc(k)}</td><td class="mono">${esc(v)}</td></tr>`;
+  const slots = arr(tr.slots).map((sl) => {
+    if (sl.empty) return `<tr><td>${esc(sl.slot)}</td><td colspan="3" class="dim">no eligible fragment (truncated)</td></tr>`;
+    const f = S.frags[sl.frag];
+    const p = sl.total ? (100 * sl.weight / sl.total).toFixed(0) + "% of " + sl.of : sl.of ? "1 of " + sl.of : "";
+    return `<tr><td>${esc(sl.slot)}${sl.turn ? ' <span class="chip turn">turn</span>' : ""}</td>
+      <td><div class="mono acc">${esc(sl.frag)}</div><div>${esc(f ? f.text : "")}</div></td>
+      <td class="mono">${esc(sl.family || "")}${sl.magnitude != null ? " m" + sl.magnitude : ""}</td><td class="num">${esc(p)}</td></tr>`;
+  }).join("");
+  const q = Object.entries(r.q || {}).map(([k, v]) => kv(k, typeof v === "number" ? Math.round(v * 100) / 100 : v)).join("");
+  $("#anatomy").innerHTML = `<div style="white-space:pre-wrap;margin-bottom:8px">${esc(r.text)}</div>
+    <table>${kv("at", r.at)}${kv("era", tr.era + (tr.eraIdx != null ? " (#" + tr.eraIdx + ")" : ""))}${kv("counter", tr.counter)}${kv("shape", tr.shape)}${kv("magnitude", tr.magnitude)}${kv("eligible subjects", tr.eligible)}${tr.shift ? kv("era shift line", tr.shift) : ""}${q}</table>
+    <div class="h">Slots</div><table><tr><th>slot</th><th>fragment</th><th>family</th><th class="num">odds</th></tr>${slots}</table>`;
+}
+
+// ---- wear (computed from traces) --------------------------------------------
+function renderWear() {
+  const rows = arr(S.listen.rows);
+  const per = {};
+  rows.forEach((r, i) => {
+    for (const sl of arr(r.trace && r.trace.slots)) {
+      if (sl.empty || !sl.frag) continue;
+      const k = sl.frag;
+      const e = per[k] || (per[k] = { frag: k, slot: sl.slot, family: sl.family || sl.slot, turn: !!sl.turn, n: 0, days: [] });
+      e.n++; e.days.push(r.day);
+    }
+  });
+  const list = Object.values(per).map((e) => {
+    const gaps = e.days.slice(1).map((d, i) => d - e.days[i]);
+    return { ...e, first: e.days[0], repeatAt: e.days[1], minGap: gaps.length ? Math.min(...gaps) : null };
+  }).sort((a, b) => b.n - a.n);
+  // Back-to-back turns of the same family: two consecutive airings whose
+  // turning subjects share a family -- the same kind of wrong, twice running.
+  const b2b = [];
+  let prev = null;
+  rows.forEach((r) => {
+    const turns = arr(r.trace && r.trace.slots).filter((s) => s.turn).map((s) => s.family);
+    if (prev && turns.some((f) => prev.turns.includes(f))) b2b.push(`${prev.at} → ${r.at}: ${turns.filter((f) => prev.turns.includes(f)).join(", ")}`);
+    prev = turns.length ? { at: r.at, turns } : prev && { ...prev, turns: [] };
+  });
+  const turnsAired = list.filter((e) => e.turn).reduce((a, e) => a + e.n, 0), allAired = list.filter((e) => e.slot === "subject").reduce((a, e) => a + e.n, 0);
+  const total = S.fragList.filter((f) => f.group !== "opening" && f.group !== "closing").length;
+  const heard = list.filter((e) => e.slot === "subject").length;
+  $("#pane").innerHTML = `<div class="muted" style="margin-bottom:8px">${rows.length} airings · ${heard}${total ? " of " + total : ""} subjects heard · turn share ${allAired ? Math.round(100 * turnsAired / allAired) : 0}% · ${b2b.length} back-to-back same-kind turns</div>
+    ${b2b.length ? `<div class="h">Same kind of wrong, twice running</div><pre class="log">${esc(b2b.join("\n"))}</pre>` : ""}
+    <div class="h">Per fragment</div>
+    <table><tr><th>fragment</th><th>family</th><th class="num">aired</th><th class="num">first</th><th class="num">repeats at</th><th class="num">min gap (days)</th></tr>
+    ${list.map((e) => `<tr><td><span class="mono ${e.turn ? "" : ""}" style="color:${e.turn ? "var(--turn)" : "inherit"}">${esc(e.frag)}</span><div class="dim">${esc((S.frags[e.frag] || {}).text || "")}</div></td>
+      <td class="mono">${esc(e.family)}</td><td class="num">${e.n}</td><td class="num">${e.first ?? ""}</td><td class="num">${e.repeatAt ?? ""}</td><td class="num">${e.minGap ?? ""}</td></tr>`).join("")}</table>`;
+}
+
+// ---- curves -----------------------------------------------------------------
+function lineChart(title, x, series, opts = {}) {
+  const W = 760, H = 180, L = 40, R = 10, T = 8, B = 22;
+  const vis = series.filter((s) => !S.hidden[s.id]);
+  let max = opts.max ?? Math.max(1e-9, ...vis.flatMap((s) => arr(s.values)));
+  if (!isFinite(max) || max <= 0) max = 1;
+  const xs = (i) => L + (x.length > 1 ? (i / (x.length - 1)) * (W - L - R) : 0);
+  const ys = (v) => T + (1 - v / max) * (H - T - B);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${ys(max * f)}" y2="${ys(max * f)}" stroke="#272c31"/><text x="${L - 4}" y="${ys(max * f) + 3}" fill="#5d646b" font-size="9" text-anchor="end">${+(max * f).toFixed(max < 2 ? 2 : 0)}</text>`).join("");
+  const ticks = x.map((v, i) => (i % Math.ceil(x.length / 12) === 0) ? `<text x="${xs(i)}" y="${H - 6}" fill="#5d646b" font-size="9" text-anchor="middle">${v}</text>` : "").join("");
+  const lines = series.map((s, si) => S.hidden[s.id] ? "" : `<polyline fill="none" stroke="${PALETTE[si % PALETTE.length]}" stroke-width="1.6" points="${arr(s.values).map((v, i) => `${xs(i)},${ys(v || 0)}`).join(" ")}"><title>${esc(s.name)}</title></polyline>`).join("");
+  const legend = series.map((s, si) => `<span data-s="${esc(s.id)}" class="${S.hidden[s.id] ? "off" : ""}" style="color:${PALETTE[si % PALETTE.length]}">■ ${esc(s.name)}</span>`).join("");
+  return `<div class="chart"><h4>${esc(title)}</h4><svg viewBox="0 0 ${W} ${H}" width="100%">${grid}${ticks}${lines}</svg><div class="legend">${legend}</div></div>`;
+}
+function renderCurves() {
+  const v = S.curves, x = arr(v.x), series = arr(v.series);
+  const groups = {};
+  for (const s of series) (groups[s.group || "series"] = groups[s.group || "series"] || []).push(s);
+  const order = ["family", "shape", "volume", "player"];
+  const names = Object.keys(groups).sort((a, b) => (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99);
+  const shareMax = { family: 1 };
+  $("#pane").innerHTML = `<div class="muted" style="margin-bottom:8px">${esc(v.title || "")} · x = ${esc(v.xLabel || "")} · click a legend entry to hide it</div>`
+    + names.map((g) => {
+      // Shape mixes a 0-1 share with slot counts; split so each keeps its scale.
+      if (g === "shape") {
+        const share = groups[g].filter((s) => s.id === "turn"), rest = groups[g].filter((s) => s.id !== "turn");
+        return (share.length ? lineChart("turn share", x, share, { max: 1 }) : "") + (rest.length ? lineChart("length + magnitude", x, rest) : "");
+      }
+      return lineChart(g, x, groups[g], { max: shareMax[g] });
+    }).join("");
+  $("#pane").querySelectorAll(".legend span").forEach((el) => el.onclick = () => { S.hidden[el.dataset.s] = !S.hidden[el.dataset.s]; renderCurves(); });
+}
+
+// ---- A/B --------------------------------------------------------------------
+function renderOverrides() {
+  if (!S.cur || !S.cur.has.ab) { $("#overrides").innerHTML = '<span class="dim">This studio has no apply(): A/B unavailable.</span>'; return; }
+  const groups = {};
+  for (const f of S.fragList) (groups[f.group] = groups[f.group] || []).push(f);
+  const opts = Object.entries(groups).map(([g, fs]) => `<optgroup label="${esc(g)}">${fs.map((f) => `<option value="${esc(f.id)}">${esc(f.id)}${f.tags && f.tags.turn ? " (turn)" : ""}</option>`).join("")}</optgroup>`).join("");
+  $("#overrides").innerHTML = `
+    <div class="field"><label>fragment</label><select id="ovf">${opts}</select></div>
+    <div class="field"><label>text</label><textarea id="ovt" rows="3" style="width:100%"></textarea></div>
+    <div class="field"><label>weight <span class="dim" id="ovwcur"></span></label><input class="inp" id="ovw" placeholder="unchanged"></div>
+    <button class="btn" id="ovadd">add override</button>
+    <div style="margin-top:8px">${S.overrides.map((o, i) => `<div class="ov"><span><span class="mono acc">${esc(o.id)}</span> ${o.kind === "text" ? "text → " + esc(String(o.value).slice(0, 60)) : "weight → " + esc(o.value)}</span><button class="btn small" data-rm="${i}">×</button></div>`).join("") || '<span class="dim">none yet</span>'}</div>
+    ${S.overrides.length ? '<button class="btn primary" id="ovrun" style="margin-top:8px;width:100%">Run A/B</button>' : ""}`;
+  const sync = () => { const f = S.frags[$("#ovf").value]; $("#ovt").value = f ? f.text : ""; $("#ovwcur").textContent = f && f.tags && f.tags.weight != null ? `(now ${f.tags.weight})` : ""; };
+  if (S.fragList.length) { $("#ovf").onchange = sync; sync(); }
+  $("#ovadd").onclick = () => {
+    const id = $("#ovf").value, f = S.frags[id];
+    if (f && $("#ovt").value !== f.text) S.overrides.push({ kind: "text", id, value: $("#ovt").value });
+    if ($("#ovw").value !== "") S.overrides.push({ kind: "weight", id, value: Number($("#ovw").value) });
+    S.ab = null; renderOverrides();
+  };
+  $("#overrides").querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { S.overrides.splice(+b.dataset.rm, 1); S.ab = null; renderOverrides(); });
+  if ($("#ovrun")) $("#ovrun").onclick = () => { S.tab = "ab"; S.ab = null; renderTabs(); run(); };
+}
+function renderAB() {
+  const b = arr(S.ab.base && S.ab.base.rows), a = arr(S.ab.alt && S.ab.alt.rows);
+  const n = Math.max(b.length, a.length);
+  let changed = 0;
+  const cells = [];
+  for (let i = 0; i < n; i++) {
+    const x = b[i], y = a[i], chg = !x || !y || x.text !== y.text;
+    if (chg) changed++;
+    cells.push(`<div class="cell ${chg ? "chg" : ""}"><span class="dim mono">${esc(x ? x.at : "")}</span> ${esc(x ? x.text : "(no airing)")}</div><div class="cell ${chg ? "chg" : ""}"><span class="dim mono">${esc(y ? y.at : "")}</span> ${esc(y ? y.text : "(no airing)")}</div>`);
+  }
+  $("#pane").innerHTML = `<div class="muted" style="margin-bottom:8px">${changed} of ${n} airings changed · same seed, same params; every difference is the edit's</div>
+    <div class="ab"><div class="h">before</div><div class="h">after</div>${cells.join("")}</div>`;
+}
+
+// ---- boot -------------------------------------------------------------------
+async function boot() {
+  const mods = await fetch("/api/wb/mods").then((r) => r.json());
+  const h = new URLSearchParams(location.hash.slice(1));
+  $("#mod").innerHTML = mods.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("");
+  S.mod = h.get("mod") || localStorage.studioMod || (mods.find((m) => m.id === "vps-story") || mods[0]).id;
+  $("#mod").value = S.mod;
+  $("#mod").onchange = (e) => { S.mod = localStorage.studioMod = e.target.value; loadStudios(); };
+  $("#reload").onclick = async () => { await fetch(`/api/wb/${S.mod}/reload`, { method: "POST" }); loadStudios(); };
+  setState();
+  loadStudios();
+}
+boot();
+</script>
+</body>
+</html>

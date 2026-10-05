@@ -725,6 +725,12 @@ async function handle(req, res, url, ctx) {
     fs.createReadStream(path.join(HERE, "workbench.html")).pipe(res);
     return true;
   }
+  if (p === "/studio" || p === "/studio.html") {
+    // Studios: authoring views over a mod's text generators (45_studios.lua).
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    fs.createReadStream(path.join(HERE, "studio.html")).pipe(res);
+    return true;
+  }
   if (p.startsWith("/pzchar-vendor/")) {
     if (!PZCHAR) { res.writeHead(404); res.end(); return true; }
     const base = path.join(PZCHAR, "viewer", "vendor");
