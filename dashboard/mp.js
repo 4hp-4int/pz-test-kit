@@ -75,6 +75,73 @@ function vanillaFor(modFiles, folders, pzLua) {
   return out.map((f, i) => [f, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([f]) => f);
 }
 
+// The UI layer a client side boots with (kit uiview/): UIMock's clean-room
+// ISUIElement/ISPanel/... stand in for the Java UI, so the vanilla UI tree a
+// mod hooks can load on top. Vanilla files defining what it provides are
+// skipped, by class and by require name.
+const UIVIEW_LUA = path.join(__dirname, "..", "uiview", "media", "lua", "client", "UIView");
+const UIVIEW_FILES = ["Recorder", "FontMetrics", "TextureSizes", "UIMock"];
+const UI_PROVIDED = ["ISBaseObject", "ISButton", "ISInventoryItem", "ISLabel", "ISPanel", "ISScrollBar", "ISTextEntryBox", "ISUIElement"];
+function uiLayer(pzLua) {
+  const sources = UIVIEW_FILES.map((n) => ({ name: "UIView/" + n, src: fs.readFileSync(path.join(UIVIEW_LUA, n + ".lua"), "utf8") }));
+  const idx = pzLua ? vanillaIndex(pzLua) : new Map();
+  const skip = UI_PROVIDED.map((c) => idx.get(c)).filter(Boolean).map((e) => e.file.split("/").slice(1).join("/"));
+  return { sources, skip };
+}
+
+// ── the auditor ────────────────────────────────────────────────────────────
+// Every item ID on every side: the same ID twice on one side is a DUPE; for
+// each client, its player's items against the server's copy of that player:
+// on the client only (a GHOST the server doesn't have), on the server only
+// (MISSING on the client), or both but different (DIVERGED: where it is,
+// type, condition, uses, ModData).
+// Engine behaviour, not a mod bug: InventoryItem.load calls
+// setCustomName(flag) on EVERY load (InventoryItem.java:2070), and the setter
+// writes ModData.customName whatever the flag (:3528-3531). So every copy
+// that crossed the wire (or was loaded from a save) carries customName and a
+// freshly created server copy does not: hasModData() is true on the client,
+// false on the server, for the same new item. Compared without it; noted.
+const ENGINE_MD = /(^|;)customName=[^;]*/g;
+function audit(census) {
+  const findings = [];
+  const A = (x) => Array.isArray(x) ? x : [];
+  for (const [side, c] of Object.entries(census)) {
+    const byId = new Map();
+    for (const it of A(c.items)) { if (!byId.has(it.id)) byId.set(it.id, []); byId.get(it.id).push(it); }
+    for (const [id, list] of byId) if (list.length > 1) findings.push({ kind: "dupe", side, id, type: list[0].type, at: list.map((x) => x.at) });
+  }
+  const engineNotes = new Set();
+  const server = census.server ? A(census.server.items) : [];
+  for (const [side, c] of Object.entries(census)) {
+    if (side === "server") continue;
+    const mine = A(c.items);
+    const pids = new Set(mine.map((x) => x.pid));
+    if (!pids.size && c.pid != null) pids.add(c.pid);
+    const theirs = server.filter((x) => pids.has(x.pid));
+    const sById = new Map(theirs.map((x) => [x.id, x]));
+    const cById = new Map(mine.map((x) => [x.id, x]));
+    for (const [id, x] of cById) {
+      const sv = sById.get(id);
+      if (!sv) { findings.push({ kind: "ghost", side, id, type: x.type, at: x.at, note: "on " + side + " only: the server has no such item for this player" }); continue; }
+      const diff = [];
+      for (const k of ["at", "type", "condition", "uses", "md"]) {
+        let a = String(sv[k]), b = String(x[k]);
+        if (k === "md") {
+          const a2 = a.replace(ENGINE_MD, ""), b2 = b.replace(ENGINE_MD, "");
+          if (a !== b && a2 === b2) engineNotes.add(id);
+          a = a2; b = b2;
+        }
+        if (a !== b) diff.push({ field: k, server: sv[k], client: x[k] });
+      }
+      if (diff.length) findings.push({ kind: "diverged", side, id, type: x.type, diff });
+    }
+    for (const [id, x] of sById) if (!cById.has(id)) findings.push({ kind: "missing", side, id, type: x.type, at: x.at, note: "on the server, never reached " + side });
+  }
+  if (engineNotes.size) findings.push({ kind: "engine-note", count: engineNotes.size,
+    note: "ModData.customName differs on " + engineNotes.size + " item(s): the engine writes it on every load (InventoryItem.java:2070), so a received copy has it and a fresh server copy does not. Not a mod bug; compared without it." });
+  return findings;
+}
+
 function modLuaFiles(root) {
   const out = [];
   const walk = (d) => {
@@ -108,6 +175,7 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
       this.hold = false;
       this.boot = {};
       this.state = "idle";
+      this.audits = [];   // { seq, after, findings }
     }
     sides() { return [["server", this.server], ...this.clients.map((b, i) => ["c" + (i + 1), b])]; }
     side(name) {
@@ -131,7 +199,10 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
           const folders = name === "server" ? ["shared", "server"] : ["shared", "client", "server"];
           let vanilla = [];
           try { if (pzLua && fs.existsSync(pzLua)) vanilla = vanillaFor(files, folders, pzLua); } catch (_) {}
-          const r = await b.call("mpBoot", { clients: this.n, vanilla });
+          let ui = { sources: [], skip: [] };
+          if (name !== "server") { try { ui = uiLayer(pzLua && fs.existsSync(pzLua) ? pzLua : null); } catch (_) {} }
+          if (name !== "server" && ui.skip.length) vanilla = vanilla.filter((f) => !ui.skip.includes(f.split("/").slice(1).join("/")));
+          const r = await b.call("mpBoot", { clients: this.n, vanilla, ui: ui.sources, uiSkip: ui.skip });
           this.boot[name] = r.value;
         }
         this.state = "ready";
@@ -148,7 +219,7 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
       const r = await this.side(from).call("mpDrain", {});
       for (const p of arr(r.value && r.value.packets)) {
         const pkt = { seq: ++this.seq, from, cause, ...p };
-        pkt.to = p.kind === "clientCommand" ? "server"
+        pkt.to = (p.dir === "up" || p.kind === "clientCommand") ? "server"
           : p.target ? "c" + p.target
           : "all";
         this.queue.push(pkt);
@@ -180,13 +251,28 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
       if (storm) this.log.push({ seq: ++this.seq, kind: "storm", note: `${STORM} packets delivered and the queue is still not empty: a command loop? (${this.queue.length} held)` });
       return { delivered: n, queued: this.queue.length, storm };
     }
-    // A step on one side: run it, then route what it sent (unless held).
+    // A step on one side: run it, then route what it sent (unless held),
+    // then audit every side's items.
     async step(sideName, run) {
       await this.start();
       const res = await run(this.side(sideName));
       await this.collect(sideName, "step");
       const flushed = this.hold ? { delivered: 0, queued: this.queue.length } : await this.flush();
-      return { result: res, pass: flushed };
+      const a = await this.audit("step on " + sideName);
+      return { result: res, pass: flushed, audit: a.findings };
+    }
+    async audit(after) {
+      const census = {};
+      for (const [name, b] of this.sides()) {
+        try { census[name] = (await b.call("mpCensus", {})).value; }
+        catch (e) { census[name] = { error: e.message, items: [] }; }
+      }
+      const findings = audit(census);
+      const entry = { seq: this.seq, after, findings, queued: this.queue.length };
+      this.audits.push(entry);
+      if (this.audits.length > 500) this.audits.shift();
+      this.lastCensus = census;
+      return entry;
     }
     status() {
       return {
@@ -262,12 +348,20 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
         } else {
           r = await s.flush(body.n);
         }
+        r.audit = (await s.audit(body.drop ? "drop" : body.dup ? "duplicate" : "deliver")).findings;
         json(res, 200, r);
+        return true;
+      }
+      if (action === "census") {
+        const a = await s.audit("census");
+        json(res, 200, { census: s.lastCensus, findings: a.findings });
         return true;
       }
       if (action === "pass") {
         const since = +(url.searchParams.get("since") || 0);
-        json(res, 200, { packets: s.log.filter((e) => e.seq > since), queued: s.queue, hold: s.hold });
+        const last = s.audits[s.audits.length - 1];
+        json(res, 200, { packets: s.log.filter((e) => e.seq > since), queued: s.queue, hold: s.hold,
+                         audit: last ? last.findings : [], auditAfter: last ? last.after : null });
         return true;
       }
       json(res, 404, { error: "unknown mp action " + action });

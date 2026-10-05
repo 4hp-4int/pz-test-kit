@@ -185,7 +185,7 @@ const TOOLS = [
   },
   {
     name: "mp_pass",
-    description: "SousVide MP: the packet log -- every packet's seq, sender, receiver, kind, module/command, size, what caused it, and per receiver: listeners run, errors, the decoded args, packets it sent in turn. since: only packets after this seq. Also the queue when held.",
+    description: "SousVide MP: the packet log -- every packet's seq, sender, receiver, kind, module/command, size, what caused it, and per receiver: listeners run, errors, the decoded args (or for item packets: what was added/removed, 'Error: Dupe item ID' guard trips), packets it sent in turn. Plus the queue when held, and the latest AUDIT: every item ID on every side compared -- dupe (same ID twice on one side), ghost (client has it, server doesn't), missing (server has it, client never got it), diverged (location/type/condition/uses/ModData differ). Item packets: sendAddItemToContainer, sendRemoveItemFromContainer, sendReplaceItemInContainer, syncItemFields, syncItemModData, with the engine's own item bytes. since: only packets after this seq.",
     inputSchema: { type: "object", properties: { mod: MOD, since: { type: "number" } }, required: ["mod"] },
     run: async (a) => mp(a.mod, "pass?since=" + (a.since || 0), undefined, "GET"),
   },

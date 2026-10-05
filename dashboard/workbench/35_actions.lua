@@ -68,6 +68,7 @@ local function prepare(action)
     action.forceComplete = function(self) self._forced = true end
     return action
 end
+WB.prepareTimed = prepare   -- MP sides run one half of an action (80_mp.lua)
 
 -- One acting-side pass. Records each hook's outcome; a throwing hook is a
 -- finding (shown), not a crash of the tool.

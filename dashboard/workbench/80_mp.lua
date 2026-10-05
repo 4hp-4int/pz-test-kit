@@ -68,8 +68,19 @@ local function send(kind, module, command, args, target)
     local b64, drops = encode(args)
     M.outbox[#M.outbox + 1] = { kind = kind, module = tostring(module), command = tostring(command),
                                 b64 = b64, drops = drops, size = b64 and math.floor(#b64 * 3 / 4) or 0,
-                                target = target }
+                                target = target, dir = kind == "clientCommand" and "up" or "down" }
 end
+
+-- Other packet kinds (81_mp_items.lua...) queue through this: fields must
+-- carry kind, dir ("up" client->server, "down" server->client) and, for a
+-- down packet, target (client index) or nil for every client.
+function M.queue(pkt)
+    pkt.size = pkt.size or (pkt.b64 and math.floor(#pkt.b64 * 3 / 4) or 0)
+    M.outbox[#M.outbox + 1] = pkt
+end
+M.role, M.index, M.byOnlineID, M.where = role, index, byOnlineID, where
+M.handlers = M.handlers or {}
+M.installers = M.installers or {}
 
 local function installNetwork()
     if role() == "server" then
@@ -102,6 +113,13 @@ local function installNetwork()
         getNumActivePlayers = function() return 1 end
     end
     isMultiplayer = function() return true end
+    -- Server options reach every MP client from the server; the bench has
+    -- none. Empty = vanilla's own "no match" path (ISLogSystem.logAction
+    -- logs nothing for an action type the option doesn't list).
+    if rawget(_G, "getServerOptions") == nil then
+        getServerOptions = function() return { getOption = function() return "" end, getBoolean = function() return false end } end
+    end
+    for _, f in ipairs(M.installers) do f(role()) end
 end
 
 -- ── boot ───────────────────────────────────────────────────────────────────
@@ -139,6 +157,29 @@ WB.register("mpBoot", function(a)
     end
     installNetwork()
 
+    -- A client's UI layer: uiview's UIMock (clean-room ISUIElement, ISPanel,
+    -- ISBaseObject... with vanilla signatures) stands in for the Java UI the
+    -- headless VM lacks, so the vanilla UI tree (ISContextMenu,
+    -- ISInventoryPane, ISTimedActionQueue...) can load on top of it. Vanilla
+    -- files defining what it provides are skipped (a.uiSkip).
+    local ui = { loaded = {}, failed = nil }
+    M.uiSkip = {}
+    for _, k in ipairs(a.uiSkip or {}) do M.uiSkip[k] = true end
+    for _, f in ipairs(a.ui or {}) do
+        if _pz_package_loaded[f.name] == nil then
+            local chunk, err = (_pz_compile or loadstring)(f.src, f.name)
+            local ok, res = false, err
+            if chunk then ok, res = pcall(chunk) end
+            if ok then
+                _pz_package_loaded[f.name] = res == nil and true or res
+                ui.loaded[#ui.loaded + 1] = f.name
+            else
+                ui.failed = f.name .. ": " .. tostring(res)
+                break
+            end
+        end
+    end
+
     -- require reaches vanilla too, as in game (one Lua namespace): a name
     -- the module index lacks is tried as a vanilla file in a folder this
     -- side runs ("ISUI/ISUIElement" -> client/ISUI/ISUIElement).
@@ -150,6 +191,7 @@ WB.register("mpBoot", function(a)
             if ok then return res end
             if not tostring(res):find("not found in module index", 1, true) then error(res, 0) end
             local key = tostring(name):gsub("%.lua$", "")
+            if M.uiSkip[key] then return true end   -- provided by the UI layer
             for _, f in ipairs(FOLDERS[r]) do
                 local file = f .. "/" .. key
                 if _pz_read_file(_pz_install_dir .. "/media/lua/" .. file .. ".lua") then
@@ -205,7 +247,7 @@ WB.register("mpBoot", function(a)
     M.booted = true
     local names = {}
     for _, p in ipairs(M.players) do names[#names + 1] = tostring(try(function() return p:getUsername() end)) end
-    M.report = { role = r, index = index(), folders = FOLDERS[r], vanilla = vanilla, identityError = M.identityError,
+    M.report = { role = r, index = index(), folders = FOLDERS[r], vanilla = vanilla, ui = ui, identityError = M.identityError,
                  loaded = loaded, alreadyLoaded = already,
                  failed = failed, events = events, players = names, packets = #M.outbox }
     return M.report
@@ -231,7 +273,7 @@ end
 
 WB.register("mpDeliver", function(a)
     local p = a.packet or {}
-    local args = p.b64 and PZEngine.wireDecode(p.b64) or nil
+    local args = (p.kind == "clientCommand" or p.kind == "serverCommand") and p.b64 and PZEngine.wireDecode(p.b64) or nil
     local before = #M.outbox
     local res
     if p.kind == "clientCommand" then
@@ -243,6 +285,10 @@ WB.register("mpDeliver", function(a)
     elseif p.kind == "serverCommand" then
         if role() ~= "client" then error("a serverCommand arrived at the server", 0) end
         res = fire("OnServerCommand", p.module, p.command, args)
+    elseif M.handlers[p.kind] then
+        res = M.handlers[p.kind](p)
+        res.sent = #M.outbox - before
+        return res
     else
         error("unknown packet kind " .. tostring(p.kind), 0)
     end

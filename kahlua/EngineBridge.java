@@ -78,6 +78,17 @@ public final class EngineBridge {
         "zombie.characters.IsoGameCharacter",
         "zombie.characters.IsoPlayer",
         "zombie.characters.IsoZombie",   // PZEngine.newZombie (event lab)
+        // The AI states vanilla ISTimedActionQueue indexes at file load
+        // (STATES[ClimbThroughWindowState.instance()] = true; LuaManager.java
+        // :1741-1750): unexposed, the queue -- and every timed action an MP
+        // client side queues -- fails to load.
+        "zombie.ai.states.ClimbThroughWindowState",
+        "zombie.ai.states.ClimbOverFenceState",
+        "zombie.ai.states.ClimbOverWallState",
+        "zombie.ai.states.ClimbSheetRopeState",
+        "zombie.ai.states.ClimbDownSheetRopeState",
+        "zombie.ai.states.CloseWindowState",
+        "zombie.ai.states.OpenWindowState",
         "zombie.entity.components.crafting.recipe.HandcraftLogic",
         "zombie.entity.components.crafting.recipe.CraftRecipeData",
         // A bench's recipe list is CraftRecipeManager.queryRecipes(its
@@ -1149,6 +1160,46 @@ public final class EngineBridge {
             // Double"): IsoPlayer.setOnlineID(short) is unreachable from Lua.
             // invokeTyped(obj, method, "short"|"byte"|"long"|"int"|"float", n)
             // calls the one-argument overload of that primitive type.
+            // Items over the Pass: the bytes the real add-item packet carries
+            // (AddInventoryItemToContainerPacket.write: CompressIdenticalItems
+            // .save; parse: CompressIdenticalItems.load). Items keep their IDs.
+            // itemsEncode({item...}) -> base64 | nil, err
+            // itemsDecode(b64) -> {item...} | nil, err
+            pzEngine.rawset("itemsEncode", (JavaFunction) (frame, n) -> {
+                try {
+                    ensureWorldDictionary();
+                    java.util.ArrayList<Object> items = new java.util.ArrayList<>();
+                    if (frame.get(0) instanceof KahluaTable t) {
+                        for (int i = 1; t.rawget(i) != null; i++) items.add(t.rawget(i));
+                    }
+                    Class<?> cii = cls("zombie.inventory.CompressIdenticalItems");
+                    java.nio.ByteBuffer bb = java.nio.ByteBuffer.allocate(4 << 20);
+                    cii.getMethod("save", java.nio.ByteBuffer.class, java.util.ArrayList.class, cls("zombie.characters.IsoGameCharacter"))
+                        .invoke(null, bb, items, null);
+                    bb.flip();
+                    byte[] bytes = new byte[bb.remaining()];
+                    bb.get(bytes);
+                    frame.push(java.util.Base64.getEncoder().encodeToString(bytes));
+                    return 1;
+                } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
+            });
+            pzEngine.rawset("itemsDecode", (JavaFunction) (frame, n) -> {
+                try {
+                    ensureWorldDictionary();
+                    byte[] bytes = java.util.Base64.getDecoder().decode(String.valueOf(frame.get(0)));
+                    Class<?> cii = cls("zombie.inventory.CompressIdenticalItems");
+                    int worldVersion = cls("zombie.iso.IsoWorld").getField("WorldVersion").getInt(null);
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> items = (java.util.List<Object>) cii
+                        .getMethod("load", java.nio.ByteBuffer.class, int.class, java.util.ArrayList.class, java.util.ArrayList.class)
+                        .invoke(null, java.nio.ByteBuffer.wrap(bytes), worldVersion, null, null);
+                    KahluaTable out = WIRE_PLATFORM.newTable();
+                    int i = 1;
+                    for (Object it : items) out.rawset(i++, it);
+                    frame.push(out);
+                    return 1;
+                } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
+            });
             pzEngine.rawset("invokeTyped", (JavaFunction) (frame, n) -> {
                 try {
                     Object obj = frame.get(0);

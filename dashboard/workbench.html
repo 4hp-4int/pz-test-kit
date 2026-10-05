@@ -2339,8 +2339,14 @@ tool("board", {
           <span class="dim mono">#${p.seq}</span> <b class="mono">${esc(p.from)} → ${esc(p.to)}</b> <span class="mono">${esc(p.module)}/${esc(p.command)}</span>
           <span class="dim">${p.size} B · ${esc(p.cause || "")}</span>${p.duplicate ? ` <span class="warn">DUPLICATE</span>` : ""}${p.dropped ? ` <span class="fail">DROPPED</span>` : ""}
           ${A(p.drops).length ? `<div class="warn">wire dropped: ${p.drops.map(esc).join(", ")}</div>` : ""}
-          ${A(p.delivered).map((d) => `<div class="dim">at ${esc(d.to)}: ${d.undeliverable ? `<span class="fail">${esc(d.undeliverable)}</span>` : `${d.listeners} listener(s)${d.player ? " as " + esc(d.player) : ""}${d.sent ? ` · sent ${d.sent}` : ""} · args <span class="mono">${esc(JSON.stringify(d.args)).slice(0, 160)}</span>`}${A(d.errors).map((e) => `<div class="fail">${esc(e.where)}: ${esc(e.err)}</div>`).join("")}</div>`).join("")}</div>`;
-    host.innerHTML = (A(j.queued).length ? `<div class="warn">held: ${j.queued.map((p) => `#${p.seq} ${esc(p.from)}→${esc(p.to)} ${esc(p.command)}`).join(", ")}</div>` : "")
+          ${A(p.delivered).map((d) => A(d.events).length ? `<div class="dim">at ${esc(d.to)}: ${d.events.map((e) => /Dupe|UNRESOLVED|failed/.test(e) ? `<span class="fail">${esc(e)}</span>` : esc(e)).join(" · ")}</div>` : `<div class="dim">at ${esc(d.to)}: ${d.undeliverable ? `<span class="fail">${esc(d.undeliverable)}</span>` : `${d.listeners} listener(s)${d.player ? " as " + esc(d.player) : ""}${d.sent ? ` · sent ${d.sent}` : ""} · args <span class="mono">${esc(JSON.stringify(d.args)).slice(0, 160)}</span>`}${A(d.errors).map((e) => `<div class="fail">${esc(e.where)}: ${esc(e.err)}</div>`).join("")}</div>`).join("")}</div>`;
+    const audit = A(j.audit);
+    const real = audit.filter((f) => f.kind !== "engine-note");
+    const auditHtml = `<div style="margin:4px 0 8px;padding:5px 8px;border:1px solid ${real.length ? "var(--fail)" : "var(--pass)"};border-radius:4px">
+        <b>${real.length ? `⚠ audit: ${real.length} finding(s)` : "✓ audit clean"}</b> <span class="dim">${j.auditAfter ? "after " + esc(j.auditAfter) : ""}</span>
+        ${real.map((f) => `<div><span class="${f.kind === "dupe" || f.kind === "ghost" ? "fail" : "warn"}">${esc(f.kind.toUpperCase())}</span> <span class="mono">${esc(f.side)} #${f.id} ${esc(f.type || "")}</span> ${f.at ? `<span class="dim">${esc(Array.isArray(f.at) ? f.at.join(" | ") : f.at)}</span>` : ""}${A(f.diff).map((d) => ` <span class="dim">${esc(d.field)}: server ${esc(d.server)} · client ${esc(d.client)}</span>`).join("")}</div>`).join("")}
+        ${audit.filter((f) => f.kind === "engine-note").map((f) => `<div class="dim" style="font-size:10.5px">engine: ${esc(f.note)}</div>`).join("")}</div>`;
+    host.innerHTML = auditHtml + (A(j.queued).length ? `<div class="warn">held: ${j.queued.map((p) => `#${p.seq} ${esc(p.from)}→${esc(p.to)} ${esc(p.command)}`).join(", ")}</div>` : "")
       + (A(j.packets).slice().reverse().slice(0, 80).map(row).join("") || `<div class="dim">no packets yet: run something that sends (sendClientCommand / sendServerCommand)</div>`);
   },
   // Event lab (68_events.lua): pick an event, build its arguments from real

@@ -1,6 +1,6 @@
 # SousVide MP: two burners and the Pass
 
-Status: **phase 1 built** (2026-10-05). Decisions: separate JVMs per side;
+Status: **phase 1 built; phase 2 core built** (2026-10-05). Decisions: separate JVMs per side;
 first proving ground SaucedCarts.
 
 ## Why separate JVMs
@@ -141,6 +141,60 @@ Findings:
   of nil), CorpseStorage `reconcileCartsInRange`, and `createPlayerData` at
   OnCreatePlayer. Phase 2 needs it, because transfers go through timed actions
   and the inventory UI.
+
+## Phase 2 as built (core)
+
+- **Client UI layer:** a client side boots uiview's UIMock (clean-room
+  ISUIElement, ISPanel, ISBaseObject...) before vanilla, and skips the vanilla
+  files defining those classes (by class and by `require` name). All 72
+  SaucedCarts client files load (AttachmentTweaker included).
+  `ISTimedActionQueue` loads now that the AI states it indexes at file load
+  are exposed (ClimbThroughWindowState and six more).
+- **Items cross the wire** (`workbench/81_mp_items.lua`):
+  - `sendAddItemToContainer` / `sendAddItemsToContainer` /
+    `sendItemsInContainer` (server only), `sendRemoveItemFromContainer` (both
+    sides), `sendReplaceItemInContainer`, `syncItemFields`, `syncItemModData`.
+  - Item bytes are the real packet's (`CompressIdenticalItems`, via
+    `PZEngine.itemsEncode/itemsDecode`), and IDs survive.
+  - Applied with the real handlers' logic: an add of an ID the container
+    already holds is refused ("Error: Dupe item ID"); a client remove uses
+    `removeItemWithID`, a server remove uses `Remove`, else "already removed".
+  - Containers are addressed by player inventory, or by the item holding them
+    (bag, held cart) by ID.
+- **The auditor** (`mp.js`): after every step and every delivery,
+  `mpCensus` on every side, and every item ID compared. It reports
+  dupe / ghost / missing / diverged (location, type, condition, uses,
+  ModData).
+- `WB.prepareTimed` (the Java action stand-in) for running one side's half of
+  an action, and `getServerOptions` on role VMs.
+- **Proof** (SaucedCarts, 1 client):
+  1. The server gives a cart and 3 apples: clean.
+  2. cook1 moves an apple in through the real `ISCartTransferAction`
+     (isValid/start/perform). That sends `cartTransfer`; the server sends
+     remove + add + `ui/DirtyUI`; clean.
+  3. Dropping the server's remove in flight is caught: DUPE on c1 (cart + main
+     inventory) and DIVERGED vs the server.
+  4. A duplicated `cartTransfer` is a no-op the second time (SaucedCarts'
+     "already in destination" guard): clean.
+
+Findings:
+- **Engine: every loaded item gets `ModData.customName`.**
+  `InventoryItem.load` calls `setCustomName(flag)` unconditionally
+  (`InventoryItem.java:2070`), and the setter writes the key whatever the
+  flag (`:3528-3531`). A received copy has it; a fresh server copy doesn't, so
+  `hasModData()` disagrees between sides for every new item. The auditor
+  reports it as an engine note, not a finding.
+- **SaucedCarts: a client ghost is never healed.** When the server's remove
+  is lost, the client keeps the item in its inventory as well as the cart.
+  Retrying the move hits the "already in destination" guard, which correctly
+  does nothing server-side but sends nothing back, so the client stays wrong
+  until it reconnects. Healing option: on "already in destination", send the
+  client a remove for the stale source.
+
+Still to do in phase 2: world containers (squares, ground carts, vehicles,
+corpses: `transmitCompleteItemToClients`, `transmitRemoveItemFromSquare`),
+`mpChecks` (mod-declared invariants), and the rest of the client UI tree
+(the ISInventoryPane chain).
 
 ## Phases
 
