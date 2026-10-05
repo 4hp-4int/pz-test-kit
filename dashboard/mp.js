@@ -117,10 +117,10 @@ function audit(census) {
   const server = census.server ? A(census.server.items) : [];
   for (const [side, c] of Object.entries(census)) {
     if (side === "server") continue;
-    const mine = A(c.items);
+    const mine = A(c.items).filter((x) => !x.world);
     const pids = new Set(mine.map((x) => x.pid));
     if (!pids.size && c.pid != null) pids.add(c.pid);
-    const theirs = server.filter((x) => pids.has(x.pid));
+    const theirs = server.filter((x) => !x.world && pids.has(x.pid));
     const sById = new Map(theirs.map((x) => [x.id, x]));
     const cById = new Map(mine.map((x) => [x.id, x]));
     for (const [id, x] of cById) {
@@ -139,6 +139,15 @@ function audit(census) {
       if (diff.length) findings.push({ kind: "diverged", side, id, type: x.type, diff });
     }
     for (const [id, x] of sById) if (!cById.has(id)) findings.push({ kind: "missing", side, id, type: x.type, at: x.at, note: "on the server, never reached " + side });
+    // the world both sides watch: ground items and object containers
+    const sWorld = new Map(server.filter((x) => x.world).map((x) => [x.id, x]));
+    const cWorld = new Map(A(c.items).filter((x) => x.world).map((x) => [x.id, x]));
+    for (const [id, x] of cWorld) {
+      const sv = sWorld.get(id);
+      if (!sv) { if (!sById.has(id)) findings.push({ kind: "ghost", side, id, type: x.type, at: x.at, note: "in " + side + "'s world only" }); continue; }
+      if (sv.at !== x.at) findings.push({ kind: "diverged", side, id, type: x.type, diff: [{ field: "at", server: sv.at, client: x.at }] });
+    }
+    for (const [id, x] of sWorld) if (!cWorld.has(id) && !cById.has(id)) findings.push({ kind: "missing", side, id, type: x.type, at: x.at, note: "in the server's world, not " + side + "'s" });
   }
   if (engineNotes.size) findings.push({ kind: "engine-note", count: engineNotes.size,
     note: "ModData.customName differs on " + engineNotes.size + " item(s): the engine writes it on every load (InventoryItem.java:2070), so a received copy has it and a fresh server copy does not. Not a mod bug; compared without it." });
@@ -372,6 +381,28 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
         }
         r.audit = (await s.audit(body.drop ? "drop" : body.dup ? "duplicate" : "deliver")).findings;
         json(res, 200, r);
+        return true;
+      }
+      if (action === "world" && req.method === "POST") {
+        // {x, y, r}: load the same map box on every side and watch it
+        const body = await readBody(req);
+        const out = {};
+        await Promise.all(s.sides().map(async ([name, b]) => {
+          try { out[name] = (await b.call("mpWorld", { x: body.x, y: body.y, z: body.z || 0, r: body.r || 3 })).value; }
+          catch (e) { out[name] = { error: e.message }; }
+        }));
+        json(res, 200, { world: out, audit: (await s.audit("world loaded")).findings });
+        return true;
+      }
+      if (action === "place" && req.method === "POST") {
+        // {client, x, y, z}: the client moves its player, the server its copy
+        // (what the player-update stream keeps in step in game)
+        const body = await readBody(req);
+        const k = body.client || 1;
+        const out = {};
+        out.server = (await s.server.call("mpPlace", { pid: k - 1, x: body.x, y: body.y, z: body.z || 0 })).value;
+        out["c" + k] = (await s.side("c" + k).call("mpPlace", { x: body.x, y: body.y, z: body.z || 0 })).value;
+        json(res, 200, out);
         return true;
       }
       if (action === "census") {

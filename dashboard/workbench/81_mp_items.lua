@@ -75,10 +75,12 @@ function M.resolve(addr)
     return nil, "unknown address " .. tostring(addr.t)
 end
 
-local function addrText(a)
+local function baseAddrText(a)
     if not a then return "?" end
     return a.t == "inv" and ("inv#" .. tostring(a.pid)) or ("item " .. tostring(a.id) .. " in inv#" .. tostring(a.pid))
 end
+M.addrText = baseAddrText
+local function addrText(a) return M.addrText(a) end   -- 82 extends it for world addresses
 
 -- ── sending ────────────────────────────────────────────────────────────────
 local function list(x)
@@ -95,7 +97,8 @@ local function queueItems(kind, c, items, extra)
     pkt.kind, pkt.addr = kind, addr
     pkt.dir = M.role() == "server" and "down" or "up"
     -- a player's container goes to that player; nothing else is addressed yet
-    if pkt.dir == "down" and addr then pkt.target = (addr.pid or -1) + 1 end
+    -- a world container (no pid) goes to every client
+    if pkt.dir == "down" and addr and addr.pid ~= nil then pkt.target = addr.pid + 1 end
     if not addr then pkt.unaddressed = why end
     pkt.ids, pkt.types = {}, {}
     for _, it in ipairs(items) do

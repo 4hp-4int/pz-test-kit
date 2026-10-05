@@ -116,19 +116,21 @@ local function installNetwork()
     -- getCell(): the REAL cell, not the kit's mock. Square lookups answer
     -- from the loaded world (ServerMap) only under GameServer.server, so a
     -- client side's view sets it around the call.
-    local realCell = PZEngine.cell and PZEngine.cell()
-    if realCell then
-        local view = setmetatable({}, { __index = function(_, k)
-            return function(_, ...)
-                local prev = PZEngine.setServer(true)
-                local res = { pcall(realCell[k], realCell, ...) }
-                PZEngine.setServer(prev)
-                if not res[1] then error(res[2], 0) end
-                return unpack(res, 2)
-            end
-        end })
-        getCell = function() return view end
-        M.cell = realCell
+    -- (looked up per call: the world loads after boot, via mpWorld)
+    local mockCell = getCell
+    local view = setmetatable({}, { __index = function(_, k)
+        return function(_, ...)
+            local realCell = PZEngine.cell and PZEngine.cell()
+            local prev = PZEngine.setServer(true)
+            local res = { pcall(realCell[k], realCell, ...) }
+            PZEngine.setServer(prev)
+            if not res[1] then error(res[2], 0) end
+            return unpack(res, 2)
+        end
+    end })
+    getCell = function()
+        if PZEngine.cell and PZEngine.cell() then return view end
+        return mockCell and mockCell()
     end
     -- LuaEventManager.AddEvent: the Java registrar vanilla and mods call
     -- for custom events (Vehicles.lua: OnUseVehicle, OnVehicleHorn).

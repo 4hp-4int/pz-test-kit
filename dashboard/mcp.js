@@ -190,6 +190,16 @@ const TOOLS = [
     run: async (a) => mp(a.mod, "pass?since=" + (a.since || 0), undefined, "GET"),
   },
   {
+    name: "mp_world",
+    description: "SousVide MP: load the same real-map box on every side and watch it (the auditor then also compares ground items and object containers there); with client: also place that client's player at x,y (the client and the server both move their copy). World changes cross the Pass: obj:transmitCompleteItemToClients / sq:AddWorldInventoryItem (worldAdd, the object's own bytes) and sq:transmitRemoveItemFromSquare (worldRemove, BY OBJECT INDEX as the real packet -- a wrong-object removal is reported).",
+    inputSchema: { type: "object", properties: { mod: MOD, x: { type: "number" }, y: { type: "number" }, z: { type: "number" }, r: { type: "number" }, client: { type: "number" } }, required: ["mod", "x", "y"] },
+    run: async (a) => {
+      const w = await mp(a.mod, "world", { x: a.x, y: a.y, z: a.z || 0, r: a.r || 3 });
+      if (a.client) w.place = await mp(a.mod, "place", { client: a.client, x: a.x, y: a.y, z: a.z || 0 });
+      return w;
+    },
+  },
+  {
     name: "mp_status",
     description: "SousVide MP: the session's sides, their state, hold, queue length and boot reports. stop:true ends the session.",
     inputSchema: { type: "object", properties: { mod: MOD, stop: { type: "boolean" } }, required: ["mod"] },

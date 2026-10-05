@@ -1204,6 +1204,39 @@ public final class EngineBridge {
                     return 1;
                 } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
             });
+            // World objects over the Pass: the AddItemToMapPacket bytes
+            // (write: obj.writeToRemoteBuffer; parse: WorldItemTypes
+            // .createFromBuffer + obj.loadFromRemoteBuffer, which puts the
+            // object on its square at the sent index). The caller runs
+            // obj:addToWorld() as processClient does.
+            // objectEncode(obj) -> base64 | nil, err; objectDecode(b64) -> obj | nil, err
+            pzEngine.rawset("objectEncode", (JavaFunction) (frame, n) -> {
+                try {
+                    ensureWorldDictionary();
+                    Object obj = frame.get(0);
+                    java.nio.ByteBuffer bb = java.nio.ByteBuffer.allocate(4 << 20);
+                    Class<?> writerCls = cls("zombie.core.network.ByteBufferWriter");
+                    Object writer = writerCls.getConstructor(java.nio.ByteBuffer.class).newInstance(bb);
+                    obj.getClass().getMethod("writeToRemoteBuffer", writerCls).invoke(obj, writer);
+                    bb.flip();
+                    byte[] bytes = new byte[bb.remaining()];
+                    bb.get(bytes);
+                    frame.push(java.util.Base64.getEncoder().encodeToString(bytes));
+                    return 1;
+                } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
+            });
+            pzEngine.rawset("objectDecode", (JavaFunction) (frame, n) -> {
+                try {
+                    ensureWorldDictionary();
+                    byte[] bytes = java.util.Base64.getDecoder().decode(String.valueOf(frame.get(0)));
+                    Class<?> readerCls = cls("zombie.core.network.ByteBufferReader");
+                    Object reader = readerCls.getConstructor(java.nio.ByteBuffer.class).newInstance(java.nio.ByteBuffer.wrap(bytes));
+                    Object obj = cls("zombie.network.WorldItemTypes").getMethod("createFromBuffer", readerCls).invoke(null, reader);
+                    obj.getClass().getMethod("loadFromRemoteBuffer", readerCls).invoke(obj, reader);
+                    frame.push(obj);
+                    return 1;
+                } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
+            });
             pzEngine.rawset("invokeTyped", (JavaFunction) (frame, n) -> {
                 try {
                     Object obj = frame.get(0);

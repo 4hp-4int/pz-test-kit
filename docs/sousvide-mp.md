@@ -223,10 +223,41 @@ about 250 vanilla failures from Java the bench does not expose yet
 (TraitFactory, ProfessionFactory, SurvivorFactory pools, Fitness, Foraging,
 keybindings...). That's the fidelity frontier, worked through as needed.
 
-Still to do in phase 2: world containers (squares, ground carts, vehicles,
-corpses: `transmitCompleteItemToClients`, `transmitRemoveItemFromSquare`),
-`mpChecks` (mod-declared invariants), and the rest of the client UI tree
-(the ISInventoryPane chain).
+**World containers** (`workbench/82_mp_world.lua`):
+- `mpWorld` loads the same real map box on every side and watches it;
+  `mpPlace` moves a player on its client and on the server.
+- World changes are Java METHODS, so they're hooked where mods hook Java,
+  `__classmetatables` (Lua→Java calls):
+  - `obj:transmitCompleteItemToClients()` and `sq:AddWorldInventoryItem`
+    (the 4-arg form transmits inside Java, so it's wrapped) become
+    `worldAdd`. That's the object's own `writeToRemoteBuffer` bytes; the
+    receiver does `createFromBuffer` + `loadFromRemoteBuffer` (placed at the
+    sent index) + `addToWorld`, and `OnContainerUpdate`/`OnObjectAdded` fire.
+  - `sq:transmitRemoveItemFromSquare(obj)` becomes `worldRemove`, BY OBJECT
+    INDEX as the real packet. The server also removes its own copy; a client
+    only removes locally (IsoGridSquare.java:5995-5999).
+- Item packets address world containers as a ground item (by ID, on its
+  square) or an object (index + container index). They go to every client.
+- The census walks watched squares (ground items, their containers, object
+  containers), and the auditor compares the world between sides.
+- **Proof:**
+  1. The server drops a ground cart (`AddWorldInventoryItem`): 192 B
+     `worldAdd`; the client places it at the same index; clean.
+  2. cook1 moves an apple into the GROUND cart via the real action: the
+     server finds it with SaucedCarts' radius sweep around cook1's
+     server-side position, then sends a remove (inventory) and an add
+     (ground-item container); clean.
+- **Finding: index-based world removal.** Dropping one `worldAdd` (apple X)
+  shifts the client's object list. The server's later removal of X (index 2)
+  removes the client's ORANGE at index 2 instead. The orange is still on the
+  server and gone on the client (auditor: MISSING). This is vanilla
+  RemoveItemFromSquarePacket behaviour: any lost world add makes later
+  removals on that square hit the wrong object for that client.
+
+Still to do in phase 2: `mpChecks` (mod-declared invariants). Corpses and
+vehicle containers are addressable as world objects; their own packets are
+untested.
+
 
 ## Phases
 
