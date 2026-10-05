@@ -138,6 +138,14 @@ public final class EngineBridge {
         // A character's XP ledger (LuaManager.java:1823): player:getXp()
         // returns it, and getXP / getPerkBoost live on it.
         "zombie.characters.IsoGameCharacter$XP",
+        // The body and its stats (LuaManager.java:1785-1787, 1806-1807):
+        // fractures, wounds and infection live on BodyPart; sickness is a
+        // CharacterStat read through Stats.get (B42).
+        "zombie.characters.BodyDamage.BodyPartType",
+        "zombie.characters.BodyDamage.BodyPart",
+        "zombie.characters.BodyDamage.BodyDamage",
+        "zombie.characters.Stats",
+        "zombie.characters.CharacterStat",
         // Action animation names (LuaManager.java:1836): vanilla timed
         // actions call setActionAnim(CharacterActionAnims.Reload) in start().
         "zombie.characters.CharacterActionAnims",
@@ -188,6 +196,79 @@ public final class EngineBridge {
         "zombie.entity.GameEntity",
         "zombie.entity.GameEntityFactory",
         "zombie.entity.components.crafting.CraftBench",
+        // The world (LuaManager.java setExposed, zombie.iso.*): what a real map
+        // square holds after PZEngine.loadCell -- object classes, sprites and
+        // their properties, rooms, buildings, zones. Data classes only: the
+        // renderer-side ones (camera, FBO, fog, puddles) would run GL statics.
+        "zombie.core.properties.PropertyContainer",
+        "zombie.core.properties.IsoPropertyType",
+        "zombie.core.properties.IsoObjectChange",
+        "zombie.iso.BuildingDef",
+        "zombie.iso.RoomDef",
+        "zombie.iso.IsoDirections",
+        "zombie.iso.IsoMetaGrid",
+        "zombie.iso.IsoMetaChunk",
+        "zombie.iso.MetaObject",
+        "zombie.iso.Vector2",
+        "zombie.iso.Vector3",
+        "zombie.iso.IsoHeatSource",
+        "zombie.iso.IsoLightSource",
+        "zombie.iso.BentFences",
+        "zombie.iso.BrokenFences",
+        "zombie.iso.IsoButcherHook",
+        "zombie.iso.SpriteDetails.IsoObjectType",
+        "zombie.iso.areas.IsoBuilding",
+        "zombie.iso.areas.IsoRoom",
+        "zombie.iso.areas.SafeHouse",
+        "zombie.iso.areas.NonPvpZone",
+        "zombie.iso.areas.DesignationZone",
+        "zombie.iso.areas.DesignationZoneAnimal",
+        "zombie.iso.areas.isoregion.regions.IsoWorldRegion",
+        "zombie.iso.areas.isoregion.regions.IsoChunkRegion",
+        "zombie.iso.objects.GridSquareEdge",
+        "zombie.iso.objects.GridSquareEdgeFacingDirection",
+        "zombie.iso.objects.IsoAnimalTrack",
+        "zombie.iso.objects.IsoBarbecue",
+        "zombie.iso.objects.IsoBarricade",
+        "zombie.iso.objects.IsoBrokenGlass",
+        "zombie.iso.objects.IsoCarBatteryCharger",
+        "zombie.iso.objects.IsoClothingDryer",
+        "zombie.iso.objects.IsoClothingWasher",
+        "zombie.iso.objects.IsoCombinationWasherDryer",
+        "zombie.iso.objects.IsoCompost",
+        "zombie.iso.objects.IsoCurtain",
+        "zombie.iso.objects.IsoDoor",
+        "zombie.iso.objects.IsoFeedingTrough",
+        "zombie.iso.objects.IsoFire",
+        "zombie.iso.objects.IsoFireManager",
+        "zombie.iso.objects.IsoFireplace",
+        "zombie.iso.objects.IsoGenerator",
+        "zombie.iso.objects.IsoHutch",
+        "zombie.iso.objects.IsoJukebox",
+        "zombie.iso.objects.IsoLightSwitch",
+        "zombie.iso.objects.IsoMannequin",
+        "zombie.iso.objects.IsoRadio",
+        "zombie.iso.objects.IsoStackedWasherDryer",
+        "zombie.iso.objects.IsoStove",
+        "zombie.iso.objects.IsoTelevision",
+        "zombie.iso.objects.IsoThumpable",
+        "zombie.iso.objects.IsoTrap",
+        "zombie.iso.objects.IsoTree",
+        "zombie.iso.objects.IsoWaveSignal",
+        "zombie.iso.objects.IsoWheelieBin",
+        "zombie.iso.objects.IsoWindow",
+        "zombie.iso.objects.IsoWindowFrame",
+        "zombie.iso.objects.interfaces.BarricadeAble",
+        "zombie.iso.sprite.IsoSpriteGrid",
+        "zombie.iso.sprite.IsoSpriteInstance",
+        "zombie.iso.zones.Zone",
+        "zombie.iso.zones.VehicleZone",
+        "zombie.iso.zones.Trigger",
+        "zombie.iso.sprite.IsoSprite",
+        "zombie.iso.sprite.IsoSpriteManager",
+        "zombie.iso.IsoWorld",
+        "zombie.iso.IsoChunk",
+        "zombie.iso.SpriteDetails.IsoFlagType",
         // The collections PZ itself exposes; getInputs()/getAllItems() etc.
         // hand these back and Lua calls :size()/:get() on them.
         "java.util.ArrayList",
@@ -760,6 +841,17 @@ public final class EngineBridge {
             return 1;
         });
         pzEngine.rawset("cell", (JavaFunction) (frame, n) -> { frame.push(harnessCell); return 1; });
+        // The real world, opt-in (see loadWorld/loadCell): returns (summary) or (nil, error).
+        pzEngine.rawset("loadWorld", (JavaFunction) (frame, n) -> {
+            Object[] r = loadWorld(n > 0 && frame.get(0) instanceof String s0 ? s0 : null);
+            frame.push(r[0]); frame.push(r[1]); return 2;
+        });
+        pzEngine.rawset("loadCell", (JavaFunction) (frame, n) -> {
+            int[] a = new int[] { 0, 0, 0, 0, 31, 31 };
+            for (int i = 0; i < Math.min(n, 6); i++) if (frame.get(i) instanceof Double d) a[i] = d.intValue();
+            Object[] r = loadCell(a[0], a[1], a[2], a[3], a[4], a[5]);
+            frame.push(r[0]); frame.push(r[1]); return 2;
+        });
         // Set a sandbox option through the engine's typed option and return
         // what the engine kept: an out-of-range value is refused and the old
         // one stays (IntegerConfigOption.setValue). nil if no such option.
@@ -1127,6 +1219,261 @@ public final class EngineBridge {
             return new Object[] { sq, null };
         } catch (Throwable t) {
             return new Object[] { null, describe(t) };
+        }
+    }
+
+    // ── the real world (opt-in: the workbench, never an ordinary suite) ──────
+    private static boolean worldLoaded;
+    private static String worldError;
+    private static final java.util.Set<Long> loadedChunks = new java.util.HashSet<>();
+
+    /**
+     * Load the game's world the way IsoWorld.init does on a dedicated server:
+     * tile definitions (sprite names AND properties -- what decides a tile's
+     * object class), the metagrid (every lotheader: cells, rooms, buildings),
+     * then ServerMap sized to it. After this, loadCell() places real map
+     * data at real world coordinates. Once per VM; the harness's 0..255
+     * newSquare cell is replaced (squares already handed out keep working
+     * as objects but are no longer registered).
+     * Returns { ms per phase as "a=.. b=..", null } or { null, error }.
+     */
+    public static Object[] loadWorld(String gameMap) {
+        if (!booted) return new Object[] { null, "engine not booted" };
+        if (worldLoaded) return new Object[] { "already loaded", null };
+        if (worldError != null) return new Object[] { null, worldError };
+        StringBuilder t = new StringBuilder();
+        java.lang.reflect.Field server = null;
+        boolean prev = false;
+        try {
+            server = cls("zombie.network.GameServer").getField("server");
+            prev = server.getBoolean(null);
+            server.setBoolean(null, true);
+            ensureServerNetwork();
+            String map = gameMap == null || gameMap.isEmpty() ? "Muldraugh, KY" : gameMap;
+            cls("zombie.core.Core").getField("gameMap").set(null, map);
+            cls("zombie.network.GameServer").getField("gameMap").set(null, map);
+
+            long t0 = System.currentTimeMillis();
+            Class<?> worldC = cls("zombie.iso.IsoWorld");
+            Object world = worldC.getField("instance").get(null);
+            Class<?> smC = cls("zombie.iso.sprite.IsoSpriteManager");
+            Object sprMan = smC.getField("instance").get(null);
+            Class<?> zfsC = cls("zombie.ZomboidFileSystem");
+            Object zfs = zfsC.getField("instance").get(null);
+            java.lang.reflect.Method media = zfsC.getMethod("getMediaPath", String.class);
+            // IsoWorld.init's exact sequence (IsoWorld.java:1974-1996).
+            Object[][] files = { { "newtiledefinitions.tiles", 1 }, { "tiledefinitions_erosion.tiles", 2 },
+                { "tiledefinitions_overlays.tiles", 4 }, { "tiledefinitions_b42chunkcaching.tiles", 5 },
+                { "tiledefinitions_noiseworks.patch.tiles", -1 }, { "jumbo_trees_big.tiles", 6 }, { "jumbo_trees.tiles", 8 } };
+            java.lang.reflect.Method props = worldC.getMethod("LoadTileDefinitionsPropertyStrings", smC, String.class, int.class);
+            java.lang.reflect.Method defs = worldC.getMethod("LoadTileDefinitions", smC, String.class, int.class);
+            for (Object[] f : files) props.invoke(world, sprMan, media.invoke(zfs, f[0]), f[1]);
+            try { zfsC.getMethod("loadModTileDefPropertyStrings").invoke(zfs); } catch (Throwable ignored) { }
+            for (String m : new String[] { "SetCustomPropertyValues", "GenerateTilePropertyLookupTables" }) {
+                java.lang.reflect.Method mm = worldC.getDeclaredMethod(m);
+                mm.setAccessible(true);
+                mm.invoke(world);
+            }
+            for (Object[] f : files) defs.invoke(world, sprMan, media.invoke(zfs, f[0]), f[1]);
+            try {
+                java.lang.reflect.Method jt = worldC.getDeclaredMethod("registerFakeJumboTree", smC, int.class);
+                jt.setAccessible(true);
+                jt.invoke(world, sprMan, 7);
+            } catch (Throwable ignored) { }
+            try { zfsC.getMethod("loadModTileDefs").invoke(zfs); } catch (Throwable ignored) { }
+            try { cls("zombie.scripting.ScriptManager").getMethod("PostTileDefinitions")
+                    .invoke(cls("zombie.scripting.ScriptManager").getField("instance").get(null)); } catch (Throwable ignored) { }
+            long t1 = System.currentTimeMillis();
+            t.append("tiledefs=").append(t1 - t0).append("ms");
+
+            Object grid = worldC.getMethod("getMetaGrid").invoke(world);
+            createMetaGrid(grid, zfs, map);
+            long t2 = System.currentTimeMillis();
+            t.append(" metagrid=").append(t2 - t1).append("ms");
+
+            Class<?> mapC = cls("zombie.network.ServerMap");
+            Object smap = mapC.getField("instance").get(null);
+            try {
+                mapC.getMethod("init", grid.getClass()).invoke(smap, grid);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                // init ends with StashSystem.init(); the cell map is allocated
+                // before it, which is all the harness needs.
+                if (mapC.getField("cellMap").get(smap) == null) throw e;
+                t.append(" (StashSystem skipped: ").append(describe(e)).append(")");
+            }
+            if (harnessCell == null) {
+                harnessCell = cls("zombie.iso.IsoCell").getConstructor(int.class, int.class).newInstance(300, 300);
+            }
+            for (String f : new String[] { "minX", "minY", "maxX", "maxY" }) t.append(" ").append(f).append("=").append(grid.getClass().getField(f).getInt(grid));
+            worldLoaded = true;
+            loadedChunks.clear();
+            return new Object[] { t.toString(), null };
+        } catch (Throwable e) {
+            worldError = describe(e) + " (after " + t + ")";
+            return new Object[] { null, worldError };
+        } finally {
+            if (server != null) try { server.setBoolean(null, prev); } catch (Throwable ignored) { }
+        }
+    }
+
+    /**
+     * IsoMetaGrid.CreateStep1 minus procedural world generation, then the
+     * real CreateStep2. Step 1 also builds WorldGenChunk/BiomeMap/... from
+     * vanilla's `worldgen` Lua tables, which exist to generate cells that
+     * have NO map data; every cell of a real map has lotpacks, and none of
+     * PlaceLot reads them. Everything else is step 1 verbatim
+     * (IsoMetaGrid.java:1397-1486): MapFiles per lot dir, IsoLot registries
+     * in reverse priority, bounds, the cell grid, and the game's own eight
+     * MetaGridLoaderThreads reading every lotheader (rooms, buildings).
+     */
+    @SuppressWarnings("unchecked")
+    private static void createMetaGrid(Object grid, Object zfs, String map) throws Exception {
+        Class<?> mg = grid.getClass();
+        Class<?> isoLot = cls("zombie.iso.IsoLot");
+        for (String f : new String[] { "InfoHeaders", "InfoFileNames", "InfoFileModded" })
+            ((java.util.Map<?, ?>) isoLot.getField(f).get(null)).clear();
+        java.util.List<Object> infoHeaderNames = (java.util.List<Object>) isoLot.getField("InfoHeaderNames").get(null);
+        java.util.List<Object> mapFilesList = (java.util.List<Object>) isoLot.getField("MapFiles").get(null);
+        infoHeaderNames.clear();
+        mapFilesList.clear();
+        // The map stack as a dedicated server's Map= line ("A;B;Muldraugh, KY"),
+        // getLotDirectories' own ';' branch: its other branch resolves through
+        // ChooseGameInfo's map.info scan, which the harness never ran.
+        java.util.List<String> lotDirs = new java.util.ArrayList<>();
+        for (String d : map.split(";")) if (!d.trim().isEmpty() && !lotDirs.contains(d.trim())) lotDirs.add(d.trim());
+        Class<?> mfC = cls("zombie.iso.MapFiles");
+        java.lang.reflect.Method dirStr = zfs.getClass().getMethod("getDirectoryString", String.class);
+        for (int i = 0; i < lotDirs.size(); i++) {
+            String path = (String) dirStr.invoke(zfs, "media/maps/" + lotDirs.get(i) + "/");
+            java.io.File file = new java.io.File(path);
+            if (!file.isDirectory()) {
+                // Headless, getDirectoryString can resolve against a home the
+                // harness never populated; getMediaPath is the install's media.
+                path = (String) zfs.getClass().getMethod("getMediaPath", String.class).invoke(zfs, "maps/" + lotDirs.get(i));
+                file = new java.io.File(path);
+                if (!file.isDirectory()) continue;
+                if (!path.endsWith("/") && !path.endsWith(java.io.File.separator)) path = path + java.io.File.separator;
+            }
+            mapFilesList.add(mfC.getConstructor(String.class, String.class, String.class, int.class)
+                .newInstance(lotDirs.get(i), path, file.getAbsolutePath(), i));
+        }
+        if (mapFilesList.isEmpty()) throw new IllegalStateException("no map folders for " + lotDirs);
+        // MapFiles.load asks ChooseGameInfo.getMapDetails for each folder's
+        // map.info (fixed2x decides whether lot tile names get Fix2x'd). It
+        // resolves the file through ZomboidFileSystem.getString, which the
+        // harness's file system doesn't map; parse the same keys from the
+        // real file and seed the cache getMapDetails reads first.
+        Class<?> cgi = cls("zombie.gameStates.ChooseGameInfo");
+        Class<?> mapInfoC = cls("zombie.gameStates.ChooseGameInfo$Map");
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> maps = (java.util.Map<String, Object>) field(cgi, "Maps").get(null);
+        for (Object mf : mapFilesList) {
+            String name = (String) mfC.getField("mapDirectoryName").get(mf);
+            String abs = (String) mfC.getField("mapDirectoryAbsolutePath").get(mf);
+            if (maps.containsKey(name)) continue;
+            java.io.File info = new java.io.File(abs, "map.info");
+            Object mi = mapInfoC.getConstructor().newInstance();
+            field(mapInfoC, "dir").set(mi, abs);
+            field(mapInfoC, "title").set(mi, name);
+            java.util.ArrayList<String> lots = new java.util.ArrayList<>();
+            field(mapInfoC, "lotsDir").set(mi, lots);
+            if (info.isFile()) {
+                for (String line : java.nio.file.Files.readAllLines(info.toPath())) {
+                    line = line.trim();
+                    if (line.startsWith("title=")) field(mapInfoC, "title").set(mi, line.substring(6));
+                    else if (line.startsWith("lots=")) lots.add(line.substring(5).trim());
+                    else if (line.startsWith("fixed2x=")) field(mapInfoC, "fixed2x").setBoolean(mi, Boolean.parseBoolean(line.substring(8).trim()));
+                }
+            }
+            maps.put(name, mi);
+        }
+        for (Object mf : mapFilesList) if ((Boolean) mfC.getMethod("load").invoke(mf)) mfC.getMethod("postLoad").invoke(mf);
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        for (int ix = mapFilesList.size() - 1; ix >= 0; ix--) {
+            Object mf = mapFilesList.get(ix);
+            ((java.util.Map<Object, Object>) isoLot.getField("InfoFileNames").get(null)).putAll((java.util.Map<Object, Object>) mfC.getField("infoFileNames").get(mf));
+            ((java.util.Map<Object, Object>) isoLot.getField("InfoFileModded").get(null)).putAll((java.util.Map<Object, Object>) mfC.getField("infoFileModded").get(mf));
+            ((java.util.Map<Object, Object>) isoLot.getField("InfoHeaders").get(null)).putAll((java.util.Map<Object, Object>) mfC.getField("infoHeaders").get(mf));
+            java.util.List<Object> names = (java.util.List<Object>) mfC.getField("infoHeaderNames").get(mf);
+            infoHeaderNames.removeAll(names);
+            infoHeaderNames.addAll(names);
+            minX = Math.min(minX, mfC.getField("minX").getInt(mf));
+            minY = Math.min(minY, mfC.getField("minY").getInt(mf));
+            maxX = Math.max(maxX, mfC.getField("maxX").getInt(mf));
+            maxY = Math.max(maxY, mfC.getField("maxY").getInt(mf));
+        }
+        if (minX > maxX) throw new IllegalStateException("no .lotheader files in " + lotDirs);
+        for (String f : new String[] { "minX", "minNonProceduralX" }) field(mg, f).setInt(grid, minX);
+        for (String f : new String[] { "minY", "minNonProceduralY" }) field(mg, f).setInt(grid, minY);
+        for (String f : new String[] { "maxX", "maxNonProceduralX" }) field(mg, f).setInt(grid, maxX);
+        for (String f : new String[] { "maxY", "maxNonProceduralY" }) field(mg, f).setInt(grid, maxY);
+        Class<?> metaCellC = cls("zombie.iso.IsoMetaCell");
+        field(mg, "grid").set(grid, java.lang.reflect.Array.newInstance(metaCellC, maxX - minX + 1, maxY - minY + 1));
+        field(mg, "width").setInt(grid, maxX - minX + 1);
+        field(mg, "height").setInt(grid, maxY - minY + 1);
+        field(mg, "createStartTime").setLong(grid, System.currentTimeMillis());
+        Class<?> threadC = cls("zombie.iso.IsoMetaGrid$MetaGridLoaderThread");
+        java.lang.reflect.Constructor<?> tk = threadC.getDeclaredConstructor(mg, int.class);
+        tk.setAccessible(true);
+        Object[] threads = (Object[]) field(mg, "threads").get(grid);
+        for (int ix = 0; ix < 8; ix++) {
+            Thread th = (Thread) tk.newInstance(grid, minY + ix);
+            th.setDaemon(true);
+            th.setName("MetaGridLoaderThread" + ix);
+            th.start();
+            threads[ix] = th;
+        }
+        mg.getMethod("CreateStep2").invoke(grid);
+    }
+
+    /**
+     * Place real map data for one 256x256 cell (or a sub-rectangle of its
+     * chunks) through the game's own loader: CellLoader.LoadCellBinaryChunk
+     * -> IsoCell.PlaceLot -> CellLoader.DoTileObjectCreation, i.e. the right
+     * object class per tile (doors, windows, containers, light switches,
+     * sprite-bound entities). Chunks register into ServerMap, so
+     * getCell():getGridSquare(x, y, z) at REAL coordinates finds them.
+     * Returns { "chunks=N squares=M ms=T", null } or { null, error }.
+     */
+    public static Object[] loadCell(int cellX, int cellY, int chunkX0, int chunkY0, int chunkX1, int chunkY1) {
+        if (!worldLoaded) return new Object[] { null, "call loadWorld first" };
+        java.lang.reflect.Field server = null;
+        boolean prev = false;
+        long t0 = System.currentTimeMillis();
+        int chunks = 0, squares = 0;
+        try {
+            server = cls("zombie.network.GameServer").getField("server");
+            prev = server.getBoolean(null);
+            server.setBoolean(null, true);
+            Class<?> cellC = cls("zombie.iso.IsoCell");
+            Class<?> chunkC = cls("zombie.iso.IsoChunk");
+            Class<?> mapC = cls("zombie.network.ServerMap");
+            Object smap = mapC.getField("instance").get(null);
+            java.lang.reflect.Method load = cls("zombie.iso.CellLoader").getMethod("LoadCellBinaryChunk", cellC, int.class, int.class, chunkC);
+            java.lang.reflect.Method register = mapC.getMethod("setSoftResetChunk", chunkC);
+            java.lang.reflect.Method getSq = chunkC.getMethod("getGridSquare", int.class, int.class, int.class);
+            for (int lx = Math.max(0, chunkX0); lx <= Math.min(31, chunkX1); lx++) {
+                for (int ly = Math.max(0, chunkY0); ly <= Math.min(31, chunkY1); ly++) {
+                    int wx = cellX * 32 + lx, wy = cellY * 32 + ly;
+                    long key = ((long) wx << 32) | (wy & 0xffffffffL);
+                    if (!loadedChunks.add(key)) continue;
+                    Object chunk = chunkC.getConstructor(cellC).newInstance(harnessCell);
+                    field(chunkC, "wx").setInt(chunk, wx);
+                    field(chunkC, "wy").setInt(chunk, wy);
+                    load.invoke(null, harnessCell, wx, wy, chunk);
+                    register.invoke(smap, chunk);
+                    try { field(chunkC, "loaded").setBoolean(chunk, true); } catch (Throwable ignored) { }
+                    chunks++;
+                    for (int z = -8; z <= 8; z++) for (int x = 0; x < 8; x++) for (int y = 0; y < 8; y++) {
+                        try { if (getSq.invoke(chunk, x, y, z) != null) squares++; } catch (Throwable ignored) { }
+                    }
+                }
+            }
+            return new Object[] { "chunks=" + chunks + " squares=" + squares + " ms=" + (System.currentTimeMillis() - t0), null };
+        } catch (Throwable e) {
+            return new Object[] { null, describe(e) + " (after " + chunks + " chunks)" };
+        } finally {
+            if (server != null) try { server.setBoolean(null, prev); } catch (Throwable ignored) { }
         }
     }
 
