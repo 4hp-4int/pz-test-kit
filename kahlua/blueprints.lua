@@ -328,6 +328,14 @@ function BP.run(bp)
         end
         local bench
         if r.bench ~= false then bench = BP.benchFor(r.recipe, r.bench) end
+        -- A card that NAMES its bench gets that bench or fails: substituting
+        -- another (or none) would test a different thing under the same name.
+        if type(r.bench) == "string" and (bench == nil or bench.name ~= r.bench) then
+            r.result = { ok = false, err = "board asks for bench " .. r.bench .. ", which "
+                .. (bench and ("does not serve " .. tostring(r.recipe) .. " (would have used " .. bench.name .. ")")
+                          or "is not a known workstation for " .. tostring(r.recipe)) }
+            return
+        end
         local ok, res = pcall(T, "craft", { recipe = r.recipe, items = specs, qualify = true, mode = "action", enforce = true, bench = bench })
         if not ok then r.result = { ok = false, err = tostring(res) }; return end
         local consumed, kept = {}, {}

@@ -45,21 +45,32 @@ esac
 
 SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck EngineBridge PzLocator)
 
-# Recompile when any .java is newer than its .class.
-need_compile=0
-for src in "${SOURCES[@]}"; do
-    src_file="$KAHLUA_DIR/$src.java"
-    class_file="$KAHLUA_DIR/$src.class"
-    if [ -f "$src_file" ] && { [ ! -f "$class_file" ] || [ "$src_file" -nt "$class_file" ]; }; then
-        need_compile=1
-        break
-    fi
-done
-
-if [ "$need_compile" = "1" ]; then
-    echo "[pztest] compiling Java sources..." >&2
-    (cd "$KAHLUA_DIR" && javac -cp "$JAR" "${SOURCES[@]/%/.java}")
+# Compile into a build directory named for the sources' content, never in
+# place. A dashboard VM is a long-lived JVM that loads classes lazily; a run
+# that rewrote kahlua/*.class under it (any pztest run after a .java edit)
+# left that VM with old classes in memory and new ones on disk -- an inner
+# class or lambda loaded later could come from the wrong build. A build dir
+# is written once (to a temp name, then renamed into place) and never
+# touched again, so every JVM keeps the classes it started with, and a
+# source edit simply produces a new directory.
+BUILD_ROOT="$KAHLUA_DIR/.build"
+if command -v sha1sum >/dev/null 2>&1; then HASHCMD=sha1sum; else HASHCMD="shasum -a 1"; fi
+SRC_HASH="$(cd "$KAHLUA_DIR" && cat "${SOURCES[@]/%/.java}" | $HASHCMD | cut -c1-12)"
+BUILD_DIR="$BUILD_ROOT/$SRC_HASH"
+if [ ! -f "$BUILD_DIR/.complete" ]; then
+    echo "[pztest] compiling Java sources -> .build/$SRC_HASH" >&2
+    mkdir -p "$BUILD_ROOT"
+    TMP_BUILD="$BUILD_ROOT/.tmp-$SRC_HASH-$$"
+    rm -rf "$TMP_BUILD"; mkdir -p "$TMP_BUILD"
+    (cd "$KAHLUA_DIR" && javac -nowarn -cp "$JAR" -d "$(winpath "$TMP_BUILD")" "${SOURCES[@]/%/.java}") || { rm -rf "$TMP_BUILD"; exit 1; }
+    touch "$TMP_BUILD/.complete"
+    # Another run may have finished the same build first: theirs wins, ours goes.
+    if [ -f "$BUILD_DIR/.complete" ] || ! mv "$TMP_BUILD" "$BUILD_DIR" 2>/dev/null; then rm -rf "$TMP_BUILD"; fi
+    # Prune builds nobody has started from in two days (a running VM's build
+    # is newer than that or still in use; never prune the current one).
+    find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name "$SRC_HASH" -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 fi
+touch "$BUILD_DIR" 2>/dev/null || true   # last-used, for the prune
 
 # scriptcheck subcommand — validate media/scripts/*.txt with PZ's OWN parser.
 #
@@ -68,7 +79,7 @@ fi
 # gate there is (~1000 files in under a second). See kahlua/ScriptCheck.java.
 if [ "${1:-}" = "scriptcheck" ]; then
     shift
-    CP_SC="$(winpath "$JAR")$CPSEP$(winpath "$KAHLUA_DIR")"
+    CP_SC="$(winpath "$BUILD_DIR")$CPSEP$(winpath "$JAR")$CPSEP$(winpath "$KAHLUA_DIR")"
     if [ $# -eq 0 ]; then
         if [ ! -d "media/scripts" ]; then
             echo "[scriptcheck] no media/scripts in $(pwd) - nothing to check"
@@ -151,7 +162,9 @@ fi
 # and recompiling silently changes nothing until the jar is rebuilt (engine
 # mode found this the hard way). The live stubs directory is the source of
 # truth; the jar's baked copies serve distributions without a stubs/ dir.
-CP="$(winpath "$STUBS")$CPSEP$(winpath "$JAR")$CPSEP$(winpath "$KAHLUA_DIR")"
+# The build dir before KAHLUA_DIR: stale in-place .class files from older
+# kits stay shadowed.
+CP="$(winpath "$STUBS")$CPSEP$(winpath "$BUILD_DIR")$CPSEP$(winpath "$JAR")$CPSEP$(winpath "$KAHLUA_DIR")"
 CWD_ABS="$(winpath "$(pwd)")"
 
 # KahluaTestRunner's resolveKahluaDir() checks cwd for mock_environment.lua.

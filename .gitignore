@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.class
+kahlua/.build/
 !kahlua/stubs/**/*.class
 
 # Node dependencies (wasm-embed pulls these; package.json/lock are tracked)

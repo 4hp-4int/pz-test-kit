@@ -39,30 +39,45 @@ if (-not (Test-Path $jar)) {
 
 $sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck', 'EngineBridge', 'PzLocator')
 
-$needCompile = $false
+# Compile into a build directory named for the sources' content, never in
+# place (same scheme and same hash as the bash pztest): a long-lived
+# dashboard VM keeps loading classes lazily, and rewriting kahlua/*.class
+# under it left it half old, half new. A build dir is written once, to a
+# temp name renamed into place, and never touched again.
+$buildRoot = Join-Path $kahluaDir '.build'
+$ms = New-Object System.IO.MemoryStream
 foreach ($src in $sources) {
-    $srcFile   = Join-Path $kahluaDir "$src.java"
-    $classFile = Join-Path $kahluaDir "$src.class"
-    if (Test-Path $srcFile) {
-        if ((-not (Test-Path $classFile)) -or
-            ((Get-Item $srcFile).LastWriteTime -gt (Get-Item $classFile).LastWriteTime)) {
-            $needCompile = $true
-            break
-        }
-    }
+    $b = [System.IO.File]::ReadAllBytes((Join-Path $kahluaDir "$src.java"))
+    $ms.Write($b, 0, $b.Length)
 }
+$sha = [System.Security.Cryptography.SHA1]::Create()
+$srcHash = (($sha.ComputeHash($ms.ToArray()) | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 12)
+$buildDir = Join-Path $buildRoot $srcHash
 
-if ($needCompile) {
-    Write-Host '[pztest] compiling Java sources...' -ForegroundColor DarkGray
+if (-not (Test-Path (Join-Path $buildDir '.complete'))) {
+    Write-Host "[pztest] compiling Java sources -> .build/$srcHash" -ForegroundColor DarkGray
+    New-Item -ItemType Directory -Force $buildRoot | Out-Null
+    $tmpBuild = Join-Path $buildRoot ".tmp-$srcHash-$PID"
+    if (Test-Path $tmpBuild) { Remove-Item -Recurse -Force $tmpBuild }
+    New-Item -ItemType Directory -Force $tmpBuild | Out-Null
     Push-Location $kahluaDir
     try {
         $srcFiles = $sources | ForEach-Object { "$_.java" }
-        & javac -cp $jar @srcFiles
-        if ($LASTEXITCODE -ne 0) { throw 'javac failed' }
+        & javac -nowarn -cp $jar -d $tmpBuild @srcFiles
+        if ($LASTEXITCODE -ne 0) { Remove-Item -Recurse -Force $tmpBuild; throw 'javac failed' }
     } finally {
         Pop-Location
     }
+    New-Item -ItemType File (Join-Path $tmpBuild '.complete') | Out-Null
+    if (Test-Path (Join-Path $buildDir '.complete')) { Remove-Item -Recurse -Force $tmpBuild }
+    else {
+        try { Move-Item $tmpBuild $buildDir -ErrorAction Stop } catch { Remove-Item -Recurse -Force $tmpBuild }
+    }
+    # Prune builds unused for two days (never the current one).
+    Get-ChildItem $buildRoot -Directory | Where-Object { $_.Name -ne $srcHash -and $_.LastWriteTime -lt (Get-Date).AddDays(-2) } |
+        ForEach-Object { try { Remove-Item -Recurse -Force $_.FullName -ErrorAction Stop } catch {} }
 }
+try { (Get-Item $buildDir).LastWriteTime = Get-Date } catch {}
 
 # scriptcheck — validate media/scripts/*.txt with PZ's OWN parser.
 #
@@ -80,7 +95,7 @@ if ($Args.Count -ge 1 -and $Args[0] -eq 'scriptcheck') {
         }
         $targets = @($default)
     }
-    & java -cp "$jar;$kahluaDir" ScriptCheck @targets
+    & java -cp "$buildDir;$jar;$kahluaDir" ScriptCheck @targets
     exit $LASTEXITCODE
 }
 
@@ -151,7 +166,7 @@ $cpsep     = if ($IsWindows -or $env:OS -eq 'Windows_NT') { ';' } else { ':' }
 # STUBS FIRST: the runtime jar bakes a copy of every stub at build time and
 # the classloader searches in order — jar-first meant an edited stub silently
 # lost to its stale baked copy until the jar was rebuilt.
-$classpath = "$stubs$cpsep$jar$cpsep$kahluaDir"
+$classpath = "$stubs$cpsep$buildDir$cpsep$jar$cpsep$kahluaDir"
 
 # KahluaTestRunner resolves kahlua/ dir via cwd. cd into the kit's kahlua
 # directory first; the mod-root arg is absolute so discovery still works.

@@ -1150,6 +1150,12 @@ async function handle(req, res, url, ctx) {
           // recipe. bench = false crafts in hand (to see the refusal).
           if (body.args.bench !== false) {
             const ws = workstationsFor(mod, full0);
+            // A NAMED bench is used or the call fails: swapping in ws[0] would
+            // craft somewhere else under the name the caller asked for.
+            if (typeof body.args.bench === "string" && !ws.find((w) => w.full === body.args.bench)) {
+              throw new Error("bench " + body.args.bench + " does not serve " + full0 +
+                (ws.length ? " (benches that do: " + ws.map((w) => w.full).join(", ") + ")" : " (it needs no workstation)"));
+            }
             const pick = (body.args.bench && ws.find((w) => w.full === body.args.bench)) || ws[0];
             body.args.bench = pick ? { name: pick.full, sprite: pick.sprite } : null;
           } else body.args.bench = null;

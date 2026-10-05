@@ -268,7 +268,15 @@ WB.register("craft", function(a)
         local w, werr = C.workstation(a.bench.name, a.bench.sprite)
         workstation = { name = a.bench.name, sprite = a.bench.sprite, ok = w ~= nil, err = werr }
         if w then bench, benchObj = w.bench, w.obj
-        else initErrors[#initErrors + 1] = "workstation " .. a.bench.name .. ": " .. tostring(werr) end
+        else
+            -- A bench that was asked for and could not be built is a failed
+            -- craft, never a quiet craft in hand: for a recipe that also works
+            -- in hand that fallback PASSED (the Charcoal_Pit 'false' tile).
+            return { ok = false, ran = false, recipe = s(recipe:getName()), workstation = workstation,
+                     err = "workstation " .. a.bench.name .. " (" .. tostring(a.bench.sprite) .. ") could not be built: "
+                         .. tostring(werr) .. " -- nothing was crafted",
+                     consumed = {}, kept = {}, outputs = {}, why = {}, initErrors = initErrors }
+        end
     end
     -- AnySurfaceCraft (dismantle/assemble and many more): HandcraftLogic
     -- refuses unless its isoObject is within 3 tiles

@@ -363,6 +363,7 @@ public class KahluaTestRunner {
         System.out.println("Indexed modules:  " + index.size());
         System.out.println("Explicit modules: " + modules.size());
         System.out.println("Test files:       " + tests.size());
+        if (!selectiveRun) noteUnreplayedBoards(modRoot, tests);
 
         // ── Run each test file in an isolated runtime ───────────────
         int grandTotal = 0, grandPass = 0, grandFail = 0, grandErr = 0;
@@ -2075,6 +2076,30 @@ public class KahluaTestRunner {
      *  - tests/test_*.lua (standalone test dir)
      *  - media/lua/client/&#42;/Tests/test_*.lua
      *  - media/lua/client/&#42;/Tests/*Tests.lua (VPS-style) */
+    /**
+     * Saved Workbench boards (workbench/blueprints/*.json) are tests only if a
+     * test file replays them (PZTestKit.Blueprints.tests()). vps-story carried
+     * three boards that had never run in its suite -- two of them failing.
+     * Say so loudly on every full run rather than let a board look like a test.
+     */
+    private static void noteUnreplayedBoards(Path modRoot, List<String> tests) {
+        Path dir = modRoot.resolve("workbench").resolve("blueprints");
+        if (!Files.isDirectory(dir)) return;
+        long boards;
+        try (Stream<Path> s = Files.list(dir)) {
+            boards = s.filter(p -> p.getFileName().toString().endsWith(".json")).count();
+        } catch (IOException e) { return; }
+        if (boards == 0) return;
+        for (String t : tests) {
+            try {
+                if (Files.readString(modRoot.resolve(t)).contains("Blueprints.tests")) return;
+            } catch (IOException ignored) { }
+        }
+        System.out.println("*** NOTE: " + boards + " saved Workbench board(s) in workbench/blueprints/ but no test file "
+            + "replays them -- add Tests/EngineBlueprintTests.lua: `return PZTestKit.Blueprints.tests()` "
+            + "(engine-guarded). Until then they are not tests.");
+    }
+
     private static List<String> discoverTests(Path modRoot) throws IOException {
         List<String> found = new ArrayList<>();
 
