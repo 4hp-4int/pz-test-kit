@@ -288,9 +288,13 @@ function killTree(proc) {
 }
 
 class Bridge {
-  constructor(mod, ctx) {
+  // opts.role "server" | "client" (+ opts.index): a SousVide MP side
+  // (dashboard/mp.js). Without it, the single-VM bench.
+  constructor(mod, ctx, opts) {
     this.mod = mod;
     this.ctx = ctx;
+    this.role = (opts && opts.role) || null;
+    this.index = (opts && opts.index) || 0;
     this.state = "idle";        // idle | booting | loading | ready | dead
     this.bootLog = [];
     this.error = null;
@@ -311,6 +315,7 @@ class Bridge {
     this.startedAt = Date.now();
     const pztest = path.join(this.ctx.KIT, "pztest");
     const flags = workbenchConfig(this.mod).engine ? ["--bridge", "--engine"] : ["--bridge"];
+    if (this.role) flags.push("--role", this.role, ...(this.role === "client" ? ["--client-index", String(this.index)] : []));
     this.proc = spawn(this.ctx.bashPath(), [pztest, ...flags], { cwd: this.mod.root });
     let buf = "";
     this.proc.stdout.on("data", (chunk) => {
@@ -456,12 +461,15 @@ class Bridge {
 
   status() {
     return {
-      modId: this.mod.id, state: this.state, error: this.error, bootMs: this.bootMs || null,
+      modId: this.mod.id, role: this.role, index: this.index, state: this.state, error: this.error, bootMs: this.bootMs || null,
       elapsedMs: this.startedAt ? Date.now() - this.startedAt : null,
       bootLog: this.bootLog.slice(-60), info: this.info,
     };
   }
 }
+
+// SousVide MP (docs/sousvide-mp.md): server + client bridges and the Pass.
+const mp = require("./mp")({ Bridge, luaLit, json, readBody, killTree });
 
 function bridgeFor(mod, ctx) {
   let b = bridges.get(mod.id);
@@ -998,6 +1006,7 @@ async function handle(req, res, url, ctx) {
     fs.createReadStream(file).pipe(res);
     return true;
   }
+  if (p.startsWith("/api/mp/")) return mp.handle(req, res, url, ctx);
   if (!p.startsWith("/api/wb/")) return false;
   const parts = p.split("/").filter(Boolean);   // api wb <modId> <action>
 

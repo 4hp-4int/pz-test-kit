@@ -566,6 +566,7 @@ tool("board", {
           <button class="btn small" id="blive" title="Live: edits to this mod's Lua, scripts and workbench addons land in the running engine (no restart), then the board re-runs">⟳ live</button>
           <button class="btn small" id="bmap" title="Open the real map: click a tile to put that square on the board (shift-click: several)">🗺 map</button>
           <button class="btn small" id="brecipe" title="Recipe builder: draft a craftRecipe, write it into the mod, reload, and craft it here">✎ recipe</button>
+          <button class="btn small" id="bmp" title="Multiplayer: a server SousVide and client SousVides (separate JVMs), with the Pass between them: every packet logged, holdable, droppable, duplicable">🍳 mp</button>
           <button class="btn small" id="bevents" title="Event lab: fire any Lua event at real objects (a fresh zombie, your items, a map square) and see what each listener changed">⚡ events</button>
           <button class="btn small" id="bvhs" title="VHS player: play a recorded tape (vanilla or the mod's) through the engine's TV pipeline and watch what every line does to the listener">📼 vhs</button>
           <button class="btn small" id="bfit" title="Fit everything (f)">fit</button><button class="btn small" id="bclear">clear</button>
@@ -589,6 +590,7 @@ tool("board", {
     $("#brecipe").onclick = () => this.recipeBuilder();
     $("#bvhs").onclick = () => this.vhsPanel();
     $("#bevents").onclick = () => this.eventLab();
+    $("#bmp").onclick = () => this.mpPanel();
     $("#blive").onclick = () => this.setLive(!this.st.live);
     if (this.st.live) this.setLive(true);
     $("#bclkgo").onclick = () => this.advanceClock(+$("#bclkstep").value);
@@ -2275,6 +2277,71 @@ tool("board", {
       ${arr(d.hooks).length ? `<div style="font-size:11.5px;margin-top:4px">${d.hooks.map((h) => `<span class="mono">${esc(h.kind)} = ${esc(h.fn)}</span>`).join("<br>")}</div>` : ""}
       ${arr(d.source && d.source.defs).map((x) => `<div class="muted mono" style="font-size:11px;margin-top:6px">${esc(x.origin || "")} ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("")}</details>`;
     for (const b of $$("[data-additem]", host)) b.onclick = () => this.add("item", b.dataset.additem, r.x + 300, r.y);
+  },
+  // SousVide MP (dashboard/mp.js, workbench/80_mp.lua): a server side and
+  // client sides in their own JVMs; the Pass between them is the network.
+  async mpPanel() {
+    const el = $("#binsp");
+    if (!el) return;
+    this.board().sel = null; this.draw();
+    const P = (this.st.mp = this.st.mp || { clients: 1, side: "c1", lua: "return getPlayer() and getPlayer():getUsername()", since: 0 });
+    const api = (action, body) => fetch(`/api/mp/${encodeURIComponent(S.mod)}/${action}`, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }).then((r) => r.json());
+    const st = await api("status").catch((e) => ({ error: e.message }));
+    const A = (x) => Array.isArray(x) ? x : [];
+    const sides = A(st.sides);
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>🍳 SousVide MP</b><div class="mono dim" style="font-size:11px">${esc(S.mod)} · ${esc(st.state || "idle")}${st.state === "ready" ? ` · ${st.clients} client(s) · ${st.packets} packet(s)${st.hold ? " · <span class='warn'>HELD</span>" : ""}` : ""}</div></div>
+        ${st.state === "ready" ? `<button class="btn small" id="mpstop">stop</button>` : ""}</div>
+      <div class="ibody">
+        ${st.state !== "ready" ? `<div class="pform"><label>clients <select class="inp" id="mpn">${[1, 2, 3, 4].map((n) => `<option ${P.clients === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+            <button class="btn primary" id="mpstart">🔥 light the burners</button><span class="dim" style="font-size:11px">a server + client JVMs, ~10 s</span></div>${st.error ? `<pre class="fail">${esc(st.error)}</pre>` : ""}` : `
+        <div style="font-size:11.5px">${sides.map((x) => { const b = (st.boot || {})[x.side] || {}; const fails = A(b.failed).length + A(b.vanilla && b.vanilla.failed).length; const evErr = A(b.events).reduce((n, e) => n + A(e.errors).length, 0);
+          return `<div><b class="mono">${esc(x.side)}</b> ${esc(x.state)} · ${A(b.players).map(esc).join(", ")} · mod files ${b.loaded ?? "?"}+${b.alreadyLoaded ?? 0} · vanilla ${(b.vanilla && b.vanilla.loaded) ?? 0}${fails ? ` · <span class="warn">${fails} load failure(s)</span>` : ""}${evErr ? ` · <span class="warn">${evErr} start-event error(s)</span>` : ""}</div>`; }).join("")}
+          <details><summary class="dim">boot reports</summary><pre class="box" style="max-height:200px;font-size:10.5px">${esc(JSON.stringify(st.boot, null, 1))}</pre></details></div>
+        <h3>Run on a side</h3>
+        <div class="row" style="gap:6px"><select class="inp" id="mpside">${sides.map((x) => `<option ${P.side === x.side ? "selected" : ""}>${esc(x.side)}</option>`).join("")}</select>
+          <button class="btn small primary" id="mprun">▶ run</button><span id="mpres" class="mono" style="font-size:11px"></span></div>
+        <textarea class="inp mono" id="mplua" rows="4" style="width:100%;margin-top:4px">${esc(P.lua)}</textarea>
+        <h3>The Pass</h3>
+        <div class="row" style="gap:6px"><button class="btn small" id="mphold">${st.hold ? "▶ release" : "⏸ hold"}</button>
+          ${st.hold ? `<button class="btn small" id="mpone">deliver 1</button><button class="btn small" id="mpall">deliver all (${st.queued})</button><button class="btn small" id="mpdrop">drop next</button><button class="btn small" id="mpdup">duplicate next</button>` : ""}</div>
+        <div id="mppass" style="margin-top:6px;font-size:11.5px"></div>`}
+      </div>`;
+    if ($("#mpstart")) $("#mpstart").onclick = async () => {
+      P.clients = +$("#mpn").value;
+      $("#mpstart").disabled = true; $("#mpstart").textContent = "lighting…";
+      const r = await api("start", { clients: P.clients }).catch((e) => ({ error: e.message }));
+      if (r.error) this.say("✗ " + r.error);
+      this.mpPanel();
+    };
+    if (st.state !== "ready") return;
+    $("#mpstop").onclick = async () => { await api("stop", {}); this.mpPanel(); };
+    $("#mpside").onchange = (e) => { P.side = e.target.value; };
+    $("#mprun").onclick = async () => {
+      P.lua = $("#mplua").value;
+      $("#mpres").textContent = "…";
+      const r = await api("eval", { side: P.side, lua: P.lua }).catch((e) => ({ error: e.message }));
+      $("#mpres").innerHTML = r.error ? `<span class="fail">${esc(r.error)}</span>` : `→ ${esc(r.result && r.result.value)} · delivered ${r.pass ? r.pass.delivered : 0}${r.pass && r.pass.queued ? `, ${r.pass.queued} held` : ""}`;
+      this.mpPass();
+    };
+    $("#mphold").onclick = async () => { await api("hold", { on: !st.hold }); this.mpPanel(); };
+    const pump = (body) => async () => { await api("pump", body); this.mpPanel(); };
+    if ($("#mpone")) { $("#mpone").onclick = pump({ n: 1 }); $("#mpall").onclick = pump({}); $("#mpdrop").onclick = pump({ drop: true }); $("#mpdup").onclick = pump({ dup: true }); }
+    this.mpPass();
+  },
+  async mpPass() {
+    const host = $("#mppass");
+    if (!host) return;
+    const j = await fetch(`/api/mp/${encodeURIComponent(S.mod)}/pass`).then((r) => r.json()).catch(() => null);
+    if (!j || !host.isConnected) return;
+    const A = (x) => Array.isArray(x) ? x : [];
+    const row = (p) => p.kind === "storm" ? `<div class="fail">⚠ ${esc(p.note)}</div>`
+      : `<div style="border-left:2px solid ${p.from === "server" ? "var(--accent)" : "var(--link)"};padding-left:6px;margin:3px 0">
+          <span class="dim mono">#${p.seq}</span> <b class="mono">${esc(p.from)} → ${esc(p.to)}</b> <span class="mono">${esc(p.module)}/${esc(p.command)}</span>
+          <span class="dim">${p.size} B · ${esc(p.cause || "")}</span>${p.duplicate ? ` <span class="warn">DUPLICATE</span>` : ""}${p.dropped ? ` <span class="fail">DROPPED</span>` : ""}
+          ${A(p.drops).length ? `<div class="warn">wire dropped: ${p.drops.map(esc).join(", ")}</div>` : ""}
+          ${A(p.delivered).map((d) => `<div class="dim">at ${esc(d.to)}: ${d.undeliverable ? `<span class="fail">${esc(d.undeliverable)}</span>` : `${d.listeners} listener(s)${d.player ? " as " + esc(d.player) : ""}${d.sent ? ` · sent ${d.sent}` : ""} · args <span class="mono">${esc(JSON.stringify(d.args)).slice(0, 160)}</span>`}${A(d.errors).map((e) => `<div class="fail">${esc(e.where)}: ${esc(e.err)}</div>`).join("")}</div>`).join("")}</div>`;
+    host.innerHTML = (A(j.queued).length ? `<div class="warn">held: ${j.queued.map((p) => `#${p.seq} ${esc(p.from)}→${esc(p.to)} ${esc(p.command)}`).join(", ")}</div>` : "")
+      + (A(j.packets).slice().reverse().slice(0, 80).map(row).join("") || `<div class="dim">no packets yet: run something that sends (sendClientCommand / sendServerCommand)</div>`);
   },
   // Event lab (68_events.lua): pick an event, build its arguments from real
   // things, fire it in a pinned context, read what each listener changed.

@@ -1,7 +1,7 @@
 # SousVide MP: two burners and the Pass
 
-Status: design (2026-10-05). Decisions: separate JVMs per side; first proving
-ground SaucedCarts.
+Status: **phase 1 built** (2026-10-05). Decisions: separate JVMs per side;
+first proving ground SaucedCarts.
 
 ## Why separate JVMs
 
@@ -104,6 +104,43 @@ the Pass sits between the lanes, and expectations can be auditor clean,
 invariant holds, or a packet was sent. Scenarios save like blueprints and run
 as tests through the dashboard. Each also exports as a `pz-shell` probe
 sequence for the docker dedi, which covers the netcode we only model.
+
+## Phase 1 as built
+
+- `pztest --bridge --engine --role server|client [--client-index N]`
+  (KahluaTestRunner.bridgeMode). The server side holds `GameServer.server`
+  (EngineBridge.setRole).
+- `dashboard/mp.js` is the Pass: sessions, the queue, the log, and
+  hold / deliver n / drop / duplicate. HTTP is `/api/mp/<mod>/...`. MCP tools:
+  `mp_start`, `mp_eval`, `mp_call`, `mp_pump`, `mp_pass`, `mp_status`.
+  The Workbench has a 🍳 mp panel.
+- `workbench/80_mp.lua` boots a side:
+  1. players: one per client on the server, `cook1..N`;
+  2. network globals become packets, and `getPlayer()` is nil on the server;
+  3. vanilla classes the mod names load first (index built by `mp.js`,
+     parents ahead), with `require` falling back to vanilla files;
+  4. every mod file that side runs, in folder order;
+  5. start events.
+
+  `mpDeliver` decodes the real wire bytes and fires
+  OnClientCommand/OnServerCommand. `PZEngine.wireEncode/wireDecode`
+  carry payloads between processes.
+- Proof: SaucedCarts `requestAnimationSync` from c1 and c2. The server receives
+  each with the right player and answers `fullAnimationSync` to that client
+  only. Held + duplicated delivery makes the server answer twice.
+
+Findings:
+- **The single-VM bench is client-shaped**, not SP (`isClient()` true,
+  `isServer()` false). Modules gated `if isClient() then return end` never ran
+  there.
+- **Kahlua cannot pass a Lua number to a `short`/`byte`/`long` parameter.**
+  `IsoPlayer.setOnlineID(short)` needs `PZEngine.invokeTyped`.
+- **Open:** a client side's vanilla UI tree (`ISUIElement` → `ISPanel` →
+  `ISContextMenu`, `ISTimedActionQueue`) does not load headless yet; it needs
+  uiview's UIMock layer. In SaucedCarts this shows as AttachmentTweaker (derive
+  of nil), CorpseStorage `reconcileCartsInRange`, and `createPlayerData` at
+  OnCreatePlayer. Phase 2 needs it, because transfers go through timed actions
+  and the inventory UI.
 
 ## Phases
 

@@ -91,6 +91,8 @@ public class KahluaTestRunner {
         boolean eventCoverage = false;
         String serveScene     = null;   // --serve <scene>: resident UI render loop
         boolean bridgeOn      = false;  // --bridge: resident eval bridge (b64 line protocol)
+        String  bridgeRole    = null;   // --role server|client: a SousVide MP side
+        int     bridgeClient  = 0;      // --client-index N (role client)
         boolean verbose       = false;  // --verbose: stream all output live (legacy behavior)
         boolean noPrescan     = false;  // --no-prescan: disable filter file pre-skip
 
@@ -141,6 +143,8 @@ public class KahluaTestRunner {
                     serveScene = args[++i]; continue;
                 }
                 if (a.equals("--bridge")) { bridgeOn = true; continue; }
+                if (a.equals("--role") && i + 1 < args.length) { bridgeRole = args[++i]; continue; }
+                if (a.equals("--client-index") && i + 1 < args.length) { bridgeClient = Integer.parseInt(args[++i]); continue; }
                 if (a.startsWith("--serve=")) {
                     serveScene = a.substring("--serve=".length()); continue;
                 }
@@ -278,7 +282,7 @@ public class KahluaTestRunner {
         // designer scrubbing seeds runs the actual director, never a JS
         // reimplementation.
         if (bridgeOn) {
-            bridgeMode(modRoot);
+            bridgeMode(modRoot, bridgeRole, bridgeClient);
             return;
         }
 
@@ -1212,14 +1216,25 @@ public class KahluaTestRunner {
      * prefix. "@@BRIDGE_READY@@" marks the env as built; "__quit__" ends the
      * session. Chunks conventionally `return` a JSON string built Lua-side.
      */
-    private static void bridgeMode(Path modRoot) throws Exception {
+    private static void bridgeMode(Path modRoot, String role, int clientIdx) throws Exception {
         ModuleIndex index = indexModuleTree(modRoot);
         TestPlatform platform = new TestPlatform();
         KahluaTable  env      = platform.newEnvironment();
         KahluaThread thread   = new KahluaThread(System.out, platform, env);
         thread.debugOwnerThread = Thread.currentThread();
 
-        buildEnv(thread, env, modRoot, index, new ArrayList<>(), /*isServer*/ false, /*clientIdx*/ 0);
+        // SousVide MP (docs/sousvide-mp.md): one bridge per side. A server
+        // side builds the env in server context (isServer/isClient flipped)
+        // and holds GameServer.server for its whole life; a client side is
+        // the default client context, tagged with its index. The dashboard
+        // routes packets between them.
+        boolean server = "server".equals(role);
+        buildEnv(thread, env, modRoot, index, new ArrayList<>(), server, server ? 0 : clientIdx);
+        if (role != null) {
+            env.rawset("_pz_role", role);
+            env.rawset("_pz_client_index", Double.valueOf(server ? 0 : clientIdx));
+            EngineBridge.setRole(role);
+        }
 
         java.util.Base64.Encoder b64e = java.util.Base64.getEncoder();
         java.util.Base64.Decoder b64d = java.util.Base64.getDecoder();

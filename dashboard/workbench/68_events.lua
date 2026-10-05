@@ -86,6 +86,7 @@ local function where(fn)
     end
     return short .. ":" .. line
 end
+WB.fnWhere = where
 
 -- Modules whose SOURCE registers for the event (loaded or not): what a
 -- server-only module would add if it ran here.
@@ -96,10 +97,12 @@ local function registrants(name)
         if type(src) == "string" then
             for _, p in ipairs(pats) do
                 if src:find(p) then
-                    -- `if not isServer() then return end` returned early in this
-                    -- (client-shaped) VM: its listeners only exist once it runs
-                    -- in server context. (`if isClient() then return end` ran.)
-                    local early = src:find("if%s+not%s+isServer%(%)%s+then%s+return") ~= nil
+                    -- A server-only guard that returned early under THIS VM's
+                    -- context (the single-VM bench is client-shaped: isClient()
+                    -- true, isServer() false): its listeners only exist once
+                    -- the module runs in server context.
+                    local early = (src:find("if%s+not%s+isServer%(%)%s+then%s+return") ~= nil and not isServer())
+                        or (src:find("if%s+isClient%(%)%s+then%s+return") ~= nil and isClient())
                     local viaServer = WB.serverLoaded and WB.serverLoaded[mod] ~= nil
                     out[#out + 1] = { module = mod, serverOnly = early,
                                       loaded = viaServer or (_pz_package_loaded[mod] ~= nil and not early) }

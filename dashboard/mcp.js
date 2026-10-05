@@ -71,6 +71,15 @@ async function call(mod, tool, args) {
   return { value: v, out: r.out };
 }
 
+// ── SousVide MP (dashboard/mp.js): server + client sides and the Pass ────
+async function mp(mod, action, body, method) {
+  await ensureDashboard();
+  const r = await request(method || "POST", `/api/mp/${encodeURIComponent(mod)}/${action}`, body);
+  if (r && r.error) throw new Error(r.error);
+  return r;
+}
+const SIDE = { type: "string", description: "\"server\" or a client: \"c1\", \"c2\"..." };
+
 // ── tests: pztest with a JSON report ───────────────────────────────────────
 function bashPath() {
   for (const c of [process.env.PZTEST_BASH, "C:/Program Files/Git/bin/bash.exe", "C:/Program Files/Git/usr/bin/bash.exe", "bash"]) {
@@ -145,6 +154,46 @@ const TOOLS = [
     description: "Advance the engine's world clock: fires EveryOneMinute/TenMinutes/Hours/Days on their real boundaries and ages the given live items (refs) via the engine's own code (food rot etc.).",
     inputSchema: { type: "object", properties: { mod: MOD, minutes: { type: "number" }, refs: { type: "array", items: { type: "number" } } }, required: ["mod", "minutes"] },
     run: async (a) => call(a.mod, "clockAdvance", { minutes: a.minutes, refs: a.refs || [] }),
+  },
+  {
+    name: "mp_start",
+    description: "SousVide MP: boot a multiplayer session for a mod -- a server side (separate JVM, GameServer.server, loads shared+server like a dedi, fires OnServerStarted) and N client sides (load shared+client+server, fire OnGameStart/OnCreatePlayer), each with its player identity (cook1..cookN). Packets between them cross the Pass (the dashboard) as real TableNetworkUtils bytes. Returns each side's boot report (vanilla deps loaded, mod files run, start-event errors).",
+    inputSchema: { type: "object", properties: { mod: MOD, clients: { type: "number", description: "1-4 (default 1)" } }, required: ["mod"] },
+    run: async (a) => mp(a.mod, "start", { clients: a.clients || 1 }),
+  },
+  {
+    name: "mp_eval",
+    description: "SousVide MP: run Lua on one side (getPlayer() is that side's player; nil on the server, as on a dedi), then deliver whatever it sent across the Pass (unless held). Returns the result plus the delivery summary; read mp_pass for the packets.",
+    inputSchema: { type: "object", properties: { mod: MOD, side: SIDE, lua: { type: "string" } }, required: ["mod", "side", "lua"] },
+    run: async (a) => mp(a.mod, "eval", { side: a.side, lua: a.lua }),
+  },
+  {
+    name: "mp_call",
+    description: "SousVide MP: call any SousVide tool (see `call`) on one side, then deliver what it sent.",
+    inputSchema: { type: "object", properties: { mod: MOD, side: SIDE, tool: { type: "string" }, args: { type: "object" } }, required: ["mod", "side", "tool"] },
+    run: async (a) => mp(a.mod, "call", { side: a.side, tool: a.tool, args: a.args || {} }),
+  },
+  {
+    name: "mp_pump",
+    description: "SousVide MP: control delivery. hold:true/false stops/starts automatic delivery; then n:N delivers the next N queued packets (omit: all), drop:true discards the next one, dup:true delivers the next one twice -- races and double-sends are where dupes come from.",
+    inputSchema: { type: "object", properties: { mod: MOD, hold: { type: "boolean" }, n: { type: "number" }, drop: { type: "boolean" }, dup: { type: "boolean" } }, required: ["mod"] },
+    run: async (a) => {
+      if (a.hold !== undefined) await mp(a.mod, "hold", { on: a.hold });
+      if (a.n === undefined && !a.drop && !a.dup) return mp(a.mod, "status", undefined, "GET");
+      return mp(a.mod, "pump", { n: a.n, drop: a.drop, dup: a.dup });
+    },
+  },
+  {
+    name: "mp_pass",
+    description: "SousVide MP: the packet log -- every packet's seq, sender, receiver, kind, module/command, size, what caused it, and per receiver: listeners run, errors, the decoded args, packets it sent in turn. since: only packets after this seq. Also the queue when held.",
+    inputSchema: { type: "object", properties: { mod: MOD, since: { type: "number" } }, required: ["mod"] },
+    run: async (a) => mp(a.mod, "pass?since=" + (a.since || 0), undefined, "GET"),
+  },
+  {
+    name: "mp_status",
+    description: "SousVide MP: the session's sides, their state, hold, queue length and boot reports. stop:true ends the session.",
+    inputSchema: { type: "object", properties: { mod: MOD, stop: { type: "boolean" } }, required: ["mod"] },
+    run: async (a) => a.stop ? mp(a.mod, "stop", {}) : mp(a.mod, "status", undefined, "GET"),
   },
   {
     name: "test",

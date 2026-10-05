@@ -1122,6 +1122,51 @@ public final class EngineBridge {
             // plus a 1..N array describing every top-level entry the wire
             // dropped. Usable from any engine test to pin a command payload
             // as wire-safe without spinning up a full sim.
+            // SousVide MP: the Pass carries payloads BETWEEN processes, so
+            // the two halves of wireRoundTrip are exposed separately.
+            // wireEncode(tbl) -> (base64 bytes, drops); wireDecode(b64) -> tbl.
+            pzEngine.rawset("wireEncode", (JavaFunction) (frame, n) -> {
+                Object[] saved = wireSave(frame.get(0));
+                if (saved == null) { frame.push(null); return 1; }
+                frame.push(java.util.Base64.getEncoder().encodeToString((byte[]) saved[0]));
+                frame.push(saved[1]);
+                return 2;
+            });
+            pzEngine.rawset("wireDecode", (JavaFunction) (frame, n) -> {
+                Object b = n > 0 ? frame.get(0) : null;
+                frame.push(b instanceof String s ? wireLoad(java.util.Base64.getDecoder().decode(s)) : null);
+                return 1;
+            });
+            pzEngine.rawset("role", (JavaFunction) (frame, n) -> { frame.push(role); return 1; });
+            // Kahlua converts a Lua number to double/float/int but not to
+            // short, byte or long ("expected argument of type short, got
+            // Double"): IsoPlayer.setOnlineID(short) is unreachable from Lua.
+            // invokeTyped(obj, method, "short"|"byte"|"long"|"int"|"float", n)
+            // calls the one-argument overload of that primitive type.
+            pzEngine.rawset("invokeTyped", (JavaFunction) (frame, n) -> {
+                try {
+                    Object obj = frame.get(0);
+                    String name = String.valueOf(frame.get(1));
+                    String type = String.valueOf(frame.get(2));
+                    Number v = (Number) frame.get(3);
+                    Class<?> pt; Object arg;
+                    switch (type) {
+                        case "short" -> { pt = short.class; arg = v.shortValue(); }
+                        case "byte"  -> { pt = byte.class;  arg = v.byteValue(); }
+                        case "long"  -> { pt = long.class;  arg = v.longValue(); }
+                        case "int"   -> { pt = int.class;   arg = v.intValue(); }
+                        case "float" -> { pt = float.class; arg = v.floatValue(); }
+                        default -> throw new IllegalArgumentException("type " + type);
+                    }
+                    java.lang.reflect.Method m = null;
+                    for (Class<?> c = obj.getClass(); c != null && m == null; c = c.getSuperclass()) {
+                        try { m = c.getMethod(name, pt); } catch (NoSuchMethodException ignored) { break; }
+                    }
+                    if (m == null) throw new NoSuchMethodException(name + "(" + type + ")");
+                    frame.push(m.invoke(obj, arg));
+                } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
+                return 1;
+            });
             pzEngine.rawset("wireRoundTrip", (JavaFunction) (frame, n) -> {
                 Object[] saved = wireSave(frame.get(0));
                 if (saved == null) { frame.push(null); return 1; }
@@ -1864,6 +1909,26 @@ public final class EngineBridge {
     // DualVMSim mirrors that line). Nested tables recurse; drops INSIDE a
     // nested table are silent in vanilla too — canSave only scans the top
     // level — so they are silent here, faithfully.
+
+    // ------------------------------------------------------------------
+    // SousVide MP role (docs/sousvide-mp.md)
+    // ------------------------------------------------------------------
+    /** "server" | "client" | null (the single-VM bench). */
+    private static String role;
+
+    /** A server side holds GameServer.server for the life of the VM, as a
+     *  dedicated server does: server-side engine paths take the server
+     *  branch (and ServerMap answers square lookups). Tools that flip it
+     *  around a call (PZEngine.setServer) restore TRUE afterwards.
+     *  GameClient.client is NOT set on a client side yet: engine paths
+     *  under it reach for a live connection the bench does not have
+     *  (phase 3 of the MP design gives them one). */
+    public static void setRole(String r) {
+        role = r;
+        if (!"server".equals(r) || loader == null) return;
+        try { cls("zombie.network.GameServer").getField("server").setBoolean(null, true); }
+        catch (Throwable t) { System.out.println("[engine] setRole server: " + describe(t)); }
+    }
 
     private static final se.krka.kahlua.j2se.J2SEPlatform WIRE_PLATFORM =
             new se.krka.kahlua.j2se.J2SEPlatform();
