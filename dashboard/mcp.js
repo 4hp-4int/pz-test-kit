@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 /*
- * pz-workbench MCP server: the Engine Workbench as tools an agent can call.
+ * SousVide MCP server: the sealed engine as tools an agent can call.
+ *
+ * SousVide is the DS Mods name for the pz-test-kit engine VM -- Project
+ * Zomboid B42's real projectzomboid.jar running a mod's Lua headless, sealed
+ * off from the renderer and held at an exact, replayable state. The
+ * Workbench board (/workbench) is its browser face.
  *
  * stdio JSON-RPC 2.0 (MCP), no dependencies. Every tool goes through the
  * dashboard's HTTP API (dashboard/workbench.js), so an agent and the browser
@@ -97,52 +102,52 @@ function runTests(modRoot, only) {
 }
 
 // ── tools ───────────────────────────────────────────────────────────────────
-const MOD = { type: "string", description: "Mod id as the dashboard lists it (wb_mods), e.g. VorpallySauced, SauceTweaks" };
+const MOD = { type: "string", description: "Mod id as the dashboard lists it (the `mods` tool), e.g. VorpallySauced, SauceTweaks" };
 const TOOLS = [
   {
-    name: "wb_mods",
-    description: "List the mods the Engine Workbench knows (pz-mods monorepo), whether each runs on the real engine, and its VM state.",
+    name: "mods",
+    description: "List the mods SousVide knows (pz-mods monorepo), whether each runs on the real engine, and its VM state.",
     inputSchema: { type: "object", properties: {} },
     run: async () => { await ensureDashboard(); return request("GET", "/api/wb/mods"); },
   },
   {
-    name: "wb_eval",
+    name: "eval",
     description: "Run Lua in a mod's live engine VM (real projectzomboid.jar classes, the mod's Lua loaded). `return` values come back as data; print output too. Globals: PZEngine (instanceItem, cell, loadWorld, gameTime...), WB (WB.tools.<name>(args) calls any workbench tool directly; WB.ref/deref for live objects). Use PZEngine.cell() for real squares (getCell() is a mock), with PZEngine.setServer(true) around world lookups.",
     inputSchema: { type: "object", properties: { mod: MOD, lua: { type: "string" } }, required: ["mod", "lua"] },
     run: async (a) => call(a.mod, "eval", { src: a.lua }),
   },
   {
-    name: "wb_call",
+    name: "call",
     description: "Call any workbench tool in a mod's VM. Tools: items{q}, item{fullType}, recipes{q}, recipe{name}, craftPlan{recipe}, craft{recipe, items:[{type,count,steps?,input?}|{ref}], bench?, enforce?}, addonPanels{type|ref}, addonRun{ref, addon, action, params}, addons{}, scriptTypes{}, scriptList{type,q}, scriptInfo{type,name}, worldLoad{}, worldArea{x,y,r}, worldSquare{x,y,z}, worldTiles{x0,y0,x1,y1}, worldVerbs{ref}, worldVerb{ref,verb,params}, clockStatus{}, clockAdvance{minutes,refs}, itemTooltip{ref,detail}, worldTooltip{ref}, devReload{lua,scripts}, setRandom{mode,seed}, resolvePath{expr|ref,steps}, inspect{ref}, invoke{ref,method,args}, spriteProps{sprite}, stampSprite{sprite,set,flags,unset,tileType}, stampUndo{sprite}, stampList{}, stampExport{name,folder,guard,tweak} (boot-time Lua for the stamps), recipeDraft{draft,mod} (craftRecipe text + item checks), recipeParse{text}, worldBindEntity{ref,name}, vhsTapes{q} (recorded media registry), vhsPlay{id|ref, tv?, dx?, dy?, dz?, volume?, forget?, asleep?} (play a tape through OnDeviceText; per-line halos, stat/xp/recipe/modData changes), eventList{q}, eventInfo{name} (signature, fire sites, listeners by file:line), eventFire{name, args:[{kind: player|zombie|item(ref|type)|square(x,y,z)|object(ref)|number|string|bool|lua(value)|nil}], context: sp|client|server, loadServer} (per-listener changes, halos, commands, nested events).",
     inputSchema: { type: "object", properties: { mod: MOD, tool: { type: "string" }, args: { type: "object" } }, required: ["mod", "tool"] },
     run: async (a) => call(a.mod, a.tool, a.args),
   },
   {
-    name: "wb_world_square",
+    name: "world_square",
     description: "The real B42 map square at world coordinates (loads the world and the surrounding chunks on first use, ~5s): room, every object's class, sprite, entity, components, containers, fluid, tile properties, and live refs for wb_call worldVerbs/worldVerb/worldTooltip.",
     inputSchema: { type: "object", properties: { mod: MOD, x: { type: "number" }, y: { type: "number" }, z: { type: "number" } }, required: ["mod", "x", "y"] },
     run: async (a) => call(a.mod, "worldSquare", { x: a.x, y: a.y, z: a.z || 0 }),
   },
   {
-    name: "wb_craft",
+    name: "craft",
     description: "Run a real craftRecipe through the engine (HandcraftLogic + vanilla performRecipe + the mod's Lua hooks), gated on canPerformCurrentRecipe like the game. items: [{type, count?, steps?:[{addon,action,params}], input?: slotIndex}] or [{ref}] for live items. Workstation recipes run at a real CraftBench entity automatically; bench:false crafts in hand. Returns consumed/kept/outputs with addon panels, hooks called, commands sent.",
     inputSchema: { type: "object", properties: { mod: MOD, recipe: { type: "string" }, items: { type: "array" }, bench: {}, monitor: { type: "boolean" } }, required: ["mod", "recipe", "items"] },
     run: async (a) => call(a.mod, "craft", { recipe: a.recipe, items: a.items, qualify: true, mode: "action", enforce: true, bench: a.bench, monitor: !!a.monitor }),
   },
   {
-    name: "wb_reload",
+    name: "reload",
     description: "Live dev loop: reload edited mod code into the running VM without restarting. lua: require names (e.g. 'SauceTweaks/Packing'; fresh source is read from disk, old event listeners are replaced). scripts: ScriptType names to re-parse (CraftRecipe, Entity, Fixing...; Item does not hot-reload safely -- restart the VM for item edits).",
     inputSchema: { type: "object", properties: { mod: MOD, lua: { type: "array", items: { type: "string" } }, scripts: { type: "array", items: { type: "string" } } }, required: ["mod"] },
     run: async (a) => call(a.mod, "devReload", { lua: a.lua || [], scripts: a.scripts || [] }),
   },
   {
-    name: "wb_clock",
+    name: "clock",
     description: "Advance the engine's world clock: fires EveryOneMinute/TenMinutes/Hours/Days on their real boundaries and ages the given live items (refs) via the engine's own code (food rot etc.).",
     inputSchema: { type: "object", properties: { mod: MOD, minutes: { type: "number" }, refs: { type: "array", items: { type: "number" } } }, required: ["mod", "minutes"] },
     run: async (a) => call(a.mod, "clockAdvance", { minutes: a.minutes, refs: a.refs || [] }),
   },
   {
-    name: "wb_test",
+    name: "test",
     description: "Run a mod's pz-test-kit suite (or one file via `only`, a path relative to the mod root) and return totals plus every failing case with its output.",
     inputSchema: { type: "object", properties: { mod: MOD, only: { type: "string" } }, required: ["mod"] },
     run: async (a) => {
@@ -161,8 +166,8 @@ async function handle(msg) {
     return send({ jsonrpc: "2.0", id, result: {
       protocolVersion: (params && params.protocolVersion) || "2024-11-05",
       capabilities: { tools: {} },
-      serverInfo: { name: "pz-workbench", version: "0.1.0" },
-      instructions: "The pz-test-kit Engine Workbench: Project Zomboid B42's real engine (projectzomboid.jar) running each mod's Lua headless, with the real map, crafting, timed actions, a world clock and tooltips. Prefer verifying PZ behaviour here over reasoning from decompiled source. Same VMs as the browser board at " + BASE + "/workbench.",
+      serverInfo: { name: "sousvide", version: "0.2.0" },
+      instructions: "SousVide (the pz-test-kit engine VM): Project Zomboid B42's real engine (projectzomboid.jar) running each mod's Lua headless, with the real map, crafting, timed actions, events, recorded media, a world clock and tooltips. Prefer verifying PZ behaviour here over reasoning from decompiled source. Same VMs as the browser Workbench at " + BASE + "/workbench. The `sousvide` skill is the playbook: which tool answers which question, the headless stand-ins, and the gotchas.",
     } });
   }
   if (method === "notifications/initialized" || (method && method.startsWith("notifications/"))) return;
