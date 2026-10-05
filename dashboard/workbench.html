@@ -566,6 +566,7 @@ tool("board", {
           <button class="btn small" id="blive" title="Live: edits to this mod's Lua, scripts and workbench addons land in the running engine (no restart), then the board re-runs">⟳ live</button>
           <button class="btn small" id="bmap" title="Open the real map: click a tile to put that square on the board (shift-click: several)">🗺 map</button>
           <button class="btn small" id="brecipe" title="Recipe builder: draft a craftRecipe, write it into the mod, reload, and craft it here">✎ recipe</button>
+          <button class="btn small" id="bevents" title="Event lab: fire any Lua event at real objects (a fresh zombie, your items, a map square) and see what each listener changed">⚡ events</button>
           <button class="btn small" id="bvhs" title="VHS player: play a recorded tape (vanilla or the mod's) through the engine's TV pipeline and watch what every line does to the listener">📼 vhs</button>
           <button class="btn small" id="bfit" title="Fit everything (f)">fit</button><button class="btn small" id="bclear">clear</button>
           <span class="brng" title="Random rolls (ZombRand). seeded: varied, and run all replays the same rolls. random: a new seed every run all. fixed: the test kit's midpoint, every roll identical">🎲
@@ -587,6 +588,7 @@ tool("board", {
     $("#bmap").onclick = () => this.toggleMap();
     $("#brecipe").onclick = () => this.recipeBuilder();
     $("#bvhs").onclick = () => this.vhsPanel();
+    $("#bevents").onclick = () => this.eventLab();
     $("#blive").onclick = () => this.setLive(!this.st.live);
     if (this.st.live) this.setLive(true);
     $("#bclkgo").onclick = () => this.advanceClock(+$("#bclkstep").value);
@@ -2273,6 +2275,127 @@ tool("board", {
       ${arr(d.hooks).length ? `<div style="font-size:11.5px;margin-top:4px">${d.hooks.map((h) => `<span class="mono">${esc(h.kind)} = ${esc(h.fn)}</span>`).join("<br>")}</div>` : ""}
       ${arr(d.source && d.source.defs).map((x) => `<div class="muted mono" style="font-size:11px;margin-top:6px">${esc(x.origin || "")} ${esc(x.file)}:${x.line}</div><pre class="box">${esc(x.text)}</pre>`).join("")}</details>`;
     for (const b of $$("[data-additem]", host)) b.onclick = () => this.add("item", b.dataset.additem, r.x + 300, r.y);
+  },
+  // Event lab (68_events.lua): pick an event, build its arguments from real
+  // things, fire it in a pinned context, read what each listener changed.
+  async eventLab(name) {
+    const el = $("#binsp");
+    if (!el) return;
+    this.board().sel = null; this.draw();
+    const L = (this.st.elab = this.st.elab || { q: "", name: null, ctx: "sp", loadServer: true, args: {} });
+    if (name) L.name = name;
+    el.innerHTML = `<div class="ihead"><div style="flex:1;min-width:0"><b>⚡ Event lab</b><div class="mono dim" style="font-size:11px">fire a Lua event at real objects · per-listener effects</div></div></div>
+      <div class="ibody">
+        <input class="inp" id="eq" placeholder="search events (OnHitZombie, EveryHours…)" value="${esc(L.q)}" style="width:100%">
+        <div id="elist" style="max-height:170px;overflow-y:auto;margin:4px 0 8px;border:1px solid #333;border-radius:4px"><div class="dim" style="padding:6px"><span class="spin"></span></div></div>
+        <div id="einfo"></div>
+      </div>`;
+    let evs = [];
+    const list = () => {
+      const q = L.q.toLowerCase();
+      const rows = evs.filter((e) => !q || e.name.toLowerCase().includes(q));
+      $("#elist").innerHTML = rows.slice(0, 300).map((e) => `<div class="li" data-ev="${esc(e.name)}" style="padding:2px 6px;cursor:pointer;${L.name === e.name ? "background:rgba(217,164,65,.18)" : ""}">
+          <span class="t mono">${esc(e.name)}</span> ${e.listeners ? `<span class="acc" style="font-size:11px">${e.listeners} listener${e.listeners === 1 ? "" : "s"}</span>` : ""}${e.custom ? ` <span class="dim" style="font-size:10.5px">mod event</span>` : ""}
+          <span class="s dim mono" style="font-size:10.5px">(${arr(e.params).map((p) => esc(p.name)).join(", ")})</span></div>`).join("") || `<div class="dim" style="padding:6px">no events match</div>`;
+      for (const r of $$("[data-ev]", el)) r.onclick = () => { L.name = r.dataset.ev; list(); this.eventInfoPane(L); };
+    };
+    $("#eq").oninput = (e) => { L.q = e.target.value; list(); };
+    try { evs = arr((await call("eventList", {})).events); list(); } catch (e) { $("#elist").innerHTML = `<div class="fail" style="padding:6px">${esc(e.message)}</div>`; }
+    if (L.name) this.eventInfoPane(L);
+  },
+  // The argument builder a parameter type suggests.
+  eventArgDefault(p) {
+    const t = String(p.type || "");
+    if (/IsoZombie/.test(t)) return { kind: "zombie" };
+    if (/IsoPlayer|IsoGameCharacter|IsoLivingCharacter|IsoMovingObject/.test(t)) return { kind: "player" };
+    if (/HandWeapon/.test(t)) return { kind: "item", type: "Base.Axe" };
+    if (/Item|Food|Clothing|Literature|Moveable|Radio|Drainable|InventoryContainer/.test(t)) return { kind: "item", type: "Base.Apple" };
+    if (/IsoGridSquare/.test(t)) return { kind: "square" };
+    if (/^Iso|IsoObject/.test(t)) return { kind: "object" };
+    if (t === "BodyPartType") return { kind: "lua", value: "BodyPartType.Torso_Upper" };
+    if (/^(int|float|double|long|Integer|Float|Double|Long)$/.test(t)) return { kind: "number", value: 0 };
+    if (/^(boolean|Boolean)$/.test(t)) return { kind: "bool", value: false };
+    if (t === "String") return { kind: "string", value: "" };
+    if (t === "KahluaTable") return { kind: "lua", value: "{}" };
+    return { kind: "nil" };
+  },
+  async eventInfoPane(L) {
+    const host = $("#einfo");
+    if (!host) return;
+    host.innerHTML = `<span class="spin"></span>`;
+    let info;
+    try { info = await call("eventInfo", { name: L.name }); } catch (e) { host.innerHTML = `<pre class="fail">${esc(e.message)}</pre>`; return; }
+    const params = arr(info.params);
+    const saved = (L.args[L.name] = L.args[L.name] || params.map((p) => this.eventArgDefault(p)));
+    const items = arr(this.board().cards).filter((c) => c.kind === "item" && c.ref && !c.consumed);
+    const objs = arr(this.board().cards).filter((c) => c.kind === "world").flatMap((c) => arr(c.info && c.info.objects).map((o) => ({ ref: o.ref, label: `${o.sprite || o.class} @ ${c.label}` })));
+    const lastWorld = arr(this.board().cards).filter((c) => c.kind === "world").pop();
+    const KINDS = ["player", "zombie", "item", "square", "object", "number", "string", "bool", "lua", "nil"];
+    const argRow = (p, i) => {
+      const a = saved[i] = saved[i] || this.eventArgDefault(p);
+      let extra = "";
+      if (a.kind === "item") extra = `<select class="inp" data-ea="${i}" data-k="ref"><option value="">fresh:</option>${items.map((c) => `<option value="${c.ref}" ${String(a.ref) === String(c.ref) ? "selected" : ""}>${esc((c.snap && c.snap.name) || c.type)} (card)</option>`).join("")}</select>
+          <input class="inp mono" data-ea="${i}" data-k="type" value="${esc(a.type || "")}" style="width:130px" ${a.ref ? "disabled" : ""}>`;
+      else if (a.kind === "square") extra = ["x", "y", "z"].map((k) => `<input class="inp mono" data-ea="${i}" data-k="${k}" type="number" placeholder="${k}" value="${esc(a[k] ?? (lastWorld ? { x: lastWorld.wx, y: lastWorld.wy, z: lastWorld.wz }[k] : ""))}" style="width:64px">`).join("");
+      else if (a.kind === "object") extra = `<select class="inp" data-ea="${i}" data-k="ref">${objs.map((o) => `<option value="${o.ref}" ${String(a.ref) === String(o.ref) ? "selected" : ""}>${esc(o.label)}</option>`).join("") || `<option value="">put a map square on the board first</option>`}</select>`;
+      else if (a.kind === "zombie") extra = `<label class="dim" style="font-size:11px"><input type="checkbox" data-ea="${i}" data-k="reuse" ${a.reuse ? "checked" : ""}> reuse the last one</label>`;
+      else if (["number", "string", "lua"].includes(a.kind)) extra = `<input class="inp mono" data-ea="${i}" data-k="value" value="${esc(a.value ?? "")}" style="width:200px">`;
+      else if (a.kind === "bool") extra = `<select class="inp" data-ea="${i}" data-k="value"><option ${a.value ? "" : "selected"}>false</option><option ${a.value ? "selected" : ""}>true</option></select>`;
+      return `<div class="row" style="gap:5px;margin:3px 0;align-items:center"><span class="mono" style="min-width:120px;font-size:12px">${esc(p.name)} <span class="dim">${esc(p.type || "?")}</span></span>
+        <select class="inp" data-ea="${i}" data-k="kind">${KINDS.map((k) => `<option ${a.kind === k ? "selected" : ""}>${k}</option>`).join("")}</select>${extra}</div>`;
+    };
+    host.innerHTML = `<div><b class="mono">${esc(info.name)}</b> <span class="dim" style="font-size:11px">${info.registered ? "engine event" : "not registered by the engine"} · fired from ${info.javaSites} Java / ${info.luaSites} Lua site(s)</span></div>
+      ${arr(info.sites).length ? `<details style="margin:2px 0"><summary style="font-size:11.5px">where the game fires it</summary>${info.sites.map((s) => `<div class="mono" style="font-size:10.5px">${esc(s.where)} · ${esc(s.call)}</div>`).join("")}</details>` : ""}
+      <div style="font-size:11.5px;margin:4px 0">${arr(info.listeners).length ? `listening now: ${info.listeners.map((l) => `<span class="mono">${esc(l.where)}</span>`).join(", ")}` : `<span class="dim">no listeners in this VM</span>`}
+        ${arr(info.registrants).filter((r) => !r.loaded).length ? `<div class="dim">not loaded here (server-only?): ${info.registrants.filter((r) => !r.loaded).map((r) => `<span class="mono">${esc(r.module)}</span>`).join(", ")}</div>` : ""}</div>
+      <h3>Arguments</h3>${params.map(argRow).join("") || `<div class="dim" style="font-size:12px">no arguments</div>`}
+      <div class="pform" style="margin-top:6px">
+        <label>context <select class="inp" id="ectx">${[["sp", "single player"], ["client", "MP client"], ["server", "MP server"]].map(([v, l]) => `<option value="${v}" ${L.ctx === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label title="server context: load this mod's server-only modules that register for the event (they returned early in this client VM)"><input type="checkbox" id="eload" ${L.loadServer ? "checked" : ""}> load server listeners</label>
+        <button class="btn primary" id="efire">⚡ fire</button></div>
+      <div id="eout"></div>`;
+    for (const x of $$("[data-ea]", host)) x.onchange = () => {
+      const a = saved[+x.dataset.ea], k = x.dataset.k;
+      a[k] = x.type === "checkbox" ? x.checked : x.value;
+      if (k === "kind") { saved[+x.dataset.ea] = { kind: x.value, ...(x.value === "item" ? { type: "Base.Axe" } : {}) }; this.eventInfoPane(L); }
+      if (k === "ref" && a.kind === "item") this.eventInfoPane(L);
+    };
+    $("#ectx").onchange = (e) => { L.ctx = e.target.value; };
+    $("#eload").onchange = (e) => { L.loadServer = e.target.checked; };
+    $("#efire").onclick = async () => {
+      const out = $("#eout");
+      out.innerHTML = `<span class="spin"></span>`;
+      const args = saved.map((a) => {
+        const b = { ...a };
+        if (b.kind === "zombie") { if (b.reuse && L.lastZombie) b.ref = L.lastZombie; delete b.reuse; }
+        if (b.kind === "item" && !b.ref) delete b.ref;
+        if (b.kind === "number") b.value = +b.value;
+        if (b.kind === "bool") b.value = b.value === true || b.value === "true";
+        return b;
+      });
+      let r;
+      try { r = await call("eventFire", { name: L.name, args, context: L.ctx, loadServer: L.loadServer }); }
+      catch (e) { out.innerHTML = `<pre class="fail">${esc(e.message)}</pre>`; return; }
+      const z = arr(r.refs).find((x) => /IsoZombie/.test(x.class));
+      if (z) L.lastZombie = z.ref;
+      this.eventResults(out, r);
+    };
+  },
+  eventResults(out, r) {
+    const num = (v) => typeof v === "number" ? (Math.abs(v) >= 100 ? v.toFixed(1) : +v.toFixed(4)) : v;
+    const ls = arr(r.listeners);
+    const changed = ls.filter((l) => arr(l.changes).length).length;
+    out.innerHTML = `<div class="dim" style="font-size:11.5px;margin:8px 0 4px">${esc(r.name)}(${arr(r.args).map(esc).join(", ")}) · ${esc(r.context)} · ${ls.length} listener(s), ${changed} changed something${arr(r.loaded).length ? ` · loaded ${r.loaded.map((m) => esc(m.module) + (m.ok ? "" : ` <span class="fail">(${esc(m.err)})</span>`)).join(", ")}` : ""}</div>
+      ${ls.map((l) => `<div class="verdict ${l.ok ? "ok" : "bad"}" style="padding:6px 9px;margin-bottom:6px">
+        <div><span class="mono" style="font-size:12px">#${l.i} ${esc(l.where)}</span> ${l.ok ? "" : `<pre class="fail" style="margin:2px 0">${esc(l.err)}</pre>`}</div>
+        ${arr(l.halos).map((h) => `<div style="font-size:11.5px" class="${h.up === false ? "fail" : "pass"}">${h.up === false ? "↓" : "↑"} ${esc(h.text)}</div>`).join("")}
+        ${arr(l.changes).length ? `<table style="font-size:11px;margin-top:2px">${l.changes.slice(0, 60).map((c) => `<tr><td class="dim">${esc(c.target)}</td><td class="mono">${esc(c.key)}</td><td class="mono">${esc(num(c.from) ?? "∅")} → <b>${esc(num(c.to) ?? "∅")}</b></td></tr>`).join("")}</table>${l.changes.length > 60 ? `<div class="dim" style="font-size:11px">…${l.changes.length - 60} more</div>` : ""}` : `<div class="dim" style="font-size:11px">no change to the arguments</div>`}
+        ${arr(l.commands).length ? `<div style="font-size:11px">sent: ${l.commands.map((c) => `<span class="mono acc">${esc(c.module)}/${esc(c.command)}</span>`).join(", ")}</div>` : ""}
+        ${arr(l.nested).length ? `<div style="font-size:11px">fired: ${l.nested.map((n) => `<a href="#" class="mono" data-enest="${esc(n)}">${esc(n)}</a>`).join(", ")}</div>` : ""}
+      </div>`).join("") || `<div class="dim">no listeners ran</div>`}
+      ${arr(r.refs).length ? `<div style="font-size:11.5px">explore: ${r.refs.map((x) => `<button class="btn small" data-eref="${x.ref}">${esc(x.label)} · ${esc(String(x.class).split(".").pop())}</button>`).join(" ")}</div>` : ""}`;
+    for (const b of $$("[data-eref]", out)) b.onclick = () => this.exploreRef(+b.dataset.eref, b.textContent);
+    for (const a of $$("[data-enest]", out)) a.onclick = (e) => { e.preventDefault(); this.eventLab(a.dataset.enest); };
   },
   // VHS player (65_vhs.lua): a real tape through the engine's TV pipeline.
   // The VM plays the whole tape at once (every OnDeviceText listener, the

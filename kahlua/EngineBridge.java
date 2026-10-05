@@ -77,6 +77,7 @@ public final class EngineBridge {
         // PZEngine.newPlayer (character spike, 2026-10-04)
         "zombie.characters.IsoGameCharacter",
         "zombie.characters.IsoPlayer",
+        "zombie.characters.IsoZombie",   // PZEngine.newZombie (event lab)
         "zombie.entity.components.crafting.recipe.HandcraftLogic",
         "zombie.entity.components.crafting.recipe.CraftRecipeData",
         "zombie.entity.components.crafting.CraftRecipeMonitor",
@@ -944,6 +945,24 @@ public final class EngineBridge {
             frame.push(r[0]); frame.push(r[1]);
             return 2;
         });
+        // Where a Lua function was defined: (file, line) from its prototype --
+        // Kahlua has no debug library. The event lab names each listener so.
+        pzEngine.rawset("fnInfo", (JavaFunction) (frame, n) -> {
+            Object f = n > 0 ? frame.get(0) : null;
+            if (f instanceof se.krka.kahlua.vm.LuaClosure c && c.prototype != null) {
+                se.krka.kahlua.vm.Prototype p = c.prototype;
+                frame.push(p.filename != null ? p.filename : p.name);
+                frame.push(p.lines != null && p.lines.length > 0 ? (Object) Double.valueOf(p.lines[0]) : null);
+                return 2;
+            }
+            frame.push(f == null ? null : f.getClass().getSimpleName());
+            return 1;
+        });
+        pzEngine.rawset("newZombie", (JavaFunction) (frame, n) -> {
+            Object[] r = newZombie(n > 0 ? frame.get(0) : null);
+            frame.push(r[0]); frame.push(r[1]);
+            return 2;
+        });
         pzEngine.rawset("newPlayer", (JavaFunction) (frame, n) -> {
             Object[] r = newPlayer();
             frame.push(r[0]);
@@ -1689,6 +1708,69 @@ public final class EngineBridge {
             if (el.getClassName().startsWith("zombie.")) { at = " @ " + el; break; }
         }
         return root.getClass().getSimpleName() + ": " + root.getMessage() + at;
+    }
+
+    /**
+     * A real IsoZombie (the event lab's subject for OnHitZombie, OnZombieDead,
+     * OnWeaponHitCharacter...), built like newPlayer: GameServer.server on so
+     * the constructor skips the client-only animation variable callbacks
+     * (IsoZombie.java:551), the appearance pools a session would have filled,
+     * the XML noise swallowed. Placed on `sq` when given (a real map square).
+     */
+    public static Object[] newZombie(Object sq) {
+        if (!booted) return new Object[] { null, "engine not booted" };
+        java.lang.reflect.Field server = null;
+        boolean prev = false;
+        PrintStream realOut = System.out, realErr = System.err;
+        java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
+        PrintStream quiet = new PrintStream(sink, true);
+        System.setOut(quiet); System.setErr(quiet);
+        try {
+            server = cls("zombie.network.GameServer").getField("server");
+            prev = server.getBoolean(null);
+            server.setBoolean(null, true);
+            Class<?> cell = cls("zombie.iso.IsoCell");
+            Class<?> desc = cls("zombie.characters.SurvivorDesc");
+            Object grey = cls("zombie.core.ImmutableColor").getConstructor(float.class, float.class, float.class, float.class)
+                .newInstance(0.5f, 0.5f, 0.5f, 1.0f);
+            @SuppressWarnings("unchecked")
+            java.util.List<Object> hair = (java.util.List<Object>) desc.getField("HairCommonColors").get(null);
+            if (hair.isEmpty()) hair.add(grey);
+            // Name pools (SurvivorFactory.randomName): a session fills them
+            // from the SurvivorNames strings; a zombie draws a name too.
+            Class<?> sf = cls("zombie.characters.SurvivorFactory");
+            for (String pool : new String[] { "FemaleForenames", "MaleForenames", "Surnames" }) {
+                @SuppressWarnings("unchecked")
+                java.util.List<Object> list = (java.util.List<Object>) sf.getField(pool).get(null);
+                if (list.isEmpty()) list.add(pool.equals("Surnames") ? "Doe" : "Pat");
+            }
+            for (String pop : new String[] { "BeardStyles", "HairStyles", "OutfitManager" }) {
+                Class<?> c = cls("zombie.core.skinnedmodel.population." + pop);
+                if (c.getField("instance").get(null) == null) c.getMethod("init").invoke(null);
+            }
+            Class<?> ptm = cls("zombie.core.skinnedmodel.population.PopTemplateManager");
+            Object ptmInst = ptm.getField("instance").get(null);
+            if (((java.util.List<?>) ptm.getField("maleSkins").get(ptmInst)).isEmpty()) ptm.getMethod("init").invoke(ptmInst);
+            Class<?> zC = cls("zombie.characters.IsoZombie");
+            Object cellObj = sq != null ? cls("zombie.iso.IsoGridSquare").getMethod("getCell").invoke(sq) : harnessCell;
+            Object z = zC.getConstructor(cell).newInstance(cellObj);
+            if (sq != null) {
+                Class<?> sqC = cls("zombie.iso.IsoGridSquare");
+                float x = ((Number) sqC.getMethod("getX").invoke(sq)).floatValue() + 0.5f;
+                float y = ((Number) sqC.getMethod("getY").invoke(sq)).floatValue() + 0.5f;
+                float zz = ((Number) sqC.getMethod("getZ").invoke(sq)).floatValue();
+                zC.getMethod("setX", float.class).invoke(z, x);
+                zC.getMethod("setY", float.class).invoke(z, y);
+                zC.getMethod("setZ", float.class).invoke(z, zz);
+                zC.getMethod("setCurrent", sqC).invoke(z, sq);
+            }
+            return new Object[] { z, null };
+        } catch (Throwable t) {
+            return new Object[] { null, describe(t) };
+        } finally {
+            try { if (server != null) server.setBoolean(null, prev); } catch (Throwable ignored) {}
+            System.setOut(realOut); System.setErr(realErr);
+        }
     }
 
     public static Object[] newPlayer() {

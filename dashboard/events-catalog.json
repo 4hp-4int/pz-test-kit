@@ -1,0 +1,10979 @@
+{
+ "generated": "2026-10-05T14:46:26.384Z",
+ "source": "C:/Tools/ZomboidDecompiler/ZomboidDecompiler/bin/output/source",
+ "events": [
+  {
+   "name": "AcceptedFactionInvite",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/faction/FactionAcceptPacket.java",
+     "line": 45,
+     "in": "FactionAcceptPacket",
+     "args": [
+      {
+       "expr": "this.getFaction().getName()",
+       "type": "?getName"
+      },
+      {
+       "expr": "this.invite.getHost()",
+       "type": "?getHost"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getName"
+    },
+    {
+     "name": "arg2",
+     "type": "?getHost"
+    }
+   ]
+  },
+  {
+   "name": "AcceptedMedicalCheck",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 8147,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "target",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "requester",
+       "type": "IsoPlayer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/RequestMedicalCheckPacket.java",
+     "line": 51,
+     "in": "RequestMedicalCheckPacket",
+     "args": [
+      {
+       "expr": "this.target.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.requester.getPlayer()",
+       "type": "?getPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "target",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "requester",
+     "type": "IsoPlayer"
+    }
+   ]
+  },
+  {
+   "name": "AcceptedSafehouseInvite",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/safehouse/SafehouseAcceptPacket.java",
+     "line": 55,
+     "in": "SafehouseAcceptPacket",
+     "args": [
+      {
+       "expr": "this.getSafehouse().getTitle()",
+       "type": "?getTitle"
+      },
+      {
+       "expr": "this.getOwner()",
+       "type": "?getOwner"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getTitle"
+    },
+    {
+     "name": "arg2",
+     "type": "?getOwner"
+    }
+   ]
+  },
+  {
+   "name": "AcceptedTrade",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/RequestTradingPacket.java",
+     "line": 60,
+     "in": "RequestTradingPacket",
+     "args": [
+      {
+       "expr": "this.playerA.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.playerB.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.type == RequestTradingPacket.RequestType.Accept",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "arg2",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "arg3",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "AddXP",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 18425,
+     "in": "XP",
+     "args": [
+      {
+       "expr": "this.chr",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "type",
+       "type": "PerkFactory.Perk"
+      },
+      {
+       "expr": "amount",
+       "type": "float"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "chr",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "type",
+     "type": "PerkFactory.Perk"
+    },
+    {
+     "name": "amount",
+     "type": "float"
+    }
+   ]
+  },
+  {
+   "name": "DoSpecialTooltip",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 2534,
+     "in": "IsoObject",
+     "args": [
+      {
+       "expr": "tooltipUI",
+       "type": "ObjectTooltip"
+      },
+      {
+       "expr": "square",
+       "type": "IsoGridSquare"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "tooltipUI",
+     "type": "ObjectTooltip"
+    },
+    {
+     "name": "square",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "EveryDays",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameTime.java",
+     "line": 754,
+     "in": "GameTime",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "EveryHours",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameTime.java",
+     "line": 700,
+     "in": "GameTime",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "EveryOneMinute",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameTime.java",
+     "line": 732,
+     "in": "GameTime",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "EveryTenMinutes",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameTime.java",
+     "line": 726,
+     "in": "GameTime",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "GrappleGrabCollisionCheck",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/ai/states/SwipeStatePlayer.java",
+     "line": 487,
+     "in": "SwipeStatePlayer",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "owner",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    }
+   ]
+  },
+  {
+   "name": "GrapplerLetGo",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 1149,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "grappleResult",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "owner",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "grappleResult",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "LevelPerk",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 5484,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "perk",
+       "type": "PerkFactory.Perk"
+      },
+      {
+       "expr": "info.level",
+       "type": null
+      },
+      {
+       "expr": "false",
+       "type": "boolean"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 5489,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "perk",
+       "type": "PerkFactory.Perk"
+      },
+      {
+       "expr": "0",
+       "type": "int"
+      },
+      {
+       "expr": "false",
+       "type": "boolean"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 5522,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "perk",
+       "type": "PerkFactory.Perk"
+      },
+      {
+       "expr": "info.level",
+       "type": null
+      },
+      {
+       "expr": "true",
+       "type": "boolean"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 5535,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "perk",
+       "type": "PerkFactory.Perk"
+      },
+      {
+       "expr": "info.level",
+       "type": null
+      },
+      {
+       "expr": "true",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "perk",
+     "type": "PerkFactory.Perk"
+    },
+    {
+     "name": "arg3",
+     "type": "int"
+    },
+    {
+     "name": "false",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "LoadChunk",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoChunk.java",
+     "line": 3978,
+     "in": "IsoChunk",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoChunk"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "chunk",
+     "type": "IsoChunk"
+    }
+   ]
+  },
+  {
+   "name": "LoadGridsquare",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoChunk.java",
+     "line": 3844,
+     "in": "IsoChunk",
+     "args": [
+      {
+       "expr": "square",
+       "type": "IsoGridSquare"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "square",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "LogLevelPerk",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 18500,
+     "in": "XP",
+     "args": [
+      {
+       "expr": "this.chr",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "p",
+       "type": "PerkFactory.Perk"
+      },
+      {
+       "expr": "level",
+       "type": "int"
+      },
+      {
+       "expr": "false",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "chr",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "p",
+     "type": "PerkFactory.Perk"
+    },
+    {
+     "name": "level",
+     "type": "int"
+    },
+    {
+     "name": "false",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "MngInvReceiveItems",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/service/PlayerInventoryPacket.java",
+     "line": 150,
+     "in": "PlayerInventoryPacket",
+     "args": [
+      {
+       "expr": "result",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "result",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnAcceptInvite",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/znet/CallbackManager.java",
+     "line": 13,
+     "in": "CallbackManager",
+     "args": [
+      {
+       "expr": "connectionString",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "connectionString",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnAddBuilding",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onAddForageDefs",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 729,
+     "args": [
+      {
+       "expr": "forageSystem"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "forageSystem",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnAddMessage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/chat/ChatBase.java",
+     "line": 285,
+     "in": "ChatBase",
+     "args": [
+      {
+       "expr": "msg",
+       "type": "ChatMessage"
+      },
+      {
+       "expr": "this.getTabID()",
+       "type": "?getTabID"
+      }
+     ]
+    },
+    {
+     "file": "zombie/chat/defaultChats/RadioChat.java",
+     "line": 112,
+     "in": "RadioChat",
+     "args": [
+      {
+       "expr": "msg",
+       "type": "ChatMessage"
+      },
+      {
+       "expr": "this.getTabID()",
+       "type": "?getTabID"
+      }
+     ]
+    },
+    {
+     "file": "zombie/chat/defaultChats/ServerChat.java",
+     "line": 109,
+     "in": "ServerChat",
+     "args": [
+      {
+       "expr": "msg",
+       "type": "ChatMessage"
+      },
+      {
+       "expr": "this.getTabID()",
+       "type": "?getTabID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "msg",
+     "type": "ChatMessage"
+    },
+    {
+     "name": "arg2",
+     "type": "?getTabID"
+    }
+   ]
+  },
+  {
+   "name": "OnAdminMessage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/MessageForAdminPacket.java",
+     "line": 50,
+     "in": "MessageForAdminPacket",
+     "args": [
+      {
+       "expr": "this.message",
+       "type": "String"
+      },
+      {
+       "expr": "this.x",
+       "type": "int"
+      },
+      {
+       "expr": "this.y",
+       "type": "int"
+      },
+      {
+       "expr": "this.z",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "message",
+     "type": "String"
+    },
+    {
+     "name": "x",
+     "type": "int"
+    },
+    {
+     "name": "y",
+     "type": "int"
+    },
+    {
+     "name": "z",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnAIStateChange",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ai/StateMachine.java",
+     "line": 67,
+     "in": "StateMachine",
+     "args": [
+      {
+       "expr": "this.getOwner()",
+       "type": "?getOwner"
+      },
+      {
+       "expr": "this.currentState",
+       "type": "State"
+      },
+      {
+       "expr": "this.previousState",
+       "type": "State"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getOwner"
+    },
+    {
+     "name": "currentState",
+     "type": "State"
+    },
+    {
+     "name": "previousState",
+     "type": "State"
+    }
+   ]
+  },
+  {
+   "name": "OnAIStateEnter",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnAIStateExecute",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnAIStateExit",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnAlertMessage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/chat/defaultChats/ServerChat.java",
+     "line": 111,
+     "in": "ServerChat",
+     "args": [
+      {
+       "expr": "msg",
+       "type": "ChatMessage"
+      },
+      {
+       "expr": "this.getTabID()",
+       "type": "?getTabID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "msg",
+     "type": "ChatMessage"
+    },
+    {
+     "name": "arg2",
+     "type": "?getTabID"
+    }
+   ]
+  },
+  {
+   "name": "OnAmbientSound",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/AmbientSoundManager.java",
+     "line": 284,
+     "in": "Ambient",
+     "args": [
+      {
+       "expr": "name",
+       "type": "String"
+      },
+      {
+       "expr": "x",
+       "type": "float"
+      },
+      {
+       "expr": "y",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/AmbientStreamManager.java",
+     "line": 805,
+     "in": "Ambient",
+     "args": [
+      {
+       "expr": "name",
+       "type": "String"
+      },
+      {
+       "expr": "x",
+       "type": "float"
+      },
+      {
+       "expr": "y",
+       "type": "float"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "name",
+     "type": "String"
+    },
+    {
+     "name": "x",
+     "type": "float"
+    },
+    {
+     "name": "y",
+     "type": "float"
+    }
+   ]
+  },
+  {
+   "name": "OnAnimalTracks",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/character/AnimalTracksPacket.java",
+     "line": 121,
+     "in": "AnimalTracksPacket",
+     "args": [
+      {
+       "expr": "this.player.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.tracks",
+       "type": "AnimalTracks"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "tracks",
+     "type": "AnimalTracks"
+    }
+   ]
+  },
+  {
+   "name": "OnBeingHitByZombie",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnCGlobalObjectSystemInit",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/globalObjects/CGlobalObjects.java",
+     "line": 102,
+     "in": "CGlobalObjects",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnChallengeQuery",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/OptionScreens/MainScreen.lua",
+     "line": 710,
+     "args": []
+    }
+   ],
+   "params": []
+  },
+  {
+   "name": "OnChangeWeather",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "server/Seasons/season.lua",
+     "line": 287,
+     "args": [
+      {
+       "expr": "season.weather"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnCharacterCollide",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoMovingObject.java",
+     "line": 275,
+     "in": "IsoMovingObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoMovingObject"
+      },
+      {
+       "expr": "obj",
+       "type": "IsoObject"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "movingObject",
+     "type": "IsoMovingObject"
+    },
+    {
+     "name": "obj",
+     "type": "IsoObject"
+    }
+   ]
+  },
+  {
+   "name": "OnCharacterCreateStats",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnCharacterDeath",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/animals/IsoAnimal.java",
+     "line": 1142,
+     "in": "IsoAnimal",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoAnimal"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 5586,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    }
+   ]
+  },
+  {
+   "name": "OnCharacterMeet",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnChatWindowInit",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/chat/ChatManager.java",
+     "line": 121,
+     "in": "ChatManager",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnClickedAnimalForContext",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/ISWorldObjectContextMenuLogic.java",
+     "line": 1058,
+     "in": "ISWorldObjectContextMenuLogic",
+     "args": [
+      {
+       "expr": "player",
+       "type": null
+      },
+      {
+       "expr": "context",
+       "type": null
+      },
+      {
+       "expr": "clickedAnimals",
+       "type": "KahluaTable"
+      },
+      {
+       "expr": "test",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": null
+    },
+    {
+     "name": "context",
+     "type": null
+    },
+    {
+     "name": "clickedAnimals",
+     "type": "KahluaTable"
+    },
+    {
+     "name": "test",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnClientCommand",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 7614,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "module",
+       "type": "String"
+      },
+      {
+       "expr": "command",
+       "type": "String"
+      },
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "args",
+       "type": "KahluaTable"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameServer.java",
+     "line": 2319,
+     "in": "GameServer",
+     "args": [
+      {
+       "expr": "module",
+       "type": "String"
+      },
+      {
+       "expr": "command",
+       "type": "String"
+      },
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    },
+    {
+     "file": "zombie/spnetwork/SinglePlayerServer.java",
+     "line": 198,
+     "in": "SinglePlayerServer",
+     "args": [
+      {
+       "expr": "module",
+       "type": "String"
+      },
+      {
+       "expr": "command",
+       "type": "String"
+      },
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "module",
+     "type": "String"
+    },
+    {
+     "name": "command",
+     "type": "String"
+    },
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "tbl",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnClimateManagerInit",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/ClimateManager.java",
+     "line": 249,
+     "in": "ClimateManager",
+     "args": [
+      {
+       "expr": "this",
+       "type": "ClimateManager"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "climateManager",
+     "type": "ClimateManager"
+    }
+   ]
+  },
+  {
+   "name": "OnClimateTick",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/ClimateManager.java",
+     "line": 870,
+     "in": "ClimateManager",
+     "args": [
+      {
+       "expr": "this",
+       "type": "ClimateManager"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/weather/ClimateManager.java",
+     "line": 1065,
+     "in": "ClimateManager",
+     "args": [
+      {
+       "expr": "this",
+       "type": "ClimateManager"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/weather/ClimateManager.java",
+     "line": 1090,
+     "in": "ClimateManager",
+     "args": [
+      {
+       "expr": "this",
+       "type": "ClimateManager"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "climateManager",
+     "type": "ClimateManager"
+    }
+   ]
+  },
+  {
+   "name": "OnClimateTickDebug",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/ClimateManager.java",
+     "line": 900,
+     "in": "ClimateManager",
+     "args": [
+      {
+       "expr": "this",
+       "type": "ClimateManager"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "climateManager",
+     "type": "ClimateManager"
+    }
+   ]
+  },
+  {
+   "name": "OnClothingUpdated",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 1865,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 1884,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 3932,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 8970,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 10142,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 13763,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 13786,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 13817,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 13846,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 13897,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/Transaction.java",
+     "line": 202,
+     "in": "Transaction",
+     "args": [
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/Transaction.java",
+     "line": 285,
+     "in": "Transaction",
+     "args": [
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/types/Clothing.java",
+     "line": 121,
+     "in": "Clothing",
+     "args": [
+      {
+       "expr": "c",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 674,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "IsoPlayer.getInstance()",
+       "type": "?getInstance"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 679,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "IsoPlayer.getInstance()",
+       "type": "?getInstance"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 682,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "IsoPlayer.getInstance()",
+       "type": "?getInstance"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 732,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "IsoPlayer.getInstance()",
+       "type": "?getInstance"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 737,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "IsoPlayer.getInstance()",
+       "type": "?getInstance"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 740,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "IsoPlayer.getInstance()",
+       "type": "?getInstance"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/SyncClothingPacket.java",
+     "line": 221,
+     "in": "SyncClothingPacket",
+     "args": [
+      {
+       "expr": "this.playerId.getPlayer()",
+       "type": "?getPlayer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/ZombieHelmetFallingPacket.java",
+     "line": 145,
+     "in": "ZombieHelmetFallingPacket",
+     "args": [
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "client/DebugUIs/DebugMenu/General/ISDebugBlood.lua",
+     "line": 74,
+     "args": [
+      {
+       "expr": "playerObj"
+      }
+     ]
+    },
+    {
+     "file": "client/DebugUIs/DebugMenu/General/ISDebugBlood.lua",
+     "line": 81,
+     "args": [
+      {
+       "expr": "playerObj"
+      }
+     ]
+    },
+    {
+     "file": "client/DebugUIs/DebugMenu/General/ISDebugBlood.lua",
+     "line": 88,
+     "args": [
+      {
+       "expr": "playerObj"
+      }
+     ]
+    },
+    {
+     "file": "client/DebugUIs/ISRemoveItemTool.lua",
+     "line": 318,
+     "args": [
+      {
+       "expr": "playerObj"
+      }
+     ]
+    },
+    {
+     "file": "client/ISUI/ISMakeUpUI.lua",
+     "line": 308,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "client/ISUI/ISMakeUpUI.lua",
+     "line": 369,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "client/ISUI/ISMakeUpUI.lua",
+     "line": 374,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISClothingExtraAction.lua",
+     "line": 148,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISCutHair.lua",
+     "line": 39,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISDyeHair.lua",
+     "line": 50,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISEquipWeaponAction.lua",
+     "line": 167,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISEquipWeaponAction.lua",
+     "line": 172,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISEquipWeaponAction.lua",
+     "line": 179,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISRemovePatch.lua",
+     "line": 70,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISTransferAction.lua",
+     "line": 91,
+     "args": [
+      {
+       "expr": "character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISTrimBeard.lua",
+     "line": 35,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISTrimBeard.lua",
+     "line": 64,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISUnequipAction.lua",
+     "line": 97,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISUnequipAction.lua",
+     "line": 132,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISWashClothing.lua",
+     "line": 187,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISWearClothing.lua",
+     "line": 92,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    }
+   ]
+  },
+  {
+   "name": "OnConnected",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 166,
+     "in": "ConnectToServerState",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnConnectFailed",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/raknet/UdpEngine.java",
+     "line": 385,
+     "in": "UdpEngine",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_UnknownHost\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/raknet/UdpEngine.java",
+     "line": 397,
+     "in": "UdpEngine",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_UnknownHost\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 193,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_DebugNotAllowed\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 255,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_CreateQueryUGCDetailsRequest\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 403,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "errorMessage",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 485,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"WorldDictionary error\"",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 502,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"ServerWorkshopItemsCancelled\"",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 338,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "null",
+       "type": "null"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 342,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_AlreadyConnected\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 359,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_Banned\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 362,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_InvalidServerPassword\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 365,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "Translator.getText(\"UI_OnConnectFailed_ConnectionLost\")",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/KickedPacket.java",
+     "line": 66,
+     "in": "KickedPacket",
+     "args": [
+      {
+       "expr": "message",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/service/AccessDeniedPacket.java",
+     "line": 37,
+     "in": "AccessDeniedPacket",
+     "args": [
+      {
+       "expr": "translation",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "client/OptionScreens/ServerWorkshopItemScreen.lua",
+     "line": 236,
+     "args": [
+      {
+       "expr": "error"
+      },
+      {
+       "expr": "detail"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnConnectionStateChanged",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/raknet/RakNetPeerInterface.java",
+     "line": 166,
+     "in": "RakNetPeerInterface",
+     "args": [
+      {
+       "expr": "string",
+       "type": "String"
+      },
+      {
+       "expr": "message",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/raknet/UdpEngine.java",
+     "line": 258,
+     "in": "UdpEngine",
+     "args": [
+      {
+       "expr": "\"ClientVersionMismatch\"",
+       "type": "String"
+      },
+      {
+       "expr": "version",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 107,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"Connected\"",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/connection/QueuePacket.java",
+     "line": 154,
+     "in": "QueuePacket",
+     "args": [
+      {
+       "expr": "\"FormatMessage\"",
+       "type": "String"
+      },
+      {
+       "expr": "\"PlaceInQueue\"",
+       "type": "String"
+      },
+      {
+       "expr": "this.placeInQueue & 255",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "string",
+     "type": "String"
+    },
+    {
+     "name": "message",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnContainerUpdate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 12038,
+     "in": "IsoGameCharacter",
+     "args": []
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 12055,
+     "in": "IsoGameCharacter",
+     "args": []
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 14966,
+     "in": "IsoGameCharacter",
+     "args": []
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 14983,
+     "in": "IsoGameCharacter",
+     "args": []
+    },
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 7461,
+     "in": "IsoPlayer",
+     "args": []
+    },
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 7470,
+     "in": "IsoPlayer",
+     "args": []
+    },
+    {
+     "file": "zombie/inventory/InventoryItem.java",
+     "line": 1432,
+     "in": "InventoryItem",
+     "args": []
+    },
+    {
+     "file": "zombie/inventory/types/Clothing.java",
+     "line": 131,
+     "in": "Clothing",
+     "args": []
+    },
+    {
+     "file": "zombie/inventory/types/Food.java",
+     "line": 687,
+     "in": "Food",
+     "args": []
+    },
+    {
+     "file": "zombie/inventory/types/Food.java",
+     "line": 783,
+     "in": "Food",
+     "args": [
+      {
+       "expr": "this",
+       "type": "Food"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/types/Food.java",
+     "line": 2374,
+     "in": "Food",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/IsoGridSquare.java",
+     "line": 3043,
+     "in": "IsoGridSquare",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGridSquare"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 4996,
+     "in": "IsoObject",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoCombinationWasherDryer.java",
+     "line": 126,
+     "in": "IsoCombinationWasherDryer",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoCombinationWasherDryer.java",
+     "line": 136,
+     "in": "IsoCombinationWasherDryer",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoCurtain.java",
+     "line": 428,
+     "in": "IsoCurtain",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDeadBody.java",
+     "line": 412,
+     "in": "IsoDeadBody",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoDeadBody"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoDeadBody.java",
+     "line": 2060,
+     "in": "IsoDeadBody",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 1384,
+     "in": "IsoDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 1632,
+     "in": "IsoDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 1877,
+     "in": "IsoDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 2814,
+     "in": "IsoDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 3221,
+     "in": "IsoDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 3407,
+     "in": "IsoDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 3511,
+     "in": "IsoDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoFallingClothing.java",
+     "line": 127,
+     "in": "IsoFallingClothing",
+     "args": [
+      {
+       "expr": "square",
+       "type": "IsoGridSquare"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoFeedingTrough.java",
+     "line": 205,
+     "in": "IsoFeedingTrough",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoThumpable.java",
+     "line": 1356,
+     "in": "IsoThumpable",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoThumpable.java",
+     "line": 1948,
+     "in": "IsoThumpable",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoTree.java",
+     "line": 861,
+     "in": "IsoTree",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoWindow.java",
+     "line": 763,
+     "in": "IsoWindow",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoWindow.java",
+     "line": 809,
+     "in": "IsoWindow",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/objects/IsoWorldInventoryObject.java",
+     "line": 150,
+     "in": "IsoWorldInventoryObject",
+     "args": []
+    },
+    {
+     "file": "zombie/network/fields/vehicle/VehiclePartDoor.java",
+     "line": 73,
+     "in": "VehiclePartDoor",
+     "args": []
+    },
+    {
+     "file": "zombie/network/fields/vehicle/VehiclePartItem.java",
+     "line": 41,
+     "in": "VehiclePartItem",
+     "args": []
+    },
+    {
+     "file": "zombie/network/packets/AddItemToMapPacket.java",
+     "line": 86,
+     "in": "AddItemToMapPacket",
+     "args": [
+      {
+       "expr": "this.obj",
+       "type": "IsoObject"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/RemoveItemFromSquarePacket.java",
+     "line": 87,
+     "in": "RemoveItemFromSquarePacket",
+     "args": [
+      {
+       "expr": "o",
+       "type": "IsoObject"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/service/ReceiveContainerModDataPacket.java",
+     "line": 70,
+     "in": "ReceiveContainerModDataPacket",
+     "args": []
+    },
+    {
+     "file": "zombie/network/packets/SyncItemFieldsPacket.java",
+     "line": 503,
+     "in": "SyncItemFieldsPacket",
+     "args": []
+    },
+    {
+     "file": "zombie/vehicles/BaseVehicle.java",
+     "line": 2535,
+     "in": "BaseVehicle",
+     "args": []
+    },
+    {
+     "file": "zombie/vehicles/BaseVehicle.java",
+     "line": 2592,
+     "in": "BaseVehicle",
+     "args": []
+    }
+   ],
+   "lua": [
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 1672,
+     "args": []
+    },
+    {
+     "file": "shared/Items/OnBreak.lua",
+     "line": 47,
+     "args": []
+    },
+    {
+     "file": "shared/Items/OnBreak.lua",
+     "line": 126,
+     "args": []
+    },
+    {
+     "file": "shared/Items/OnBreak.lua",
+     "line": 178,
+     "args": []
+    },
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 1528,
+     "args": []
+    },
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 2563,
+     "args": []
+    },
+    {
+     "file": "shared/TimedActions/ISBBQInsertPropaneTank.lua",
+     "line": 58,
+     "args": []
+    },
+    {
+     "file": "shared/TimedActions/ISBBQRemovePropaneTank.lua",
+     "line": 48,
+     "args": []
+    },
+    {
+     "file": "shared/Vehicles/TimedActions/ISCloseVehicleDoor.lua",
+     "line": 66,
+     "args": []
+    },
+    {
+     "file": "shared/Vehicles/TimedActions/ISOpenVehicleDoor.lua",
+     "line": 79,
+     "args": []
+    }
+   ],
+   "params": []
+  },
+  {
+   "name": "OnContextKey",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 4804,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(PZMath.fastfloor(this.timePressedContext * 1000.0F))",
+       "type": "Double"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 4901,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(PZMath.fastfloor(this.timePressedContext * 1000.0F))",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnCoopJoinFailed",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/util/AddCoopPlayer.java",
+     "line": 202,
+     "in": "AddCoopPlayer",
+     "args": [
+      {
+       "expr": "playerIndex",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "playerIndex",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnCoopServerMessage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/CoopMaster.java",
+     "line": 284,
+     "in": "CoopMaster",
+     "args": [
+      {
+       "expr": "tag",
+       "type": "String"
+      },
+      {
+       "expr": "cookie",
+       "type": "String"
+      },
+      {
+       "expr": "payload",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "tag",
+     "type": "String"
+    },
+    {
+     "name": "cookie",
+     "type": "String"
+    },
+    {
+     "name": "payload",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnCreateLivingCharacter",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 558,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "this.descriptor",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 640,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "this.descriptor",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoSurvivor.java",
+     "line": 58,
+     "in": "IsoSurvivor",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoSurvivor"
+      },
+      {
+       "expr": "this.descriptor",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "descriptor",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnCreatePlayer",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/GameLoadingState.java",
+     "line": 430,
+     "in": "GameLoadingState",
+     "args": [
+      {
+       "expr": "0",
+       "type": "int"
+      },
+      {
+       "expr": "IsoPlayer.players[0]",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 3654,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "0",
+       "type": "int"
+      },
+      {
+       "expr": "IsoPlayer.players[0]",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/util/AddCoopPlayer.java",
+     "line": 163,
+     "in": "AddCoopPlayer",
+     "args": [
+      {
+       "expr": "this.player.playerIndex",
+       "type": null
+      },
+      {
+       "expr": "this.player",
+       "type": "IsoPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "0",
+     "type": "int"
+    },
+    {
+     "name": "arg2",
+     "type": "IsoPlayer"
+    }
+   ]
+  },
+  {
+   "name": "OnCreateSurvivor",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoSurvivor.java",
+     "line": 41,
+     "in": "IsoSurvivor",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoSurvivor"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoSurvivor.java",
+     "line": 57,
+     "in": "IsoSurvivor",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoSurvivor"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoSurvivor.java",
+     "line": 80,
+     "in": "IsoSurvivor",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoSurvivor"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "survivor",
+     "type": "IsoSurvivor"
+    }
+   ]
+  },
+  {
+   "name": "OnCreateUI",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 265,
+     "in": "UIManager",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnCustomUIKey",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/GameKeyboard.java",
+     "line": 57,
+     "in": "GameKeyboard",
+     "args": [
+      {
+       "expr": "n",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnCustomUIKeyPressed",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/GameKeyboard.java",
+     "line": 84,
+     "in": "GameKeyboard",
+     "args": [
+      {
+       "expr": "n",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnCustomUIKeyReleased",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/GameKeyboard.java",
+     "line": 58,
+     "in": "GameKeyboard",
+     "args": [
+      {
+       "expr": "n",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnDawn",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "server/Seasons/season.lua",
+     "line": 318,
+     "args": []
+    }
+   ],
+   "params": []
+  },
+  {
+   "name": "OnDeadBodySpawn",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/objects/IsoDeadBody.java",
+     "line": 416,
+     "in": "IsoDeadBody",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoDeadBody"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "deadBody",
+     "type": "IsoDeadBody"
+    }
+   ]
+  },
+  {
+   "name": "OnDesignationZoneUpdatedNetwork",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/network/packets/SyncZonePacket.java",
+     "line": 79,
+     "in": "SyncZonePacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnDestroyIsoThumpable",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/objects/IsoThumpable.java",
+     "line": 1228,
+     "in": "IsoThumpable",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoThumpable"
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoThumpable.java",
+     "line": 1631,
+     "in": "IsoThumpable",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoThumpable"
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "thumpable",
+     "type": "IsoThumpable"
+    },
+    {
+     "name": "null",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnDeviceText",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/inventory/types/Radio.java",
+     "line": 84,
+     "in": "Radio",
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "line",
+       "type": "String"
+      },
+      {
+       "expr": "this",
+       "type": "Radio"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/types/Radio.java",
+     "line": 98,
+     "in": "Radio",
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "msg",
+       "type": "ChatMessage"
+      },
+      {
+       "expr": "this",
+       "type": "Radio"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoWaveSignal.java",
+     "line": 209,
+     "in": "IsoWaveSignal",
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "this.getX()",
+       "type": "?getX"
+      },
+      {
+       "expr": "this.getY()",
+       "type": "?getY"
+      },
+      {
+       "expr": "this.getZ()",
+       "type": "?getZ"
+      },
+      {
+       "expr": "line",
+       "type": "String"
+      },
+      {
+       "expr": "this",
+       "type": "IsoWaveSignal"
+      }
+     ]
+    },
+    {
+     "file": "zombie/radio/devices/DeviceData.java",
+     "line": 1485,
+     "in": "DeviceData",
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "this.parent.getX()",
+       "type": "?getX"
+      },
+      {
+       "expr": "this.parent.getY()",
+       "type": "?getY"
+      },
+      {
+       "expr": "this.parent.getZ()",
+       "type": "?getZ"
+      },
+      {
+       "expr": "text",
+       "type": "String"
+      },
+      {
+       "expr": "this.parent",
+       "type": "WaveSignalDevice"
+      }
+     ]
+    },
+    {
+     "file": "zombie/radio/devices/WaveSignalDevice.java",
+     "line": 65,
+     "in": null,
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "-1",
+       "type": "int"
+      },
+      {
+       "expr": "line",
+       "type": "String"
+      },
+      {
+       "expr": "this",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/radio/ZomboidRadio.java",
+     "line": 781,
+     "in": "ZomboidRadio",
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "device.getX()",
+       "type": "?getX"
+      },
+      {
+       "expr": "device.getY()",
+       "type": "?getY"
+      },
+      {
+       "expr": "device.getZ()",
+       "type": "?getZ"
+      },
+      {
+       "expr": "msg",
+       "type": "String"
+      },
+      {
+       "expr": "device",
+       "type": "WaveSignalDevice"
+      }
+     ]
+    },
+    {
+     "file": "zombie/radio/ZomboidRadio.java",
+     "line": 788,
+     "in": "ZomboidRadio",
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "device.getX()",
+       "type": "?getX"
+      },
+      {
+       "expr": "device.getY()",
+       "type": "?getY"
+      },
+      {
+       "expr": "device.getZ()",
+       "type": "?getZ"
+      },
+      {
+       "expr": "msg",
+       "type": "String"
+      },
+      {
+       "expr": "device",
+       "type": "WaveSignalDevice"
+      }
+     ]
+    },
+    {
+     "file": "zombie/vehicles/VehiclePart.java",
+     "line": 811,
+     "in": "VehiclePart",
+     "args": [
+      {
+       "expr": "guid",
+       "type": "String"
+      },
+      {
+       "expr": "codes",
+       "type": "String"
+      },
+      {
+       "expr": "this.getX()",
+       "type": "?getX"
+      },
+      {
+       "expr": "this.getY()",
+       "type": "?getY"
+      },
+      {
+       "expr": "this.getZ()",
+       "type": "?getZ"
+      },
+      {
+       "expr": "line",
+       "type": "String"
+      },
+      {
+       "expr": "this",
+       "type": "VehiclePart"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "guid",
+     "type": "String"
+    },
+    {
+     "name": "codes",
+     "type": "String"
+    },
+    {
+     "name": "arg3",
+     "type": "int"
+    },
+    {
+     "name": "arg4",
+     "type": "int"
+    },
+    {
+     "name": "arg5",
+     "type": "int"
+    },
+    {
+     "name": "line",
+     "type": "String"
+    },
+    {
+     "name": "waveSignalDevice",
+     "type": "WaveSignalDevice"
+    }
+   ]
+  },
+  {
+   "name": "onDisableSearchMode",
+   "registered": false,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/Foraging/ISSearchManager.lua",
+     "line": 1441,
+     "args": [
+      {
+       "expr": "self.character"
+      },
+      {
+       "expr": "self.isSearchMode"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnDisconnect",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 356,
+     "in": "GameClient",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnDistributionMerge",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 1908,
+     "in": "IsoWorld",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnDoTileBuilding",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnDoTileBuilding2",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoCell.java",
+     "line": 2628,
+     "in": "IsoCell",
+     "args": [
+      {
+       "expr": "this.drag[player]",
+       "type": null
+      },
+      {
+       "expr": "bRender",
+       "type": "boolean"
+      },
+      {
+       "expr": "buildX",
+       "type": "int"
+      },
+      {
+       "expr": "buildY",
+       "type": "int"
+      },
+      {
+       "expr": "buildZ",
+       "type": "int"
+      },
+      {
+       "expr": "square",
+       "type": "IsoGridSquare"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "bRender",
+     "type": "boolean"
+    },
+    {
+     "name": "buildX",
+     "type": "int"
+    },
+    {
+     "name": "buildY",
+     "type": "int"
+    },
+    {
+     "name": "buildZ",
+     "type": "int"
+    },
+    {
+     "name": "square",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "OnDoTileBuilding3",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoCell.java",
+     "line": 2632,
+     "in": "IsoCell",
+     "args": [
+      {
+       "expr": "this.drag[player]",
+       "type": null
+      },
+      {
+       "expr": "bRender",
+       "type": "boolean"
+      },
+      {
+       "expr": "PZMath.fastfloor(IsoPlayer.players[player].getX())",
+       "type": null
+      },
+      {
+       "expr": "PZMath.fastfloor(IsoPlayer.players[player].getY())",
+       "type": null
+      },
+      {
+       "expr": "PZMath.fastfloor(IsoCamera.getCameraCharacterZ())",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "bRender",
+     "type": "boolean"
+    },
+    {
+     "name": "arg3",
+     "type": null
+    },
+    {
+     "name": "arg4",
+     "type": null
+    },
+    {
+     "name": "arg5",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnDusk",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "server/Seasons/season.lua",
+     "line": 314,
+     "args": []
+    }
+   ],
+   "params": []
+  },
+  {
+   "name": "OnDynamicMovableRecipe",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/inventory/RecipeManager.java",
+     "line": 148,
+     "in": "RecipeManager",
+     "args": [
+      {
+       "expr": "moveable.getWorldSprite()",
+       "type": "?getWorldSprite"
+      },
+      {
+       "expr": "recipe",
+       "type": "MovableRecipe"
+      },
+      {
+       "expr": "item",
+       "type": "InventoryItem"
+      },
+      {
+       "expr": "chr",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getWorldSprite"
+    },
+    {
+     "name": "recipe",
+     "type": "MovableRecipe"
+    },
+    {
+     "name": "item",
+     "type": "InventoryItem"
+    },
+    {
+     "name": "chr",
+     "type": "IsoGameCharacter"
+    }
+   ]
+  },
+  {
+   "name": "onEnableSearchMode",
+   "registered": false,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/Foraging/ISSearchManager.lua",
+     "line": 1436,
+     "args": [
+      {
+       "expr": "self.character"
+      },
+      {
+       "expr": "self.isSearchMode"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnEnterVehicle",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoCell.java",
+     "line": 4678,
+     "in": "IsoCell",
+     "args": [
+      {
+       "expr": "chr",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/vehicles/BaseVehicle.java",
+     "line": 2534,
+     "in": "BaseVehicle",
+     "args": [
+      {
+       "expr": "player",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "client/Vehicles/TimedActions/ISEnterVehicle.lua",
+     "line": 79,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "chr",
+     "type": "IsoGameCharacter"
+    }
+   ]
+  },
+  {
+   "name": "OnEquipPrimary",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 3731,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "leftHandItem",
+       "type": "InventoryItem"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "leftHandItem",
+     "type": "InventoryItem"
+    }
+   ]
+  },
+  {
+   "name": "OnEquipSecondary",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 4165,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "rightHandItem",
+       "type": "InventoryItem"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "rightHandItem",
+     "type": "InventoryItem"
+    }
+   ]
+  },
+  {
+   "name": "OnExitVehicle",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 17555,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/TeleportPacket.java",
+     "line": 60,
+     "in": "TeleportPacket",
+     "args": [
+      {
+       "expr": "playerObj",
+       "type": "IsoPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "client/Vehicles/TimedActions/ISExitVehicle.lua",
+     "line": 62,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    }
+   ]
+  },
+  {
+   "name": "OnFETick",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/MainScreenState.java",
+     "line": 670,
+     "in": "MainScreenState",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(0.0)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnFillContainer",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 593,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "roomName",
+       "type": "String"
+      },
+      {
+       "expr": "container.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "container",
+       "type": "ItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 601,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "room.getName()",
+       "type": "?getName"
+      },
+      {
+       "expr": "container.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "container",
+       "type": "ItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 613,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "roomNamex",
+       "type": "String"
+      },
+      {
+       "expr": "container.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "container",
+       "type": "ItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 631,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "\"Zombie Bag\"",
+       "type": "String"
+      },
+      {
+       "expr": "item.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "containerDistx.bags",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 634,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "\"Zombie Bag\"",
+       "type": "String"
+      },
+      {
+       "expr": "item.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "inventoryContainer.getItemContainer()",
+       "type": "?getItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 654,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "\"Zombie\"",
+       "type": "String"
+      },
+      {
+       "expr": "containerType",
+       "type": "String"
+      },
+      {
+       "expr": "container",
+       "type": "ItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 1152,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "\"Container\"",
+       "type": "String"
+      },
+      {
+       "expr": "spawnItem.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "containerDist.bags",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 1164,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "\"Container\"",
+       "type": "String"
+      },
+      {
+       "expr": "spawnItem.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "inventoryContainer.getItemContainer()",
+       "type": "?getItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 1411,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "\"Container\"",
+       "type": "String"
+      },
+      {
+       "expr": "spawnItem.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "containerDist.bags",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemPickerJava.java",
+     "line": 1422,
+     "in": "ItemPickerJava",
+     "args": [
+      {
+       "expr": "\"Container\"",
+       "type": "String"
+      },
+      {
+       "expr": "spawnItem.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "inventoryContainer.getItemContainer()",
+       "type": "?getItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemSpawner.java",
+     "line": 43,
+     "in": "ItemSpawner",
+     "args": [
+      {
+       "expr": "\"Container\"",
+       "type": "String"
+      },
+      {
+       "expr": "item.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "inventoryContainer.getItemContainer()",
+       "type": "?getItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/inventory/ItemSpawner.java",
+     "line": 79,
+     "in": "ItemSpawner",
+     "args": [
+      {
+       "expr": "\"Container\"",
+       "type": "String"
+      },
+      {
+       "expr": "item.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "inventoryContainer.getItemContainer()",
+       "type": "?getItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoChunk.java",
+     "line": 5358,
+     "in": "IsoChunk",
+     "args": [
+      {
+       "expr": "\"Container\"",
+       "type": "String"
+      },
+      {
+       "expr": "item.getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "inventoryContainer.getItemContainer()",
+       "type": "?getItemContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 8714,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "\"Random Dead Body\"",
+       "type": "String"
+      },
+      {
+       "expr": "body.getContainer().getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "body.getContainer()",
+       "type": "?getContainer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/vehicles/BaseVehicle.java",
+     "line": 8954,
+     "in": "BaseVehicle",
+     "args": [
+      {
+       "expr": "scriptType",
+       "type": "String"
+      },
+      {
+       "expr": "part.getItemContainer().getType()",
+       "type": "?getType"
+      },
+      {
+       "expr": "part.getItemContainer()",
+       "type": "?getItemContainer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "String"
+    },
+    {
+     "name": "arg2",
+     "type": "String"
+    },
+    {
+     "name": "arg3",
+     "type": "ItemContainer"
+    }
+   ]
+  },
+  {
+   "name": "OnFillInventoryContextMenuNoItems",
+   "registered": false,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/ISUI/ISInventoryPaneContextMenu.lua",
+     "line": 959,
+     "args": [
+      {
+       "expr": "playerNum"
+      },
+      {
+       "expr": "context"
+      },
+      {
+       "expr": "isLoot"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "playerNum",
+     "type": null
+    },
+    {
+     "name": "context",
+     "type": null
+    },
+    {
+     "name": "isLoot",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnFillInventoryObjectContextMenu",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/ISUI/ISInventoryPaneContextMenu.lua",
+     "line": 935,
+     "args": [
+      {
+       "expr": "player"
+      },
+      {
+       "expr": "context"
+      },
+      {
+       "expr": "items"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "player",
+     "type": null
+    },
+    {
+     "name": "context",
+     "type": null
+    },
+    {
+     "name": "items",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "onFillSearchIconContextMenu",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/Foraging/ISBaseIcon.lua",
+     "line": 151,
+     "args": [
+      {
+       "expr": "contextMenu"
+      },
+      {
+       "expr": "self"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "contextMenu",
+     "type": null
+    },
+    {
+     "name": "self",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnFillWorldObjectContextMenu",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/ISUI/ISWorldObjectContextMenu.lua",
+     "line": 213,
+     "args": [
+      {
+       "expr": "player"
+      },
+      {
+       "expr": "context"
+      },
+      {
+       "expr": "worldobjects"
+      },
+      {
+       "expr": "test"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "player",
+     "type": null
+    },
+    {
+     "name": "context",
+     "type": null
+    },
+    {
+     "name": "worldobjects",
+     "type": null
+    },
+    {
+     "name": "test",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnFishingActionMPUpdate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/FishingActionPacket.java",
+     "line": 33,
+     "in": "FishingActionPacket",
+     "args": [
+      {
+       "expr": "this.getLuaTable()",
+       "type": "?getLuaTable"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/FishingActionPacket.java",
+     "line": 67,
+     "in": "FishingActionPacket",
+     "args": [
+      {
+       "expr": "this.getLuaTable()",
+       "type": "?getLuaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getLuaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnForagePool",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/network/packets/foraging/ForagePoolPacket.java",
+     "line": 64,
+     "in": "ForagePoolPacket",
+     "args": [
+      {
+       "expr": "this.player.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.zoneId",
+       "type": "String"
+      },
+      {
+       "expr": "this.icons",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "zoneId",
+     "type": "String"
+    },
+    {
+     "name": "icons",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnForageRequestZone",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/network/packets/foraging/ForageRequestZonePacket.java",
+     "line": 44,
+     "in": "ForageRequestZonePacket",
+     "args": [
+      {
+       "expr": "this.player.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.focus",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "focus",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnForageSpot",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/network/packets/foraging/ForageSpotPacket.java",
+     "line": 44,
+     "in": "ForageSpotPacket",
+     "args": [
+      {
+       "expr": "this.player.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.iconID",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "iconID",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnGameBoot",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Core.java",
+     "line": 3964,
+     "in": "Core",
+     "args": []
+    },
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 1080,
+     "in": "IngameState",
+     "args": []
+    },
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 673,
+     "in": "GameWindow",
+     "args": []
+    },
+    {
+     "file": "zombie/network/GameServer.java",
+     "line": 1499,
+     "in": "GameServer",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnGamepadConnect",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/input/Input.java",
+     "line": 259,
+     "in": "Input",
+     "args": [
+      {
+       "expr": "controller.getID()",
+       "type": "?getID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getID"
+    }
+   ]
+  },
+  {
+   "name": "OnGamepadDisconnect",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/input/Input.java",
+     "line": 266,
+     "in": "Input",
+     "args": [
+      {
+       "expr": "controller.getID()",
+       "type": "?getID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getID"
+    }
+   ]
+  },
+  {
+   "name": "OnGameStart",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 769,
+     "in": "IngameState",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnGameStateEnter",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/TermsOfServiceState.java",
+     "line": 16,
+     "in": "TermsOfServiceState",
+     "args": [
+      {
+       "expr": "this",
+       "type": "TermsOfServiceState"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "termsOfServiceState",
+     "type": "TermsOfServiceState"
+    }
+   ]
+  },
+  {
+   "name": "OnGameTimeLoaded",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/GameLoadingState.java",
+     "line": 312,
+     "in": "GameLoadingState",
+     "args": []
+    },
+    {
+     "file": "zombie/network/GameServer.java",
+     "line": 807,
+     "in": "GameServer",
+     "args": []
+    },
+    {
+     "file": "zombie/network/packets/connection/ConnectedPacket.java",
+     "line": 81,
+     "in": "ConnectedPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnGoogleAuthRequest",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/connection/GoogleAuthRequestPacket.java",
+     "line": 17,
+     "in": "GoogleAuthRequestPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnGridBurnt",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoGridSquare.java",
+     "line": 6263,
+     "in": "IsoGridSquare",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGridSquare"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "gridSquare",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "OnHitZombie",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoZombie.java",
+     "line": 1369,
+     "in": "IsoZombie",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoZombie"
+      },
+      {
+       "expr": "wielder",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "bodyPart",
+       "type": "BodyPartType"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "zombie",
+     "type": "IsoZombie"
+    },
+    {
+     "name": "wielder",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "bodyPart",
+     "type": "BodyPartType"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    }
+   ]
+  },
+  {
+   "name": "OnInitGlobalModData",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/world/moddata/GlobalModData.java",
+     "line": 55,
+     "in": "GlobalModData",
+     "args": [
+      {
+       "expr": "WorldDictionary.isIsNewGame()",
+       "type": "?isIsNewGame"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?isIsNewGame"
+    }
+   ]
+  },
+  {
+   "name": "OnInitModdedWeatherStage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/WeatherPeriod.java",
+     "line": 877,
+     "in": "WeatherPeriod",
+     "args": [
+      {
+       "expr": "this",
+       "type": "WeatherPeriod"
+      },
+      {
+       "expr": "stage",
+       "type": "WeatherPeriod.WeatherStage"
+      },
+      {
+       "expr": "this.frontCache.getStrength()",
+       "type": "?getStrength"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "weatherPeriod",
+     "type": "WeatherPeriod"
+    },
+    {
+     "name": "stage",
+     "type": "WeatherPeriod.WeatherStage"
+    },
+    {
+     "name": "arg3",
+     "type": "?getStrength"
+    }
+   ]
+  },
+  {
+   "name": "OnInitRecordedMedia",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/radio/media/RecordedMedia.java",
+     "line": 62,
+     "in": "RecordedMedia",
+     "args": [
+      {
+       "expr": "this",
+       "type": "RecordedMedia"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "recordedMedia",
+     "type": "RecordedMedia"
+    }
+   ]
+  },
+  {
+   "name": "OnInitSeasons",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/erosion/ErosionMain.java",
+     "line": 407,
+     "in": "ErosionMain",
+     "args": [
+      {
+       "expr": "this.season",
+       "type": "ErosionSeason"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "season",
+     "type": "ErosionSeason"
+    }
+   ]
+  },
+  {
+   "name": "OnInitWorld",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 1914,
+     "in": "IsoWorld",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onInputsChanged",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 1028,
+     "in": "BaseCraftingLogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 1166,
+     "in": "BaseCraftingLogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 1178,
+     "in": "BaseCraftingLogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 447,
+     "in": "CraftLogicUILogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 456,
+     "in": "CraftLogicUILogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 469,
+     "in": "CraftLogicUILogic",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnIsoThumpableLoad",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnIsoThumpableSave",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onItemFall",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 12041,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "item1",
+       "type": "InventoryItem"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 12058,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "item2",
+       "type": "InventoryItem"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 14969,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "item1",
+       "type": "InventoryItem"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 14986,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "item2",
+       "type": "InventoryItem"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "item1",
+     "type": "InventoryItem"
+    }
+   ]
+  },
+  {
+   "name": "OnItemFound",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 9883,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "type",
+       "type": "String"
+      },
+      {
+       "expr": "distanceTraveled",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/character/ForageItemFoundPacket.java",
+     "line": 49,
+     "in": "ForageItemFoundPacket",
+     "args": [
+      {
+       "expr": "this.player.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.itemType",
+       "type": "String"
+      },
+      {
+       "expr": "this.amount",
+       "type": "float"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "type",
+     "type": "String"
+    },
+    {
+     "name": "distanceTraveled",
+     "type": "float"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadActivate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 346,
+     "in": "GameWindow",
+     "args": [
+      {
+       "expr": "joypad.getID()",
+       "type": "?getID"
+      }
+     ]
+    },
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 5599,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "GameWindow.activatedJoyPad.getID()",
+       "type": "?getID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getID"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadActivateUI",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 348,
+     "in": "GameWindow",
+     "args": [
+      {
+       "expr": "joypad.getID()",
+       "type": "?getID"
+      }
+     ]
+    },
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 5601,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "GameWindow.activatedJoyPad.getID()",
+       "type": "?getID"
+      }
+     ]
+    },
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 5608,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "GameWindow.activatedJoyPad.getID()",
+       "type": "?getID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getID"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadBeforeDeactivate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/JoypadManager.java",
+     "line": 582,
+     "in": "JoypadManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(joypad.getID())",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadBeforeReactivate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/JoypadManager.java",
+     "line": 573,
+     "in": "JoypadManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(joypad.getID())",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadDeactivate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/JoypadManager.java",
+     "line": 584,
+     "in": "JoypadManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(joypad.getID())",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadDebugRenderUIOptionSet",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/JoypadManager.java",
+     "line": 622,
+     "in": "JoypadManager",
+     "args": [
+      {
+       "expr": "debugDrawUI",
+       "type": "boolean"
+      },
+      {
+       "expr": "debugDrawNavigation",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "debugDrawUI",
+     "type": "boolean"
+    },
+    {
+     "name": "debugDrawNavigation",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadReactivate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/JoypadManager.java",
+     "line": 575,
+     "in": "JoypadManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(joypad.getID())",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnJoypadRenderUI",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/JoypadManager.java",
+     "line": 623,
+     "in": "JoypadManager",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnKeyKeepPressed",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/GameKeyboard.java",
+     "line": 68,
+     "in": "GameKeyboard",
+     "args": [
+      {
+       "expr": "n",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 717,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10000 + btn",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 735,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10000",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 788,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10001",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnKeyPressed",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/GameKeyboard.java",
+     "line": 53,
+     "in": "GameKeyboard",
+     "args": [
+      {
+       "expr": "n",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 715,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10000 + btn",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 725,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10000",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 794,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10001",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnKeyStartPressed",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/input/GameKeyboard.java",
+     "line": 80,
+     "in": "GameKeyboard",
+     "args": [
+      {
+       "expr": "n",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 714,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10000 + btn",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 724,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10000",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 793,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "10001",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnLoad",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 770,
+     "in": "IngameState",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnLoadedMapZones",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 2089,
+     "in": "IsoWorld",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnLoadedTileDefinitions",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 1999,
+     "in": "IsoWorld",
+     "args": [
+      {
+       "expr": "spriteManager",
+       "type": "IsoSpriteManager"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "spriteManager",
+     "type": "IsoSpriteManager"
+    }
+   ]
+  },
+  {
+   "name": "OnLoadMapZones",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 2074,
+     "in": "IsoWorld",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onLoadModDataFromServer",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/service/ReceiveModDataPacket.java",
+     "line": 159,
+     "in": "ReceiveModDataPacket",
+     "args": [
+      {
+       "expr": "this.sq",
+       "type": "IsoGridSquare"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/service/ReceiveModDataPacket.java",
+     "line": 164,
+     "in": "ReceiveModDataPacket",
+     "args": [
+      {
+       "expr": "this.sq",
+       "type": "IsoGridSquare"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "sq",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "OnLoadRadioScripts",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/radio/ZomboidRadio.java",
+     "line": 253,
+     "in": "ZomboidRadio",
+     "args": [
+      {
+       "expr": "this.scriptManager",
+       "type": "RadioScriptManager"
+      },
+      {
+       "expr": "savedWorldVersion == -1",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "scriptManager",
+     "type": "RadioScriptManager"
+    },
+    {
+     "name": "arg2",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnLoadSoundBanks",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 998,
+     "in": "GameWindow",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnLoginState",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnLoginStateSuccess",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnLuaNetInit",
+   "registered": false,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/Util/LuaNet.lua",
+     "line": 269,
+     "args": [
+      {
+       "expr": "self"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "self",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnMainMenuEnter",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Core.java",
+     "line": 3965,
+     "in": "Core",
+     "args": []
+    },
+    {
+     "file": "zombie/gameStates/MainScreenState.java",
+     "line": 399,
+     "in": "MainScreenState",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnMakeItem",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onManualSelectChanged",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 940,
+     "in": "BaseCraftingLogic",
+     "args": [
+      {
+       "expr": "this.manualSelectInputs",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "manualSelectInputs",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "OnMapLoadCreateIsoObject",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnMechanicActionDone",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 11386,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "success",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "success",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "OnMiniScoreboardUpdate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 7575,
+     "in": "IsoPlayer",
+     "args": []
+    },
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 1678,
+     "in": "GameClient",
+     "args": []
+    },
+    {
+     "file": "zombie/network/packets/connection/ConnectedPacket.java",
+     "line": 207,
+     "in": "ConnectedPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnModsModified",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ZomboidFileSystem.java",
+     "line": 1328,
+     "in": "ZomboidFileSystem",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnMouseDown",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 723,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnMouseMove",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 640,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(mxw)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(myw)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    },
+    {
+     "name": "arg3",
+     "type": "Double"
+    },
+    {
+     "name": "arg4",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnMouseUp",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 732,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnMouseWheel",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 624,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(wheel)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnMovingObjectCrop",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnMultiTriggerNPCEvent",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoMetaCell.java",
+     "line": 74,
+     "in": "IsoMetaCell",
+     "args": [
+      {
+       "expr": "tr.type",
+       "type": null
+      },
+      {
+       "expr": "tr.data",
+       "type": null
+      },
+      {
+       "expr": "tr.def",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": null
+    },
+    {
+     "name": "arg3",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnNetworkUsersReceived",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/NetworkUsersPacket.java",
+     "line": 87,
+     "in": "NetworkUsersPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnNewFire",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/objects/IsoFire.java",
+     "line": 251,
+     "in": "IsoFire",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoFire"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "fire",
+     "type": "IsoFire"
+    }
+   ]
+  },
+  {
+   "name": "OnNewGame",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 2308,
+     "in": "IsoWorld",
+     "args": [
+      {
+       "expr": "playerObj",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "sq",
+       "type": "IsoGridSquare"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 2419,
+     "in": "IsoWorld",
+     "args": [
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "sqx",
+       "type": "IsoGridSquare"
+      }
+     ]
+    },
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 5662,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "playerObj",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "playerObj.getCurrentSquare()",
+       "type": "?getCurrentSquare"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/character/CreatePlayerPacket.java",
+     "line": 296,
+     "in": "CreatePlayerPacket",
+     "args": [
+      {
+       "expr": "this.player",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "playerObj",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "sq",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "OnNewSurvivorGroup",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnNPCSurvivorUpdate",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnObjectAboutToBeRemoved",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoGridSquare.java",
+     "line": 5792,
+     "in": "IsoGridSquare",
+     "args": [
+      {
+       "expr": "obj",
+       "type": "IsoObject"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/RemoveItemFromSquarePacket.java",
+     "line": 146,
+     "in": "RemoveItemFromSquarePacket",
+     "args": [
+      {
+       "expr": "o",
+       "type": "IsoObject"
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 1449,
+     "args": [
+      {
+       "expr": "_object"
+      }
+     ]
+    },
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 1491,
+     "args": [
+      {
+       "expr": "_object"
+      }
+     ]
+    },
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 1494,
+     "args": [
+      {
+       "expr": "_object"
+      }
+     ]
+    },
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 1520,
+     "args": [
+      {
+       "expr": "_object"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "obj",
+     "type": "IsoObject"
+    }
+   ]
+  },
+  {
+   "name": "OnObjectAdded",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/AddItemToMapPacket.java",
+     "line": 89,
+     "in": "AddItemToMapPacket",
+     "args": [
+      {
+       "expr": "this.obj",
+       "type": "IsoObject"
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "server/RainBarrel/BuildingObjects/RainCollectorBarrel.lua",
+     "line": 29,
+     "args": [
+      {
+       "expr": "self.javaObject"
+      }
+     ]
+    },
+    {
+     "file": "server/Traps/BuildingObjects/TrapBO.lua",
+     "line": 49,
+     "args": [
+      {
+       "expr": "self.javaObject"
+      }
+     ]
+    },
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 2140,
+     "args": [
+      {
+       "expr": "temp"
+      }
+     ]
+    },
+    {
+     "file": "shared/Moveables/ISMoveableSpriteProps.lua",
+     "line": 2541,
+     "args": [
+      {
+       "expr": "obj"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISDropVehicleItemAction.lua",
+     "line": 73,
+     "args": [
+      {
+       "expr": "_obj"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISDropWorldItemAction.lua",
+     "line": 107,
+     "args": [
+      {
+       "expr": "_obj"
+      }
+     ]
+    },
+    {
+     "file": "shared/TimedActions/ISTransferAction.lua",
+     "line": 123,
+     "args": [
+      {
+       "expr": "_obj"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "obj",
+     "type": "IsoObject"
+    }
+   ]
+  },
+  {
+   "name": "OnObjectCollide",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoMovingObject.java",
+     "line": 277,
+     "in": "IsoMovingObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoMovingObject"
+      },
+      {
+       "expr": "obj",
+       "type": "IsoObject"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "movingObject",
+     "type": "IsoMovingObject"
+    },
+    {
+     "name": "obj",
+     "type": "IsoObject"
+    }
+   ]
+  },
+  {
+   "name": "OnObjectLeftMouseButtonDown",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 590,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "picked.tile",
+       "type": null
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    },
+    {
+     "name": "arg3",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnObjectLeftMouseButtonUp",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 607,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "picked.tile",
+       "type": null
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    },
+    {
+     "name": "arg3",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnObjectRightMouseButtonDown",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 742,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "picked.tile",
+       "type": null
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    },
+    {
+     "name": "arg3",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnObjectRightMouseButtonUp",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 762,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "picked.tile",
+       "type": null
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    },
+    {
+     "name": "arg3",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnOverrideSearchManager",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPlayerAttackFinished",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ai/states/SwipeStatePlayer.java",
+     "line": 469,
+     "in": "SwipeStatePlayer",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "owner",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    }
+   ]
+  },
+  {
+   "name": "OnPlayerDeath",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 6630,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    }
+   ]
+  },
+  {
+   "name": "OnPlayerGetDamage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2330,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"POISON\"",
+       "type": "String"
+      },
+      {
+       "expr": "poisonDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2334,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"HUNGRY\"",
+       "type": "String"
+      },
+      {
+       "expr": "hungryDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2338,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"SICK\"",
+       "type": "String"
+      },
+      {
+       "expr": "sickDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2342,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"BLEEDING\"",
+       "type": "String"
+      },
+      {
+       "expr": "bleedingDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2346,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"THIRST\"",
+       "type": "String"
+      },
+      {
+       "expr": "thirstDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2350,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"HEAVYLOAD\"",
+       "type": "String"
+      },
+      {
+       "expr": "heavyLoadDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2381,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"INFECTION\"",
+       "type": "String"
+      },
+      {
+       "expr": "110",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2394,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"INFECTION\"",
+       "type": "String"
+      },
+      {
+       "expr": "110",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyDamage.java",
+     "line": 2402,
+     "in": "BodyDamage",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"INFECTION\"",
+       "type": "String"
+      },
+      {
+       "expr": "bleedingDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/BodyPart.java",
+     "line": 169,
+     "in": "BodyPart",
+     "args": [
+      {
+       "expr": "this.parentChar",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"BLEEDING\"",
+       "type": "String"
+      },
+      {
+       "expr": "finalBleedDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/BodyDamage/Nutrition.java",
+     "line": 344,
+     "in": "Nutrition",
+     "args": [
+      {
+       "expr": "this.parent",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "\"LOWWEIGHT\"",
+       "type": "String"
+      },
+      {
+       "expr": "lowWeightDamage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 2538,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"FALLDOWN\"",
+       "type": "String"
+      },
+      {
+       "expr": "healthReduction",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 6657,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"FIRE\"",
+       "type": "String"
+      },
+      {
+       "expr": "dpm",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 6803,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"WEAPONHIT\"",
+       "type": "String"
+      },
+      {
+       "expr": "damageSplit",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 7161,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"FIRE\"",
+       "type": "String"
+      },
+      {
+       "expr": "dpm",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 2022,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "\"CARHITDAMAGE\"",
+       "type": "String"
+      },
+      {
+       "expr": "damage",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/vehicles/BaseVehicle.java",
+     "line": 9520,
+     "in": "BaseVehicle",
+     "args": [
+      {
+       "expr": "chr",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "\"CARCRASHDAMAGE\"",
+       "type": "String"
+      },
+      {
+       "expr": "damage",
+       "type": "float"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "parentChar",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "arg2",
+     "type": "String"
+    },
+    {
+     "name": "bleedingDamage",
+     "type": "float"
+    }
+   ]
+  },
+  {
+   "name": "OnPlayerMove",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 2259,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 6830,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    }
+   ]
+  },
+  {
+   "name": "OnPlayerSetSafehouse",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPlayerUpdate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 2315,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    }
+   ]
+  },
+  {
+   "name": "OnPostCharactersSquareDraw",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostDistributionMerge",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 1909,
+     "in": "IsoWorld",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostFloorLayerDraw",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoCell.java",
+     "line": 871,
+     "in": "IsoCell",
+     "args": [
+      {
+       "expr": "zza",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/ServerGUI.java",
+     "line": 401,
+     "in": "ServerGUI",
+     "args": [
+      {
+       "expr": "zza",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "zza",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnPostFloorSquareDraw",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostMapLoad",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/CellLoader.java",
+     "line": 456,
+     "in": "CellLoader",
+     "args": [
+      {
+       "expr": "cell",
+       "type": "IsoCell"
+      },
+      {
+       "expr": "wx",
+       "type": "int"
+      },
+      {
+       "expr": "wy",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "cell",
+     "type": "IsoCell"
+    },
+    {
+     "name": "wx",
+     "type": "int"
+    },
+    {
+     "name": "wy",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnPostRender",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 1204,
+     "in": "IngameState",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostSave",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 1383,
+     "in": "IngameState",
+     "args": []
+    },
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 1610,
+     "in": "IngameState",
+     "args": []
+    },
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 800,
+     "in": "GameWindow",
+     "args": []
+    },
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 808,
+     "in": "GameWindow",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostTileDraw",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostTilesSquareDraw",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostUIDraw",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 373,
+     "in": "UIManager",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPostWallSquareDraw",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPreDistributionMerge",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoWorld.java",
+     "line": 1907,
+     "in": "IsoWorld",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPreFillInventoryContextMenuNoItems",
+   "registered": false,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/ISUI/ISInventoryPaneContextMenu.lua",
+     "line": 951,
+     "args": [
+      {
+       "expr": "playerNum"
+      },
+      {
+       "expr": "context"
+      },
+      {
+       "expr": "isLoot"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "playerNum",
+     "type": null
+    },
+    {
+     "name": "context",
+     "type": null
+    },
+    {
+     "name": "isLoot",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnPreFillInventoryObjectContextMenu",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/ISUI/ISInventoryPaneContextMenu.lua",
+     "line": 374,
+     "args": [
+      {
+       "expr": "player"
+      },
+      {
+       "expr": "context"
+      },
+      {
+       "expr": "items"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "player",
+     "type": null
+    },
+    {
+     "name": "context",
+     "type": null
+    },
+    {
+     "name": "items",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnPreFillWorldObjectContextMenu",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/ISUI/ISWorldObjectContextMenu.lua",
+     "line": 190,
+     "args": [
+      {
+       "expr": "player"
+      },
+      {
+       "expr": "context"
+      },
+      {
+       "expr": "worldobjects"
+      },
+      {
+       "expr": "test"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "player",
+     "type": null
+    },
+    {
+     "name": "context",
+     "type": null
+    },
+    {
+     "name": "worldobjects",
+     "type": null
+    },
+    {
+     "name": "test",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnPreGameStart",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPreMapLoad",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/GameLoadingState.java",
+     "line": 234,
+     "in": "GameLoadingState",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnPressRackButton",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 3542,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "characterInputComponent.isShiftKeyDown()",
+       "type": "?isShiftKeyDown"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    },
+    {
+     "name": "arg3",
+     "type": "?isShiftKeyDown"
+    }
+   ]
+  },
+  {
+   "name": "OnPressReloadButton",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 3539,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    }
+   ]
+  },
+  {
+   "name": "OnPressWalkTo",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 6439,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "0",
+       "type": "int"
+      },
+      {
+       "expr": "0",
+       "type": "int"
+      },
+      {
+       "expr": "0",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "0",
+     "type": "int"
+    },
+    {
+     "name": "0",
+     "type": "int"
+    },
+    {
+     "name": "0",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnPreUIDraw",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 297,
+     "in": "UIManager",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnProcessAction",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/BuildAction.java",
+     "line": 117,
+     "in": "BuildAction",
+     "args": [
+      {
+       "expr": "\"build\"",
+       "type": "String"
+      },
+      {
+       "expr": "this.playerId.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.argTable",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "String"
+    },
+    {
+     "name": "arg2",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "argTable",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnProcessTransaction",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Transaction.java",
+     "line": 138,
+     "in": "Transaction",
+     "args": [
+      {
+       "expr": "\"scrapMoveable\"",
+       "type": "String"
+      },
+      {
+       "expr": "this.playerId.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      },
+      {
+       "expr": "entry.sourceId",
+       "type": null
+      },
+      {
+       "expr": "entry.destinationId",
+       "type": null
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/Transaction.java",
+     "line": 143,
+     "in": "Transaction",
+     "args": [
+      {
+       "expr": "\"pickUpMoveable\"",
+       "type": "String"
+      },
+      {
+       "expr": "this.playerId.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      },
+      {
+       "expr": "entry.sourceId",
+       "type": null
+      },
+      {
+       "expr": "entry.destinationId",
+       "type": null
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/Transaction.java",
+     "line": 150,
+     "in": "Transaction",
+     "args": [
+      {
+       "expr": "\"rotateMoveable\"",
+       "type": "String"
+      },
+      {
+       "expr": "this.playerId.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      },
+      {
+       "expr": "entry.sourceId",
+       "type": null
+      },
+      {
+       "expr": "entry.destinationId",
+       "type": null
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/Transaction.java",
+     "line": 193,
+     "in": "Transaction",
+     "args": [
+      {
+       "expr": "\"placeMoveable\"",
+       "type": "String"
+      },
+      {
+       "expr": "this.playerId.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "item",
+       "type": "InventoryItem"
+      },
+      {
+       "expr": "entry.sourceId",
+       "type": null
+      },
+      {
+       "expr": "entry.destinationId",
+       "type": null
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    },
+    {
+     "file": "zombie/core/Transaction.java",
+     "line": 208,
+     "in": "Transaction",
+     "args": [
+      {
+       "expr": "\"dropOnFloor\"",
+       "type": "String"
+      },
+      {
+       "expr": "this.playerId.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "item",
+       "type": "InventoryItem"
+      },
+      {
+       "expr": "entry.sourceId",
+       "type": null
+      },
+      {
+       "expr": "entry.destinationId",
+       "type": null
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "String"
+    },
+    {
+     "name": "arg2",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "null",
+     "type": "InventoryItem"
+    },
+    {
+     "name": "arg4",
+     "type": null
+    },
+    {
+     "name": "arg5",
+     "type": null
+    },
+    {
+     "name": "tbl",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnQRReceived",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/connection/GoogleAuthKeyPacket.java",
+     "line": 112,
+     "in": "GoogleAuthKeyPacket",
+     "args": [
+      {
+       "expr": "this.message",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "message",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnRadioInteraction",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnRainStart",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnRainStop",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/objects/RainManager.java",
+     "line": 261,
+     "in": "RainManager",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onRebuildInputItemNodes",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 572,
+     "in": "BaseCraftingLogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 621,
+     "in": "BaseCraftingLogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 961,
+     "in": "BaseCraftingLogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 102,
+     "in": "CraftLogicUILogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 338,
+     "in": "CraftLogicUILogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 389,
+     "in": "CraftLogicUILogic",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnReceiveGlobalModData",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/service/GlobalModDataPacket.java",
+     "line": 44,
+     "in": "GlobalModDataPacket",
+     "args": [
+      {
+       "expr": "tag",
+       "type": "String"
+      },
+      {
+       "expr": "false",
+       "type": "boolean"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/service/GlobalModDataPacket.java",
+     "line": 50,
+     "in": "GlobalModDataPacket",
+     "args": [
+      {
+       "expr": "tag",
+       "type": "String"
+      },
+      {
+       "expr": "table",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "tag",
+     "type": "String"
+    },
+    {
+     "name": "false",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "OnReceiveItemListNet",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 2688,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "sender",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "items",
+       "type": "ArrayList<InventoryItem>"
+      },
+      {
+       "expr": "receiver",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "sessionID",
+       "type": "String"
+      },
+      {
+       "expr": "custom",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/GameServer.java",
+     "line": 4074,
+     "in": "GameServer",
+     "args": [
+      {
+       "expr": "sender",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "items",
+       "type": "ArrayList<InventoryItem>"
+      },
+      {
+       "expr": "receiver",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "sessionID",
+       "type": "String"
+      },
+      {
+       "expr": "custom",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "sender",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "items",
+     "type": "ArrayList<InventoryItem>"
+    },
+    {
+     "name": "receiver",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "sessionID",
+     "type": "String"
+    },
+    {
+     "name": "custom",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnReceiveUserlog",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/service/RequestUserLogPacket.java",
+     "line": 93,
+     "in": "RequestUserLogPacket",
+     "args": [
+      {
+       "expr": "this.username",
+       "type": "String"
+      },
+      {
+       "expr": "this.userLog",
+       "type": "ArrayList<Userlog>"
+      },
+      {
+       "expr": "null",
+       "type": "null"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/service/RequestUserLogPacket.java",
+     "line": 101,
+     "in": "RequestUserLogPacket",
+     "args": [
+      {
+       "expr": "this.username",
+       "type": "String"
+      },
+      {
+       "expr": "this.userLog",
+       "type": "ArrayList<Userlog>"
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "username",
+     "type": "String"
+    },
+    {
+     "name": "userLog",
+     "type": "ArrayList<Userlog>"
+    },
+    {
+     "name": "null",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "onRecipeChanged",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 571,
+     "in": "BaseCraftingLogic",
+     "args": [
+      {
+       "expr": "recipe",
+       "type": "CraftRecipe"
+      }
+     ]
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 101,
+     "in": "CraftLogicUILogic",
+     "args": [
+      {
+       "expr": "recipe",
+       "type": "CraftRecipe"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "recipe",
+     "type": "CraftRecipe"
+    }
+   ]
+  },
+  {
+   "name": "OnRefreshInventoryWindowContainers",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/ISUI/ISInventoryPage.lua",
+     "line": 1560,
+     "args": [
+      {
+       "expr": "self"
+      },
+      {
+       "expr": "\"begin\""
+      }
+     ]
+    },
+    {
+     "file": "client/ISUI/ISInventoryPage.lua",
+     "line": 1795,
+     "args": [
+      {
+       "expr": "self"
+      },
+      {
+       "expr": "\"beforeFloor\""
+      }
+     ]
+    },
+    {
+     "file": "client/ISUI/ISInventoryPage.lua",
+     "line": 1802,
+     "args": [
+      {
+       "expr": "self"
+      },
+      {
+       "expr": "\"buttonsAdded\""
+      }
+     ]
+    },
+    {
+     "file": "client/ISUI/ISInventoryPage.lua",
+     "line": 1906,
+     "args": [
+      {
+       "expr": "self"
+      },
+      {
+       "expr": "\"end\""
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "self",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnRenderTick",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 765,
+     "in": "GameWindow",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnRenderUpdate",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnResetLua",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Core.java",
+     "line": 3966,
+     "in": "Core",
+     "args": [
+      {
+       "expr": "reason",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "reason",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnResolutionChange",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Core.java",
+     "line": 2240,
+     "in": "Core",
+     "args": [
+      {
+       "expr": "oldWidth",
+       "type": "int"
+      },
+      {
+       "expr": "oldHeight",
+       "type": "int"
+      },
+      {
+       "expr": "width",
+       "type": "int"
+      },
+      {
+       "expr": "height",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "oldWidth",
+     "type": "int"
+    },
+    {
+     "name": "oldHeight",
+     "type": "int"
+    },
+    {
+     "name": "width",
+     "type": "int"
+    },
+    {
+     "name": "height",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "onResourceSlotContentsChanged",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 367,
+     "in": "CraftLogicUILogic",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnRightMouseDown",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 740,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnRightMouseUp",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ui/UIManager.java",
+     "line": 760,
+     "in": "UIManager",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(mx)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(my)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnRolesReceived",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/RolesPacket.java",
+     "line": 112,
+     "in": "RolesPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnSafehousesChanged",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/areas/SafeHouse.java",
+     "line": 84,
+     "in": "SafeHouse",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/areas/SafeHouse.java",
+     "line": 331,
+     "in": "SafeHouse",
+     "args": []
+    },
+    {
+     "file": "zombie/network/packets/safehouse/SafehouseSyncPacket.java",
+     "line": 94,
+     "in": "SafehouseSyncPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnSave",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 1023,
+     "in": "GameWindow",
+     "args": []
+    },
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 1050,
+     "in": "GameWindow",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnScoreboardUpdate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/service/ScoreboardUpdatePacket.java",
+     "line": 77,
+     "in": "ScoreboardUpdatePacket",
+     "args": [
+      {
+       "expr": "this.usernames",
+       "type": "ArrayList<String>"
+      },
+      {
+       "expr": "this.displayNames",
+       "type": "ArrayList<String>"
+      },
+      {
+       "expr": "this.steamIdsString",
+       "type": "ArrayList<String>"
+      },
+      {
+       "expr": "this.pingValues",
+       "type": "List<Short>"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "usernames",
+     "type": "ArrayList<String>"
+    },
+    {
+     "name": "displayNames",
+     "type": "ArrayList<String>"
+    },
+    {
+     "name": "steamIdsString",
+     "type": "ArrayList<String>"
+    },
+    {
+     "name": "pingValues",
+     "type": "List<Short>"
+    }
+   ]
+  },
+  {
+   "name": "OnSeeNewRoom",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoCell.java",
+     "line": 4326,
+     "in": "IsoCell",
+     "args": [
+      {
+       "expr": "room",
+       "type": "IsoRoom"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "room",
+     "type": "IsoRoom"
+    }
+   ]
+  },
+  {
+   "name": "OnServerCommand",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 1072,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "module",
+       "type": "String"
+      },
+      {
+       "expr": "command",
+       "type": "String"
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    },
+    {
+     "file": "zombie/spnetwork/SinglePlayerClient.java",
+     "line": 143,
+     "in": "SinglePlayerClient",
+     "args": [
+      {
+       "expr": "module",
+       "type": "String"
+      },
+      {
+       "expr": "command",
+       "type": "String"
+      },
+      {
+       "expr": "tbl",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "module",
+     "type": "String"
+    },
+    {
+     "name": "command",
+     "type": "String"
+    },
+    {
+     "name": "tbl",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnServerCustomizationDataReceived",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnServerFinishSaving",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/service/StopPausePacket.java",
+     "line": 27,
+     "in": "StopPausePacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnServerStarted",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/GameServer.java",
+     "line": 1536,
+     "in": "GameServer",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnServerStartSaving",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/service/StartPausePacket.java",
+     "line": 27,
+     "in": "StartPausePacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnServerStatisticReceived",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnServerWorkshopItems",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 307,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"Required\"",
+       "type": "String"
+      },
+      {
+       "expr": "itemIDstr",
+       "type": "ArrayList<String>"
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 316,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"Details\"",
+       "type": "String"
+      },
+      {
+       "expr": "details",
+       "type": "ArrayList<SteamUGCDetails>"
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 330,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"Error\"",
+       "type": "String"
+      },
+      {
+       "expr": "\"ItemQueryNotCompleted\"",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 363,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"Error\"",
+       "type": "String"
+      },
+      {
+       "expr": "item.id",
+       "type": null
+      },
+      {
+       "expr": "item.error",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 373,
+     "in": "ConnectToServerState",
+     "args": [
+      {
+       "expr": "\"Success\"",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/gameStates/ConnectToServerState.java",
+     "line": 712,
+     "in": "WorkshopItem",
+     "args": [
+      {
+       "expr": "\"Progress\"",
+       "type": "String"
+      },
+      {
+       "expr": "SteamUtils.convertSteamIDToString(this.id)",
+       "type": null
+      },
+      {
+       "expr": "progress[0]",
+       "type": null
+      },
+      {
+       "expr": "Math.max(progress[1], 1L)",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "String"
+    },
+    {
+     "name": "itemIDstr",
+     "type": "ArrayList<String>"
+    }
+   ]
+  },
+  {
+   "name": "OnSetDefaultTab",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/chat/ChatManager.java",
+     "line": 136,
+     "in": "ChatManager",
+     "args": [
+      {
+       "expr": "this.tabs.get((short)0).getTitle()",
+       "type": "?getTitle"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getTitle"
+    }
+   ]
+  },
+  {
+   "name": "onSetRecipeList",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 581,
+     "in": "BaseCraftingLogic",
+     "args": [
+      {
+       "expr": "this.filteredRecipeList",
+       "type": "CraftRecipeListNodeCollection"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "filteredRecipeList",
+     "type": "CraftRecipeListNodeCollection"
+    }
+   ]
+  },
+  {
+   "name": "OnSGlobalObjectSystemInit",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/globalObjects/SGlobalObjects.java",
+     "line": 88,
+     "in": "SGlobalObjects",
+     "args": []
+    },
+    {
+     "file": "zombie/iso/WorldConverter.java",
+     "line": 283,
+     "in": "WorldConverter",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onShowManualSelectChanged",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 951,
+     "in": "BaseCraftingLogic",
+     "args": [
+      {
+       "expr": "this.shouldShowManualSelectInputs()",
+       "type": null
+      }
+     ]
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 316,
+     "in": "CraftLogicUILogic",
+     "args": [
+      {
+       "expr": "this.shouldShowManualSelectInputs()",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnSleepingTick",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 1262,
+     "in": "IngameState",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(i)",
+       "type": "Double"
+      },
+      {
+       "expr": "BoxedStaticValues.toDouble(hours)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    },
+    {
+     "name": "arg2",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnSourceWindowFileReload",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/DebugUIs/SourceWindow.lua",
+     "line": 29,
+     "args": []
+    }
+   ],
+   "params": []
+  },
+  {
+   "name": "OnSpawnRegionsLoaded",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/SpawnRegions.lua",
+     "line": 90,
+     "args": [
+      {
+       "expr": "regions"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "regions",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnSpawnVehicleEnd",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/vehicles/BaseVehicle.java",
+     "line": 905,
+     "in": "BaseVehicle",
+     "args": [
+      {
+       "expr": "this",
+       "type": "BaseVehicle"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "baseVehicle",
+     "type": "BaseVehicle"
+    }
+   ]
+  },
+  {
+   "name": "OnSpawnVehicleStart",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/vehicles/BaseVehicle.java",
+     "line": 812,
+     "in": "BaseVehicle",
+     "args": [
+      {
+       "expr": "this",
+       "type": "BaseVehicle"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "baseVehicle",
+     "type": "BaseVehicle"
+    }
+   ]
+  },
+  {
+   "name": "onStartCraft",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/build/BuildLogic.java",
+     "line": 228,
+     "in": "BuildLogic",
+     "args": [
+      {
+       "expr": "actionTable",
+       "type": "KahluaTableImpl"
+      }
+     ]
+    },
+    {
+     "file": "zombie/entity/components/crafting/recipe/HandcraftLogic.java",
+     "line": 89,
+     "in": "HandcraftLogic",
+     "args": [
+      {
+       "expr": "actionTable",
+       "type": "KahluaTableImpl"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "actionTable",
+     "type": "KahluaTableImpl"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamFriendStatusChanged",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/core/znet/SteamFriends.java",
+     "line": 76,
+     "in": "SteamFriends",
+     "args": [
+      {
+       "expr": "Long.toString(steamID)",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnSteamGameJoin",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/znet/SteamUtils.java",
+     "line": 212,
+     "in": "SteamUtils",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnSteamRefreshInternetServers",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/znet/ServerBrowser.java",
+     "line": 197,
+     "in": "ServerBrowser",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnSteamRulesRefreshComplete",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/znet/ServerBrowser.java",
+     "line": 238,
+     "in": "ServerBrowser",
+     "args": [
+      {
+       "expr": "host",
+       "type": "String"
+      },
+      {
+       "expr": "(double)port",
+       "type": "double"
+      },
+      {
+       "expr": "rulesTable",
+       "type": "KahluaTable"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "host",
+     "type": "String"
+    },
+    {
+     "name": "port",
+     "type": "double"
+    },
+    {
+     "name": "rulesTable",
+     "type": "KahluaTable"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamServerFailedToRespond2",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/znet/ServerBrowser.java",
+     "line": 222,
+     "in": "ServerBrowser",
+     "args": [
+      {
+       "expr": "host",
+       "type": "String"
+      },
+      {
+       "expr": "(double)port",
+       "type": "double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "host",
+     "type": "String"
+    },
+    {
+     "name": "port",
+     "type": "double"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamServerResponded",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/znet/ServerBrowser.java",
+     "line": 181,
+     "in": "ServerBrowser",
+     "args": [
+      {
+       "expr": "serverIndex",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "serverIndex",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamServerResponded2",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/znet/ServerBrowser.java",
+     "line": 211,
+     "in": "ServerBrowser",
+     "args": [
+      {
+       "expr": "host",
+       "type": "String"
+      },
+      {
+       "expr": "(double)port",
+       "type": "double"
+      },
+      {
+       "expr": "newServer",
+       "type": "Server"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "host",
+     "type": "String"
+    },
+    {
+     "name": "port",
+     "type": "double"
+    },
+    {
+     "name": "newServer",
+     "type": "Server"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamWorkshopItemCreated",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/core/znet/SteamWorkshop.java",
+     "line": 289,
+     "in": "SteamWorkshop",
+     "args": [
+      {
+       "expr": "SteamUtils.convertSteamIDToString(itemID)",
+       "type": null
+      },
+      {
+       "expr": "bUserNeedsToAcceptWorkshopLegalAgreement",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "client/OptionScreens/WorkshopSubmitScreen.lua",
+     "line": 1072,
+     "args": [
+      {
+       "expr": "\"1234\""
+      },
+      {
+       "expr": "true"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "bUserNeedsToAcceptWorkshopLegalAgreement",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamWorkshopItemNotCreated",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/core/znet/SteamWorkshop.java",
+     "line": 294,
+     "in": "SteamWorkshop",
+     "args": [
+      {
+       "expr": "result",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "result",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamWorkshopItemNotUpdated",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/core/znet/SteamWorkshop.java",
+     "line": 304,
+     "in": "SteamWorkshop",
+     "args": [
+      {
+       "expr": "result",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "result",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnSteamWorkshopItemUpdated",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/core/znet/SteamWorkshop.java",
+     "line": 299,
+     "in": "SteamWorkshop",
+     "args": [
+      {
+       "expr": "bUserNeedsToAcceptWorkshopLegalAgreement",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [
+    {
+     "file": "client/OptionScreens/WorkshopSubmitScreen.lua",
+     "line": 1098,
+     "args": [
+      {
+       "expr": "true"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "bUserNeedsToAcceptWorkshopLegalAgreement",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "onStopCraft",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/build/BuildLogic.java",
+     "line": 250,
+     "in": "BuildLogic",
+     "args": []
+    },
+    {
+     "file": "zombie/entity/components/crafting/recipe/HandcraftLogic.java",
+     "line": 110,
+     "in": "HandcraftLogic",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnSwitchVehicleSeat",
+   "registered": false,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/Vehicles/TimedActions/ISSwitchVehicleSeat.lua",
+     "line": 57,
+     "args": [
+      {
+       "expr": "self.character"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnTabAdded",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/chat/ChatManager.java",
+     "line": 480,
+     "in": "ChatManager",
+     "args": [
+      {
+       "expr": "newTab.getTitle()",
+       "type": "?getTitle"
+      },
+      {
+       "expr": "newTab.getID()",
+       "type": "?getID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getTitle"
+    },
+    {
+     "name": "arg2",
+     "type": "?getID"
+    }
+   ]
+  },
+  {
+   "name": "OnTabRemoved",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/chat/ChatManager.java",
+     "line": 487,
+     "in": "ChatManager",
+     "args": [
+      {
+       "expr": "tab.getTitle()",
+       "type": "?getTitle"
+      },
+      {
+       "expr": "tab.getID()",
+       "type": "?getID"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getTitle"
+    },
+    {
+     "name": "arg2",
+     "type": "?getID"
+    }
+   ]
+  },
+  {
+   "name": "OnTemplateTextInit",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/text/templating/TemplateText.java",
+     "line": 80,
+     "in": "TemplateText",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnThrowableExplode",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/objects/IsoTrap.java",
+     "line": 419,
+     "in": "IsoTrap",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoTrap"
+      },
+      {
+       "expr": "this.square",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "trap",
+     "type": "IsoTrap"
+    },
+    {
+     "name": "square",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnThunderEvent",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/ThunderStorm.java",
+     "line": 406,
+     "in": "ThunderStorm",
+     "args": [
+      {
+       "expr": "x",
+       "type": "int"
+      },
+      {
+       "expr": "y",
+       "type": "int"
+      },
+      {
+       "expr": "doStrike",
+       "type": "boolean"
+      },
+      {
+       "expr": "doLightning",
+       "type": "boolean"
+      },
+      {
+       "expr": "doRumble",
+       "type": "boolean"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "x",
+     "type": "int"
+    },
+    {
+     "name": "y",
+     "type": "int"
+    },
+    {
+     "name": "doStrike",
+     "type": "boolean"
+    },
+    {
+     "name": "doLightning",
+     "type": "boolean"
+    },
+    {
+     "name": "doRumble",
+     "type": "boolean"
+    }
+   ]
+  },
+  {
+   "name": "OnTick",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 1659,
+     "in": "IngameState",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(this.numberTicks)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnTickEvenPaused",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/gameStates/IngameState.java",
+     "line": 1350,
+     "in": "IngameState",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(this.numberTicks)",
+       "type": "Double"
+      }
+     ]
+    },
+    {
+     "file": "zombie/GameWindow.java",
+     "line": 368,
+     "in": "GameWindow",
+     "args": [
+      {
+       "expr": "BoxedStaticValues.toDouble(0.0)",
+       "type": "Double"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "Double"
+    }
+   ]
+  },
+  {
+   "name": "OnTileObjectAdded",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/AddObjectToMapPacket.java",
+     "line": 57,
+     "in": "AddObjectToMapPacket",
+     "args": [
+      {
+       "expr": "this.square.getSquare()",
+       "type": "?getSquare"
+      },
+      {
+       "expr": "this.spriteName",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getSquare"
+    },
+    {
+     "name": "spriteName",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "OnTileRemoved",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoGridSquare.java",
+     "line": 5830,
+     "in": "IsoGridSquare",
+     "args": [
+      {
+       "expr": "obj",
+       "type": "IsoObject"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "obj",
+     "type": "IsoObject"
+    }
+   ]
+  },
+  {
+   "name": "onToggleSearchMode",
+   "registered": false,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/Foraging/ISSearchManager.lua",
+     "line": 1445,
+     "args": [
+      {
+       "expr": "self.character"
+      },
+      {
+       "expr": "self.isSearchMode"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnTriggerNPCEvent",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoMetaCell.java",
+     "line": 71,
+     "in": "IsoMetaCell",
+     "args": [
+      {
+       "expr": "tr.type",
+       "type": null
+      },
+      {
+       "expr": "tr.data",
+       "type": null
+      },
+      {
+       "expr": "tr.def",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": null
+    },
+    {
+     "name": "arg2",
+     "type": null
+    },
+    {
+     "name": "arg3",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "onUpdateContainers",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 620,
+     "in": "BaseCraftingLogic",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "onUpdateIcon",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "client/Foraging/forageClient.lua",
+     "line": 35,
+     "args": [
+      {
+       "expr": "_zoneData"
+      },
+      {
+       "expr": "_iconID"
+      },
+      {
+       "expr": "_icon"
+      }
+     ]
+    },
+    {
+     "file": "client/Foraging/ISForageIcon.lua",
+     "line": 99,
+     "args": [
+      {
+       "expr": "self.zoneData"
+      },
+      {
+       "expr": "self.iconID"
+      },
+      {
+       "expr": "self"
+      }
+     ]
+    },
+    {
+     "file": "client/Foraging/ISSearchManager.lua",
+     "line": 759,
+     "args": [
+      {
+       "expr": "_icon.zoneData"
+      },
+      {
+       "expr": "_icon.iconID"
+      },
+      {
+       "expr": "_icon"
+      }
+     ]
+    },
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 1038,
+     "args": [
+      {
+       "expr": "zoneData"
+      },
+      {
+       "expr": "iconID"
+      },
+      {
+       "expr": "nil"
+      }
+     ]
+    },
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 1071,
+     "args": [
+      {
+       "expr": "zoneData"
+      },
+      {
+       "expr": "iconID"
+      },
+      {
+       "expr": "nil"
+      }
+     ]
+    },
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 2381,
+     "args": [
+      {
+       "expr": "forageIcon.zoneData"
+      },
+      {
+       "expr": "forageIcon.iconID"
+      },
+      {
+       "expr": "nil"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "zoneData",
+     "type": null
+    },
+    {
+     "name": "iconID",
+     "type": null
+    },
+    {
+     "name": "nil",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "OnUpdateModdedWeatherStage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/WeatherPeriod.java",
+     "line": 1051,
+     "in": "WeatherPeriod",
+     "args": [
+      {
+       "expr": "this",
+       "type": "WeatherPeriod"
+      },
+      {
+       "expr": "this.currentStage",
+       "type": "WeatherPeriod.WeatherStage"
+      },
+      {
+       "expr": "this.frontCache.getStrength()",
+       "type": "?getStrength"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "weatherPeriod",
+     "type": "WeatherPeriod"
+    },
+    {
+     "name": "currentStage",
+     "type": "WeatherPeriod.WeatherStage"
+    },
+    {
+     "name": "arg3",
+     "type": "?getStrength"
+    }
+   ]
+  },
+  {
+   "name": "onUpdateRecipeList",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/entity/components/crafting/BaseCraftingLogic.java",
+     "line": 189,
+     "in": "BaseCraftingLogic",
+     "args": [
+      {
+       "expr": "this.filteredRecipeList",
+       "type": "CraftRecipeListNodeCollection"
+      }
+     ]
+    },
+    {
+     "file": "zombie/entity/components/crafting/CraftLogicUILogic.java",
+     "line": 241,
+     "in": "CraftLogicUILogic",
+     "args": [
+      {
+       "expr": "this.filteredRecipeList",
+       "type": "CraftRecipeListNodeCollection"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "filteredRecipeList",
+     "type": "CraftRecipeListNodeCollection"
+    }
+   ]
+  },
+  {
+   "name": "OnUseVehicle",
+   "registered": false,
+   "java": [
+    {
+     "file": "zombie/characters/IsoPlayer.java",
+     "line": 4239,
+     "in": "IsoPlayer",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "vehicle",
+       "type": "BaseVehicle"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "vehicle",
+     "type": "BaseVehicle"
+    }
+   ]
+  },
+  {
+   "name": "OnVehicleDamageTexture",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/vehicles/VehiclePart.java",
+     "line": 878,
+     "in": "VehiclePart",
+     "args": [
+      {
+       "expr": "this.getOwner().getDriverRegardlessOfTow()",
+       "type": "?getDriverRegardlessOfTow"
+      }
+     ]
+    },
+    {
+     "file": "zombie/vehicles/VehiclePart.java",
+     "line": 882,
+     "in": "VehiclePart",
+     "args": [
+      {
+       "expr": "this.getOwner().getDriverRegardlessOfTow()",
+       "type": "?getDriverRegardlessOfTow"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getDriverRegardlessOfTow"
+    }
+   ]
+  },
+  {
+   "name": "OnWarUpdate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/WarSyncPacket.java",
+     "line": 51,
+     "in": "WarSyncPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnWaterAmountChange",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 2891,
+     "in": "IsoObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoObject"
+      },
+      {
+       "expr": "old",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 2952,
+     "in": "IsoObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoObject"
+      },
+      {
+       "expr": "oldAvail",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 2986,
+     "in": "IsoObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoObject"
+      },
+      {
+       "expr": "old",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 3067,
+     "in": "IsoObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoObject"
+      },
+      {
+       "expr": "sourceAvail",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 3103,
+     "in": "IsoObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoObject"
+      },
+      {
+       "expr": "sourceAvail",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/IsoObject.java",
+     "line": 3150,
+     "in": "IsoObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoObject"
+      },
+      {
+       "expr": "old",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoWorldInventoryObject.java",
+     "line": 235,
+     "in": "IsoWorldInventoryObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoWorldInventoryObject"
+      },
+      {
+       "expr": "old",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoWorldInventoryObject.java",
+     "line": 252,
+     "in": "IsoWorldInventoryObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoWorldInventoryObject"
+      },
+      {
+       "expr": "avail",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoWorldInventoryObject.java",
+     "line": 271,
+     "in": "IsoWorldInventoryObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoWorldInventoryObject"
+      },
+      {
+       "expr": "old",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoWorldInventoryObject.java",
+     "line": 304,
+     "in": "IsoWorldInventoryObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoWorldInventoryObject"
+      },
+      {
+       "expr": "sourceAvail",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoWorldInventoryObject.java",
+     "line": 333,
+     "in": "IsoWorldInventoryObject",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoWorldInventoryObject"
+      },
+      {
+       "expr": "old",
+       "type": "float"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/ObjectModDataPacket.java",
+     "line": 63,
+     "in": "ObjectModDataPacket",
+     "args": [
+      {
+       "expr": "object",
+       "type": "IsoObject"
+      },
+      {
+       "expr": "waterAmount",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "object",
+     "type": "IsoObject"
+    },
+    {
+     "name": "old",
+     "type": "float"
+    }
+   ]
+  },
+  {
+   "name": "OnWeaponHitCharacter",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 6802,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "wielder",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "damageSplit",
+       "type": "float"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "wielder",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    },
+    {
+     "name": "damageSplit",
+     "type": "float"
+    }
+   ]
+  },
+  {
+   "name": "OnWeaponHitThumpable",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/objects/IsoBarricade.java",
+     "line": 411,
+     "in": "IsoBarricade",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "this",
+       "type": "IsoBarricade"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoCompost.java",
+     "line": 317,
+     "in": "IsoCompost",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "this",
+       "type": "IsoCompost"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoDoor.java",
+     "line": 1283,
+     "in": "IsoDoor",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "this",
+       "type": "IsoDoor"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoThumpable.java",
+     "line": 1186,
+     "in": "IsoThumpable",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "this",
+       "type": "IsoThumpable"
+      }
+     ]
+    },
+    {
+     "file": "zombie/iso/objects/IsoWindow.java",
+     "line": 224,
+     "in": "IsoWindow",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "this",
+       "type": "IsoWindow"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "owner",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    },
+    {
+     "name": "barricade",
+     "type": "IsoBarricade"
+    }
+   ]
+  },
+  {
+   "name": "OnWeaponHitTree",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/CombatManager.java",
+     "line": 533,
+     "in": "CombatManager",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "owner",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    }
+   ]
+  },
+  {
+   "name": "OnWeaponHitXp",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/CombatManager.java",
+     "line": 1170,
+     "in": "CombatManager",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "hitObject",
+       "type": null
+      },
+      {
+       "expr": "damageSplit",
+       "type": "float"
+      },
+      {
+       "expr": "1",
+       "type": "int"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/fields/hit/WeaponHit.java",
+     "line": 129,
+     "in": "WeaponHit",
+     "args": [
+      {
+       "expr": "wielder",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      },
+      {
+       "expr": "target",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "this.damage",
+       "type": "float"
+      },
+      {
+       "expr": "1",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "owner",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    },
+    {
+     "name": "hitObject",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "damageSplit",
+     "type": "float"
+    },
+    {
+     "name": "1",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "OnWeaponSwing",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/ai/states/SwipeStatePlayer.java",
+     "line": 200,
+     "in": "SwipeStatePlayer",
+     "args": [
+      {
+       "expr": "player",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "player",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    }
+   ]
+  },
+  {
+   "name": "OnWeaponSwingHitPoint",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/CombatManager.java",
+     "line": 671,
+     "in": "CombatManager",
+     "args": [
+      {
+       "expr": "owner",
+       "type": "IsoGameCharacter"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/fields/hit/Player.java",
+     "line": 171,
+     "in": "Player",
+     "args": [
+      {
+       "expr": "this.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "weapon",
+       "type": "HandWeapon"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "owner",
+     "type": "IsoGameCharacter"
+    },
+    {
+     "name": "weapon",
+     "type": "HandWeapon"
+    }
+   ]
+  },
+  {
+   "name": "OnWeatherPeriodComplete",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/WeatherPeriod.java",
+     "line": 1150,
+     "in": "WeatherPeriod",
+     "args": [
+      {
+       "expr": "this",
+       "type": "WeatherPeriod"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "weatherPeriod",
+     "type": "WeatherPeriod"
+    }
+   ]
+  },
+  {
+   "name": "OnWeatherPeriodStage",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/WeatherPeriod.java",
+     "line": 1069,
+     "in": "WeatherPeriod",
+     "args": [
+      {
+       "expr": "this",
+       "type": "WeatherPeriod"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "weatherPeriod",
+     "type": "WeatherPeriod"
+    }
+   ]
+  },
+  {
+   "name": "OnWeatherPeriodStart",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/WeatherPeriod.java",
+     "line": 306,
+     "in": "WeatherPeriod",
+     "args": [
+      {
+       "expr": "this",
+       "type": "WeatherPeriod"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "weatherPeriod",
+     "type": "WeatherPeriod"
+    }
+   ]
+  },
+  {
+   "name": "OnWeatherPeriodStop",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/weather/WeatherPeriod.java",
+     "line": 436,
+     "in": "WeatherPeriod",
+     "args": [
+      {
+       "expr": "this",
+       "type": "WeatherPeriod"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "weatherPeriod",
+     "type": "WeatherPeriod"
+    }
+   ]
+  },
+  {
+   "name": "OnWorldMessage",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "OnWorldSound",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/WorldSoundManager.java",
+     "line": 605,
+     "in": "WorldSound",
+     "args": [
+      {
+       "expr": "x",
+       "type": "int"
+      },
+      {
+       "expr": "y",
+       "type": "int"
+      },
+      {
+       "expr": "z",
+       "type": "int"
+      },
+      {
+       "expr": "radius",
+       "type": "int"
+      },
+      {
+       "expr": "volume",
+       "type": "int"
+      },
+      {
+       "expr": "source",
+       "type": "Object"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "x",
+     "type": "int"
+    },
+    {
+     "name": "y",
+     "type": "int"
+    },
+    {
+     "name": "z",
+     "type": "int"
+    },
+    {
+     "name": "radius",
+     "type": "int"
+    },
+    {
+     "name": "volume",
+     "type": "int"
+    },
+    {
+     "name": "source",
+     "type": "Object"
+    }
+   ]
+  },
+  {
+   "name": "OnZombieCreate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/VirtualZombieManager.java",
+     "line": 204,
+     "in": "VirtualZombieManager",
+     "args": [
+      {
+       "expr": "zombie",
+       "type": "IsoZombie"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "zombie",
+     "type": "IsoZombie"
+    }
+   ]
+  },
+  {
+   "name": "OnZombieDead",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 6665,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoGameCharacter.java",
+     "line": 7179,
+     "in": "IsoGameCharacter",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoGameCharacter"
+      }
+     ]
+    },
+    {
+     "file": "zombie/characters/IsoZombie.java",
+     "line": 5467,
+     "in": "IsoZombie",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoZombie"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "gameCharacter",
+     "type": "IsoGameCharacter"
+    }
+   ]
+  },
+  {
+   "name": "OnZombieUpdate",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/characters/IsoZombie.java",
+     "line": 3347,
+     "in": "IsoZombie",
+     "args": [
+      {
+       "expr": "this",
+       "type": "IsoZombie"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "zombie",
+     "type": "IsoZombie"
+    }
+   ]
+  },
+  {
+   "name": "OptionControllerButtonStyleChanged",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Core.java",
+     "line": 3725,
+     "in": "Core",
+     "args": [
+      {
+       "expr": "this.getOptionControllerButtonStyleString()",
+       "type": "?getOptionControllerButtonStyleString"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getOptionControllerButtonStyleString"
+    }
+   ]
+  },
+  {
+   "name": "OptionGamepadBindingPresetChanged",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Core.java",
+     "line": 3740,
+     "in": "Core",
+     "args": [
+      {
+       "expr": "this.getOptionGamepadBindingPreset()",
+       "type": "?getOptionGamepadBindingPreset"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getOptionGamepadBindingPreset"
+    }
+   ]
+  },
+  {
+   "name": "preAddCatDefs",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 718,
+     "args": [
+      {
+       "expr": "forageSystem"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "forageSystem",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "preAddForageDefs",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 712,
+     "args": [
+      {
+       "expr": "forageSystem"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "forageSystem",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "preAddItemDefs",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 725,
+     "args": [
+      {
+       "expr": "forageSystem"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "forageSystem",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "preAddSkillDefs",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 715,
+     "args": [
+      {
+       "expr": "forageSystem"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "forageSystem",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "preAddZoneDefs",
+   "registered": true,
+   "java": [],
+   "lua": [
+    {
+     "file": "shared/Foraging/forageSystem.lua",
+     "line": 721,
+     "args": [
+      {
+       "expr": "forageSystem"
+      }
+     ]
+    }
+   ],
+   "params": [
+    {
+     "name": "forageSystem",
+     "type": null
+    }
+   ]
+  },
+  {
+   "name": "ReceiveFactionInvite",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/faction/FactionInvitePacket.java",
+     "line": 53,
+     "in": "FactionInvitePacket",
+     "args": [
+      {
+       "expr": "this.getFaction()",
+       "type": "?getFaction"
+      },
+      {
+       "expr": "this.invite.getHost()",
+       "type": "?getHost"
+      },
+      {
+       "expr": "this.invite.getUsername()",
+       "type": "?getUsername"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getFaction"
+    },
+    {
+     "name": "arg2",
+     "type": "?getHost"
+    },
+    {
+     "name": "arg3",
+     "type": "?getUsername"
+    }
+   ]
+  },
+  {
+   "name": "ReceiveSafehouseInvite",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/safehouse/SafehouseInvitePacket.java",
+     "line": 32,
+     "in": "SafehouseInvitePacket",
+     "args": [
+      {
+       "expr": "this.getSafehouse()",
+       "type": "?getSafehouse"
+      },
+      {
+       "expr": "this.getOwner()",
+       "type": "?getOwner"
+      },
+      {
+       "expr": "this.getUsername()",
+       "type": "?getUsername"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getSafehouse"
+    },
+    {
+     "name": "arg2",
+     "type": "?getOwner"
+    },
+    {
+     "name": "arg3",
+     "type": "?getUsername"
+    }
+   ]
+  },
+  {
+   "name": "RefreshCheats",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/ExtraInfoPacket.java",
+     "line": 219,
+     "in": "ExtraInfoPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "RenderOpaqueObjectsInWorld",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/fboRenderChunk/FBORenderCell.java",
+     "line": 3673,
+     "in": "FBORenderCell",
+     "args": [
+      {
+       "expr": "playerIndex",
+       "type": "int"
+      },
+      {
+       "expr": "buildX",
+       "type": "int"
+      },
+      {
+       "expr": "buildY",
+       "type": "int"
+      },
+      {
+       "expr": "buildZ",
+       "type": "int"
+      },
+      {
+       "expr": "square",
+       "type": "IsoGridSquare"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "playerIndex",
+     "type": "int"
+    },
+    {
+     "name": "buildX",
+     "type": "int"
+    },
+    {
+     "name": "buildY",
+     "type": "int"
+    },
+    {
+     "name": "buildZ",
+     "type": "int"
+    },
+    {
+     "name": "square",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "RequestMedicalCheck",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/Lua/LuaManager.java",
+     "line": 8138,
+     "in": "GlobalObject",
+     "args": [
+      {
+       "expr": "target",
+       "type": "IsoPlayer"
+      },
+      {
+       "expr": "requester",
+       "type": "IsoPlayer"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/RequestMedicalCheckPacket.java",
+     "line": 48,
+     "in": "RequestMedicalCheckPacket",
+     "args": [
+      {
+       "expr": "this.target.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.requester.getPlayer()",
+       "type": "?getPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "target",
+     "type": "IsoPlayer"
+    },
+    {
+     "name": "requester",
+     "type": "IsoPlayer"
+    }
+   ]
+  },
+  {
+   "name": "RequestTrade",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/RequestTradingPacket.java",
+     "line": 58,
+     "in": "RequestTradingPacket",
+     "args": [
+      {
+       "expr": "this.playerA.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.playerB.getPlayer()",
+       "type": "?getPlayer"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "arg2",
+     "type": "?getPlayer"
+    }
+   ]
+  },
+  {
+   "name": "ReuseGridsquare",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoChunk.java",
+     "line": 3370,
+     "in": "IsoChunk",
+     "args": [
+      {
+       "expr": "sq",
+       "type": "IsoGridSquare"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "sq",
+     "type": "IsoGridSquare"
+    }
+   ]
+  },
+  {
+   "name": "SendCustomModData",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/GetModDataPacket.java",
+     "line": 25,
+     "in": "GetModDataPacket",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "ServerPinged",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 875,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "ip",
+       "type": "String"
+      },
+      {
+       "expr": "users",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "ip",
+     "type": "String"
+    },
+    {
+     "name": "users",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "SetDragItem",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/iso/IsoCell.java",
+     "line": 2575,
+     "in": "IsoCell",
+     "args": [
+      {
+       "expr": "draggingItem",
+       "type": "KahluaTable"
+      },
+      {
+       "expr": "player",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "draggingItem",
+     "type": "KahluaTable"
+    },
+    {
+     "name": "player",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "SwitchChatStream",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/core/Core.java",
+     "line": 2029,
+     "in": "Core",
+     "args": []
+    }
+   ],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "SyncFaction",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/faction/FactionChangeTitlePacket.java",
+     "line": 57,
+     "in": "FactionChangeTitlePacket",
+     "args": [
+      {
+       "expr": "this.title",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/faction/FactionDisbandPacket.java",
+     "line": 25,
+     "in": "FactionDisbandPacket",
+     "args": [
+      {
+       "expr": "this.getFaction().getName()",
+       "type": "?getName"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/faction/FactionStatsPacket.java",
+     "line": 71,
+     "in": "FactionStatsPacket",
+     "args": [
+      {
+       "expr": "\"\"",
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "file": "zombie/network/packets/faction/FactionSyncPacket.java",
+     "line": 63,
+     "in": "FactionSyncPacket",
+     "args": [
+      {
+       "expr": "this.title",
+       "type": null
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "title",
+     "type": "String"
+    }
+   ]
+  },
+  {
+   "name": "SyncFactionServer",
+   "registered": true,
+   "java": [],
+   "lua": [],
+   "params": []
+  },
+  {
+   "name": "TradingUIAddItem",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/TradingUIAddItemPacket.java",
+     "line": 68,
+     "in": "TradingUIAddItemPacket",
+     "args": [
+      {
+       "expr": "this.playerA.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.playerB.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.item",
+       "type": "InventoryItem"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "arg2",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "item",
+     "type": "InventoryItem"
+    }
+   ]
+  },
+  {
+   "name": "TradingUIRemoveItem",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/TradingUIRemoveItemPacket.java",
+     "line": 43,
+     "in": "TradingUIRemoveItemPacket",
+     "args": [
+      {
+       "expr": "this.playerA.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.playerB.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.itemId",
+       "type": "int"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "arg2",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "itemId",
+     "type": "int"
+    }
+   ]
+  },
+  {
+   "name": "TradingUIUpdateState",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/TradingUIUpdateStatePacket.java",
+     "line": 48,
+     "in": "TradingUIUpdateStatePacket",
+     "args": [
+      {
+       "expr": "this.playerA.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.playerB.getPlayer()",
+       "type": "?getPlayer"
+      },
+      {
+       "expr": "this.state",
+       "type": "TradingState"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "arg1",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "arg2",
+     "type": "?getPlayer"
+    },
+    {
+     "name": "state",
+     "type": "TradingState"
+    }
+   ]
+  },
+  {
+   "name": "ViewBannedIPs",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 2608,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "result",
+       "type": "ArrayList<DBBannedIP>"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "result",
+     "type": "ArrayList<DBBannedIP>"
+    }
+   ]
+  },
+  {
+   "name": "ViewBannedSteamIDs",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/GameClient.java",
+     "line": 2626,
+     "in": "GameClient",
+     "args": [
+      {
+       "expr": "result",
+       "type": "ArrayList<DBBannedSteamID>"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "result",
+     "type": "ArrayList<DBBannedSteamID>"
+    }
+   ]
+  },
+  {
+   "name": "ViewTickets",
+   "registered": true,
+   "java": [
+    {
+     "file": "zombie/network/packets/ViewTicketsPacket.java",
+     "line": 54,
+     "in": "ViewTicketsPacket",
+     "args": [
+      {
+       "expr": "result",
+       "type": "ArrayList<DBTicket>"
+      }
+     ]
+    }
+   ],
+   "lua": [],
+   "params": [
+    {
+     "name": "result",
+     "type": "ArrayList<DBTicket>"
+    }
+   ]
+  }
+ ]
+}
