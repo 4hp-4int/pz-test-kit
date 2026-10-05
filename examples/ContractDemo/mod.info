@@ -1,0 +1,4 @@
+name=ContractDemo
+id=ContractDemo
+description=PZ Test Kit fixture: one broken and one correct timed-action hook, for the contract pass.
+modversion=1.0.0

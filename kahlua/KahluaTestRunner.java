@@ -68,6 +68,10 @@ public class KahluaTestRunner {
     // list). Read only by the report writer.
     private static final Map<String, String> vanillaStatus = new LinkedHashMap<>();
 
+    // Contract pass (contract.lua): 0 = auto (full-suite runs only),
+    // 1 = --contract (always), -1 = --no-contract.
+    private static int contractMode = 0;
+
     public static void main(String[] args) throws Exception {
 
         // ── Parse CLI args ──────────────────────────────────────────
@@ -97,6 +101,8 @@ public class KahluaTestRunner {
             if (!afterSep && a.startsWith("--")) {
                 if (a.equals("--list"))      { listOnly = true; continue; }
                 if (a.equals("--fail-fast")) { failFast = true; continue; }
+                if (a.equals("--contract")) { contractMode = 1; continue; }
+                if (a.equals("--no-contract")) { contractMode = -1; continue; }
                 if (a.equals("--filter") && i + 1 < args.length) {
                     filterPattern = args[++i]; continue;
                 }
@@ -206,6 +212,10 @@ public class KahluaTestRunner {
             }
             tests = new ArrayList<>(onlyMap.keySet());
         }
+
+        // A selective run (explicit files, --filter, --only) skips the
+        // contract pass unless --contract asks for it: it is whole-mod.
+        final boolean selectiveRun = !tests.isEmpty() || filterPattern != null || onlyListPath != null;
 
         if (tests.isEmpty()) tests = discoverTests(modRoot);
 
@@ -320,8 +330,14 @@ public class KahluaTestRunner {
                     "' (" + preSkipped + " pre-skipped; --no-prescan to force-run all).");
                 System.exit(1);
             }
-            System.err.println("No test files found.");
-            System.exit(1);
+            // A mod with no tests still gets the contract pass -- it needs
+            // no tests, and untested mods are where it matters most.
+            boolean contractRuns = contractMode == 1 || (contractMode == 0 && !selectiveRun);
+            if (!contractRuns) {
+                System.err.println("No test files found.");
+                System.exit(1);
+            }
+            System.out.println("No test files found -- running the contract pass only.");
         }
 
         // --list: enumerate test FILES (not individual tests — would need env
@@ -613,6 +629,13 @@ public class KahluaTestRunner {
                 System.out.println("\n--fail-fast: stopping on first failing file");
                 break;
             }
+        }
+
+        // -- Contract pass: whole-mod MP invariants, no test required --
+        if (contractMode == 1 || (contractMode == 0 && !selectiveRun)) {
+            int[] c = runContract(modRoot, index, modules, verbose, failDigest);
+            grandTotal += c[0]; grandPass += c[1]; grandFail += c[2]; grandErr += c[3];
+            grandSkip += c[4];
         }
 
         if (eventAccum != null) {
@@ -1267,6 +1290,11 @@ public class KahluaTestRunner {
         if (isServer) {
             loadFile(thread, env, kahluaDir.resolve("context/server.lua"));
         }
+        // Contract pass: the profile's context must hold before config
+        // preloads read isServer()/isClient() at file load.
+        if (env.rawget("_pz_contract_profile") != null) {
+            loadFile(thread, env, kahluaDir.resolve("context/contract_profile.lua"));
+        }
         // Tag the player with its client index so server-targeted sends can
         // route to the correct endpoint.
         if (clientIdx > 0) {
@@ -1723,6 +1751,59 @@ public class KahluaTestRunner {
                     names.rawset(Double.valueOf(i + 1), p.locvars[i]);
                 }
                 frame.push(names);
+                frame.push(p.isVararg ? Boolean.TRUE : Boolean.FALSE);
+                return 2;
+            }
+        });
+
+        // Vanilla source access for the contract pass (contract.lua):
+        // _pz_vanilla_list("shared/TimedActions") -> sorted relpaths without
+        // .lua ("shared/TimedActions/ISEatFoodAction", ...), recursive;
+        // _pz_vanilla_source(relpath) -> source string. Both nil when there
+        // is no PZ install (CI), which the contract reports as a skip.
+        env.rawset("_pz_vanilla_list", new JavaFunction() {
+            @Override
+            public int call(LuaCallFrame frame, int nArguments) {
+                Path install = pzInstallCached();
+                if (install == null || nArguments < 1 || !(frame.get(0) instanceof String)) {
+                    frame.push(null);
+                    return 1;
+                }
+                Path luaRoot = install.resolve("media/lua");
+                Path dir = luaRoot.resolve((String) frame.get(0));
+                KahluaTable out = frame.getPlatform().newTable();
+                if (Files.isDirectory(dir)) {
+                    try (Stream<Path> s = Files.walk(dir)) {
+                        List<String> rels = s.filter(f -> f.toString().endsWith(".lua"))
+                            .map(f -> luaRoot.relativize(f).toString().replace('\\', '/'))
+                            .map(r -> r.substring(0, r.length() - 4))
+                            .sorted(String.CASE_INSENSITIVE_ORDER)
+                            .collect(Collectors.toList());
+                        int i = 1;
+                        for (String r : rels) out.rawset(Double.valueOf(i++), r);
+                    } catch (IOException e) {
+                        frame.push(null);
+                        return 1;
+                    }
+                }
+                frame.push(out);
+                return 1;
+            }
+        });
+        env.rawset("_pz_vanilla_source", new JavaFunction() {
+            @Override
+            public int call(LuaCallFrame frame, int nArguments) {
+                Path install = pzInstallCached();
+                if (install == null || nArguments < 1 || !(frame.get(0) instanceof String)) {
+                    frame.push(null);
+                    return 1;
+                }
+                Path file = install.resolve("media/lua").resolve(frame.get(0) + ".lua");
+                try {
+                    frame.push(Files.exists(file) ? Files.readString(file) : null);
+                } catch (IOException e) {
+                    frame.push(null);
+                }
                 return 1;
             }
         });
@@ -1784,6 +1865,100 @@ public class KahluaTestRunner {
     }
 
     // ── File loading helpers ───────────────────────────────────────
+
+    /**
+     * The contract pass. Loads the WHOLE mod three times -- as SP, as an MP
+     * client, as a dedicated server -- each time on top of every vanilla
+     * timed action from the PZ install, firing only the boot events that
+     * profile really gets (contract.lua). contract_report.lua then compares
+     * the three and turns MP invariants into checks: a vanilla action's new()
+     * signature changed by a wrapper (NetTimedAction sends by parameter
+     * name), and server-run hooks that SP installs but a dedi never does.
+     * No test has to exist for either to fail.
+     * @return {total, pass, fail, errors, skipped}
+     */
+    private static int[] runContract(Path modRoot, ModuleIndex index, List<String> modules,
+                                     boolean verbose, List<String[]> failDigest) {
+        long startNs = System.nanoTime();
+        String[] profiles = { "sp", "client", "dedi" };
+        KahluaTable results = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+        PrintStream realOut = System.out;
+        ByteArrayOutputStream buf = verbose ? null : new ByteArrayOutputStream();
+        String error = null;
+        Object[] report = null;
+        try {
+            if (buf != null) System.setOut(new PrintStream(buf, true, java.nio.charset.StandardCharsets.UTF_8));
+            KahluaTable env = null;
+            KahluaThread thread = null;
+            for (String profile : profiles) {
+                TestPlatform platform = new TestPlatform();
+                env = platform.newEnvironment();
+                thread = new KahluaThread(System.out, platform, env);
+                thread.debugOwnerThread = Thread.currentThread();
+                env.rawset("_pz_contract_profile", profile);
+                buildEnv(thread, env, modRoot, index, modules, false, 0);
+                Object[] r = execFile(thread, env, kahluaDir.resolve("contract.lua"));
+                if (r == null || r.length < 2 || Boolean.FALSE.equals(r[0]) || !(r[1] instanceof KahluaTable)) {
+                    error = profile + ": " + (r != null && r.length > 1 ? r[1] : "no result");
+                    break;
+                }
+                results.rawset(profile, r[1]);
+            }
+            if (error == null) {
+                env.rawset("_pz_contract_results", results);
+                report = execFile(thread, env, kahluaDir.resolve("contract_report.lua"));
+                if (report == null || report.length < 2 || Boolean.FALSE.equals(report[0])
+                        || !(report[1] instanceof KahluaTable)) {
+                    error = "report: " + (report != null && report.length > 1 ? report[1] : "no result");
+                }
+            }
+        } catch (Exception e) {
+            error = e.getMessage();
+        } finally {
+            if (buf != null) System.setOut(realOut);
+        }
+        long ms = (System.nanoTime() - startNs) / 1_000_000L;
+        String label = "[contract]";
+        if (error != null) {
+            System.out.printf("%n--- %s (ERROR, %dms) --- *** %s ***%n", label, ms, error);
+            replayBuffer(buf);
+            failDigest.add(new String[]{ label, "<pass>", error });
+            return new int[]{ 0, 0, 0, 1, 0 };
+        }
+        KahluaTable checks = (KahluaTable) ((KahluaTable) report[1]).rawget("checks");
+        int total = 0, pass = 0, fail = 0, skip = 0;
+        StringBuilder out = new StringBuilder();
+        for (int i = 1; checks != null && checks.rawget(Double.valueOf(i)) instanceof KahluaTable c; i++) {
+            String name = String.valueOf(c.rawget("name"));
+            String status = String.valueOf(c.rawget("status"));
+            String text = c.rawget("text") instanceof String t ? t : "";
+            if ("skip".equals(status)) {
+                skip++;
+                out.append("    ").append(name).append(": SKIPPED ").append(text).append('\n');
+                continue;
+            }
+            total++;
+            if ("pass".equals(status)) {
+                pass++;
+                out.append("    ").append(name).append(": ok");
+                if (!text.isEmpty()) out.append(" (").append(text.split("\n")[0]).append(')');
+                out.append('\n');
+            } else {
+                fail++;
+                out.append("    ").append(name).append(": FAILED\n");
+                for (String ln : text.split("\n")) out.append("      ").append(ln).append('\n');
+                failDigest.add(new String[]{ label, name, text.split("\n")[0] });
+            }
+        }
+        Object notes = ((KahluaTable) report[1]).rawget("notes");
+        if (notes instanceof String n && !n.isEmpty()) {
+            for (String ln : n.split("\n")) out.append("    note: ").append(ln).append('\n');
+        }
+        System.out.printf("%n--- %s (%d checks, %dms) ---%s%n", label, total, ms, fail > 0 ? " *** FAILURES ***" : "");
+        System.out.print(out);
+        if (fail > 0) replayBuffer(buf);
+        return new int[]{ total, pass, fail, 0, skip };
+    }
 
     /** Load a Lua file as-is (no stripping). */
     private static void loadFile(KahluaThread t, KahluaTable env, Path path) throws Exception {
@@ -1995,6 +2170,14 @@ public class KahluaTestRunner {
                     System.out.println("  [vanilla_requires] OK   (" + entry + ")");
                     vanillaStatus.put(entry, "ok");
                     markVanillaRequireSatisfied(env, entry);
+                    // contract.lua keeps these classes instead of reloading
+                    // them; anything else of the same name is a mock.
+                    Object loaded = env.rawget("_pz_vanilla_loaded");
+                    if (!(loaded instanceof KahluaTable)) {
+                        loaded = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+                        env.rawset("_pz_vanilla_loaded", loaded);
+                    }
+                    ((KahluaTable) loaded).rawset(entry, Boolean.TRUE);
                 }
             } catch (Exception e) {
                 System.out.println("  [vanilla_requires] EXC  (" + entry + "): " + e.getMessage() + " — falling back to mock");
@@ -2201,6 +2384,13 @@ public class KahluaTestRunner {
         return PzLocator.find(null, p -> Files.isDirectory(p.resolve("media/lua/shared")));
     }
 
+    private static Path cachedInstall;
+    private static boolean installResolved = false;
+    private static Path pzInstallCached() {
+        if (!installResolved) { cachedInstall = resolvePZInstall(); installResolved = true; }
+        return cachedInstall;
+    }
+
     /** Find the kahlua/ directory (where mocks and executor live). */
     private static Path resolveKahluaDir() {
         Path cwd = Paths.get("").toAbsolutePath();
@@ -2297,6 +2487,8 @@ public class KahluaTestRunner {
         System.out.println("  --junit-xml <path> Write JUnit XML report (CI integration)");
         System.out.println("  --coverage-per-test Also record which lines EACH test ran (impact data for smart reruns)");
         System.out.println("  --only <file>      Run exactly the \"testFile::testName\" lines listed in <file>");
+        System.out.println("  --contract         Run the whole-mod MP contract checks even on a selective run");
+        System.out.println("  --no-contract      Skip them (they run by default on full-suite runs)");
         System.out.println("  --fidelity         Record which layer (mock/kit/vanilla/engine/mod) provides each global + mock call counts");
         System.out.println("  --report-json <path> Write the full run as JSON (tests, timings, coverage, config) — dashboard/ reads this");
         System.out.println("  --event-coverage   Report which Events.* listeners fired vs. registered");

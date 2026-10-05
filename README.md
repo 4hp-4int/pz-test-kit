@@ -430,6 +430,50 @@ end
 
 ---
 
+## The contract pass — MP invariants with no test required
+
+Every full-suite run ends with a `[contract]` block. It needs no test file,
+and it runs even for a mod with none. The kit loads the whole mod three
+times, as SP, as an MP client and as a dedicated server. Each load sits on
+top of every vanilla timed action from the PZ install and fires only the
+boot events that machine really gets. Then it checks two things:
+
+| Check | Fails when | Why it matters |
+|---|---|---|
+| timed-action signatures survive the wire | a replicating vanilla action's `new()` parameters differ from vanilla's once the mod loads, or a mod's own replicating action takes `...` in `new()` | `NetTimedAction.set` (NetTimedAction.java:42-51) sends an action by the declared parameter **names** of `new()`. A `function(self, a, b, ...)` wrapper sends `a` and `b` only and the server rebuilds the action with the rest nil |
+| dedicated server installs the server-side hooks | a vanilla action method the server runs (`new isValid isValidStart serverStart complete serverStop getDuration animEvent`) is replaced in SP but not on a dedi | a dedi fires `OnGameBoot`, `OnInitWorld`, `OnInitGlobalModData`, `OnServerStarted` and never `OnGameStart`/`OnLoad`/`OnPreMapLoad`/`OnConnected`. A hook installed from those runs everywhere except the server |
+
+Both checks come from SaucedCarts. 2.1.21 shipped a vararg `ISUnequipAction.new`
+wrapper that broke unequip and drop on every server, and from 2.1.3 its
+server-side `complete()` hooks were installed from `OnGameStart`. The tests passed
+both times because they called `new()` and the `init*` functions by hand.
+`examples/ContractDemo` keeps both shapes as a fixture: `pztest` there must
+fail both checks for `Broken.lua` and say nothing about `Fixed.lua`.
+
+```
+--- [contract] (2 checks, 1036ms) --- *** FAILURES ***
+    timed-action signatures survive the wire: FAILED
+      ISUnequipAction.new: vanilla sends (character,item,maxTimeInit,reason); with the mod loaded it sends (character,item) -- maxTimeInit, reason arrive nil or misplaced on the server [client, sp]
+    dedicated server installs the server-side hooks: FAILED
+      ISUnequipAction.complete: installed in SP by OnGameStart, never on a dedicated server
+```
+
+- Each failure names the event (or file load) that installed the hook.
+  Hooks on client-run methods (`perform`, `start`, ...) are listed as a
+  note, not a failure.
+- Silence a deliberate case in `pz-test.lua`:
+  `contract_allow = { "ISFooAction.complete" }`. Turn the whole pass off
+  with `contract = false`.
+- It runs on full-suite runs only. `--contract` forces it on a selective run
+  (`--filter`, explicit files, `--only`), and `--no-contract` skips it.
+- It skips with a notice when there is no PZ install (CI), because it needs
+  vanilla's real sources.
+- Tests reach the same machinery directly through
+  `PZTestKit.TimedActions.netArgs(class)` and `netRebuild(action)`, which
+  replay one action's client-to-server rebuild.
+
+---
+
 ## Skip support (for tests that don't apply in this environment)
 
 Offline tests that synthesize fake state can't run in-game. In-game tests that need real world state can't run offline. Mark them skipped rather than faking success:
