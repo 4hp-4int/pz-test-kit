@@ -104,6 +104,11 @@ public final class EngineBridge {
         // reads FixingManager.getFixes at :new and calls fixItem at complete
         // (the game exposes all four, LuaManager.java:2077, 2310-2312).
         "zombie.inventory.FixingManager",
+        // Global ModData (LuaManager.java:2657 exposes the static facade as
+        // the `ModData` global): world-saved tables keyed by name. In memory
+        // here (GlobalModData.instance, no save to disk); absent, a mod's
+        // ModData.getOrCreate died on a nil global.
+        "zombie.world.moddata.ModData",
         "zombie.scripting.objects.Fixing$Fixer",
         "zombie.scripting.objects.Fixing$FixerSkill",
         // The AI states vanilla ISTimedActionQueue indexes at file load
