@@ -38,6 +38,38 @@ public class Core {
 
     private static final Core instance = new Core();
 
+
+    // Every simple public static field of the real Core (zombie/core/Core.java),
+    // with its real default. Engine bytecode resolves fields by name AND type,
+    // so each one missing is a NoSuchFieldError the moment a code path reads it
+    // -- Core.lastStand killed every zombie hit (IsoZombie.shouldBecomeCrawler)
+    // and Kahlua swallowed the Error. Keep this list complete, not minimal.
+    public static int dirtyGlobalLightsCount;
+    public static boolean altMoveMethod;
+    public static boolean optionModsEnabled = true;
+    public static float blinkAlpha = 1.0F;
+    public static boolean blinkAlphaIncrease;
+    public static int width = 1280;
+    public static int height = 720;
+    public static float initialWidth = 1280.0F;
+    public static float initialHeight = 720.0F;
+    public static int maxJukeBoxesActive = 10;
+    public static int numJukeBoxesActive;
+    public static boolean addZombieOnCellLoad = true;
+    public static String preset = "Apocalypse";
+    public static boolean antiCheats;
+    public static boolean useViewports;
+    public static boolean useGameViewport = true;
+    public static boolean imGui;
+    public static boolean safeMode;
+    public static boolean safeModeForced;
+    public static int xx;
+    public static int yy;
+    public static int zz;
+    public static boolean lastStand;
+    public static String challengeId;
+    public static boolean exiting;
+
     public static Core getInstance() {
         return instance;
     }
@@ -111,4 +143,9 @@ public class Core {
     public GameVersion getGameVersion() { return gameVersion; }
 
     public String getVersionNumber() { return gameVersion.toString(); }
+
+    // Headless has no physics: IsoGameCharacter.canRagdoll asks this on every
+    // single-player hit (CombatManager.processHit -> setUsePhysicHitReaction).
+    // Missing, the hit died after its damage and before stagger/knockdown.
+    public boolean getOptionUsePhysicsHitReaction() { return false; }
 }

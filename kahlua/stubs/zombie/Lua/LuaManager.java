@@ -50,6 +50,28 @@ public class LuaManager {
         return getFunctionObject(functionName);
     }
 
+    /**
+     * Real-shaped getTableObject: a Lua global (dotted path) by name, from the
+     * test file's env, then the scratch env. Every world sound reaches it
+     * (WorldSoundManager.addSound -> FishSchoolManager.isNoFishZone:264), so
+     * missing it made every IsoGameCharacter.Hit die mid-hit with a
+     * NoSuchMethodError -- after OnHitZombie fired and before any damage -- and
+     * Kahlua swallowed the Error, so Lua saw a hit that silently did nothing.
+     */
+    public static Object getTableObject(String tableName) {
+        if (tableName == null || tableName.isEmpty()) return null;
+        for (se.krka.kahlua.vm.KahluaTable root : new se.krka.kahlua.vm.KahluaTable[] { functionEnv, env }) {
+            if (root == null) continue;
+            Object o = root;
+            for (String part : tableName.split(java.util.regex.Pattern.quote("."))) {
+                if (!(o instanceof se.krka.kahlua.vm.KahluaTable t)) { o = null; break; }
+                o = t.rawget(part);
+            }
+            if (o != null) return o;
+        }
+        return null;
+    }
+
     // Engine mode: ZomboidGlobals.Load() reads LuaManager.env's
     // "ZomboidGlobals" table. EngineBridge points this at a scratch env that
     // ran the game's real defines.lua, so encumbrance and metabolism

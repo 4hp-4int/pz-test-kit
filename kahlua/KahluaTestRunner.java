@@ -1325,6 +1325,9 @@ public class KahluaTestRunner {
         // Engine Workbench blueprints as tests (PZTestKit.Blueprints.tests()):
         // defines functions only; nothing runs until a test file asks.
         loadFile(thread, env, kahluaDir.resolve("blueprints.lua"));
+        // The Arena (PZTestKit.Arena): headless one-way combat through the
+        // game's own hit pipeline. Defines functions only; engine mode only.
+        loadFile(thread, env, kahluaDir.resolve("arena.lua"));
 
         // 1b. Override context functions. mock_environment defaults to client.
         if (isServer) {

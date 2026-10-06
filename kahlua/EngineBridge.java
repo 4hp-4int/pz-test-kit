@@ -78,6 +78,12 @@ public final class EngineBridge {
         "zombie.characters.IsoGameCharacter",
         "zombie.characters.IsoPlayer",
         "zombie.characters.IsoZombie",   // PZEngine.newZombie (event lab)
+        // The Arena (headless combat): the damage pipeline's own steps and its
+        // tunables (CombatManager.attackCollisionCheck's per-target maths,
+        // applyMeleeEnduranceLoss, the CombatConfig multipliers).
+        "zombie.CombatManager",
+        "zombie.combat.CombatConfig",
+        "zombie.combat.CombatConfigKey",
         // The AI states vanilla ISTimedActionQueue indexes at file load
         // (STATES[ClimbThroughWindowState.instance()] = true; LuaManager.java
         // :1741-1750): unexposed, the queue -- and every timed action an MP
@@ -1310,6 +1316,180 @@ public final class EngineBridge {
                 } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
                 return 1;
             });
+            // Reflective field access, walking superclasses: Kahlua exposes no
+            // public fields at all, and the gates worth diagnosing (a zombie's
+            // avoidDamage/noDamage, an item's private counters) are private.
+            pzEngine.rawset("field", (JavaFunction) (frame, n) -> {
+                try {
+                    java.lang.reflect.Field f = findField(frame.get(0).getClass(), String.valueOf(frame.get(1)));
+                    Object v = f.get(frame.get(0));
+                    frame.push(v instanceof Number num ? (Object) num.doubleValue() : v);
+                } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
+                return 1;
+            });
+            pzEngine.rawset("setField", (JavaFunction) (frame, n) -> {
+                try {
+                    Object obj = frame.get(0);
+                    java.lang.reflect.Field f = findField(obj.getClass(), String.valueOf(frame.get(1)));
+                    Object v = frame.get(2);
+                    Class<?> t = f.getType();
+                    if (v instanceof Number num) {
+                        if (t == int.class) v = num.intValue(); else if (t == float.class) v = num.floatValue();
+                        else if (t == long.class) v = num.longValue(); else if (t == short.class) v = num.shortValue();
+                        else if (t == byte.class) v = num.byteValue(); else if (t == double.class) v = num.doubleValue();
+                    }
+                    f.set(obj, v);
+                    frame.push(true);
+                } catch (Throwable t) { frame.push(false); frame.push(describe(t)); return 2; }
+                return 1;
+            });
+            // ENGINE EVENTS -> MOD LUA. The engine fires OnHitZombie, OnZombieDead,
+            // OnWeaponHitXp... through LuaEventManager into the env it was handed
+            // (a scratch env here, so its Events never clobber the kit's mock).
+            // forwardEvent(name, fn) adds fn to that engine Event's own callback
+            // list, so an engine-fired event reaches the mod's listeners the way
+            // it does in game. Idempotent per (name, fn); unforwardEvent removes.
+            pzEngine.rawset("forwardEvent", (JavaFunction) (frame, n) -> {
+                try {
+                    Object ev = cls("zombie.Lua.LuaEventManager").getMethod("AddEvent", String.class).invoke(null, String.valueOf(frame.get(0)));
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> cbs = (java.util.List<Object>) findField(ev.getClass(), "callbacks").get(ev);
+                    Object fn = frame.get(1);
+                    if (!cbs.contains(fn)) cbs.add(fn);
+                    frame.push(true);
+                } catch (Throwable t) { frame.push(false); frame.push(describe(t)); return 2; }
+                return 1;
+            });
+            pzEngine.rawset("unforwardEvent", (JavaFunction) (frame, n) -> {
+                try {
+                    Object ev = cls("zombie.Lua.LuaEventManager").getMethod("AddEvent", String.class).invoke(null, String.valueOf(frame.get(0)));
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> cbs = (java.util.List<Object>) findField(ev.getClass(), "callbacks").get(ev);
+                    frame.push(cbs.remove(frame.get(1)));
+                } catch (Throwable t) { frame.push(false); frame.push(describe(t)); return 2; }
+                return 1;
+            });
+            // THE ARENA'S HIT: IsoZombie.Hit(weapon, wielder, damageSplit,
+            // bIgnoreDamage, modDelta, bRemote=false), called by reflection on the
+            // exact overload so Kahlua's overload pick and its silent return
+            // conversion are out of the way. Returns damage, or nil + the cause.
+            pzEngine.rawset("hit", (JavaFunction) (frame, n) -> {
+                try {
+                    Object target = frame.get(0), weapon = frame.get(1), wielder = frame.get(2);
+                    float split = ((Number) frame.get(3)).floatValue();
+                    boolean ignore = Boolean.TRUE.equals(frame.get(4));
+                    float modDelta = n > 5 && frame.get(5) instanceof Number md ? md.floatValue() : 1.0f;
+                    java.lang.reflect.Method m = target.getClass().getMethod("Hit", cls("zombie.inventory.types.HandWeapon"),
+                        cls("zombie.characters.IsoGameCharacter"), float.class, boolean.class, float.class, boolean.class);
+                    Object r = m.invoke(target, weapon, wielder, split, ignore, modDelta, false);
+                    frame.push(r instanceof Number num ? (Object) num.doubleValue() : r);
+                } catch (java.lang.reflect.InvocationTargetException ite) {
+                    frame.push(null); frame.push(describeDeep(ite.getCause() != null ? ite.getCause() : ite)); return 2;
+                } catch (Throwable t) { frame.push(null); frame.push(describeDeep(t)); return 2; }
+                return 1;
+            });
+            // The engine's own RNG (zombie.core.random.Rand -> RandStandard.INSTANCE,
+            // a CellularAutomatonRNG). The wear roll (InventoryItem.damageCheck),
+            // hit reactions and crits draw from it, not from Lua's ZombRand, so an
+            // Arena run only replays if this is seeded too. seedRand(n) swaps in a
+            // seeded java.util.Random; seedRand(nil) restores the real one.
+            pzEngine.rawset("seedRand", (JavaFunction) (frame, n) -> {
+                try {
+                    Object inst = cls("zombie.core.random.RandStandard").getField("INSTANCE").get(null);
+                    java.lang.reflect.Field f = findField(inst.getClass(), "rand");
+                    Object seed = n > 0 ? frame.get(0) : null;
+                    if (seed instanceof Number num) {
+                        if (savedRand == null) savedRand = f.get(inst);
+                        f.set(inst, new java.util.Random(num.longValue()));
+                    } else if (savedRand != null) {
+                        f.set(inst, savedRand); savedRand = null;
+                    }
+                    frame.push(true);
+                } catch (Throwable t) { frame.push(false); frame.push(describe(t)); return 2; }
+                return 1;
+            });
+            // CombatManager.applyMeleeHitLocationDamage (private): the head/leg
+            // split modifiers and calculateHitLocationDamage, exactly as
+            // attackCollisionCheck applies them before IsoZombie.Hit.
+            pzEngine.rawset("meleeHitLocation", (JavaFunction) (frame, n) -> {
+                try {
+                    Object cm = cls("zombie.CombatManager").getMethod("getInstance").invoke(null);
+                    java.lang.reflect.Method m = cm.getClass().getDeclaredMethod("applyMeleeHitLocationDamage",
+                        cls("zombie.characters.IsoGameCharacter"), cls("zombie.inventory.types.HandWeapon"), int.class, int.class, boolean.class, float.class);
+                    m.setAccessible(true);
+                    Object r = m.invoke(cm, frame.get(0), frame.get(1), ((Number) frame.get(2)).intValue(),
+                        ((Number) frame.get(3)).intValue(), Boolean.TRUE.equals(frame.get(4)), ((Number) frame.get(5)).floatValue());
+                    frame.push(((Number) r).doubleValue());
+                } catch (java.lang.reflect.InvocationTargetException ite) {
+                    frame.push(null); frame.push(describe(ite.getCause() != null ? ite.getCause() : ite)); return 2;
+                } catch (Throwable t) { frame.push(null); frame.push(describe(t)); return 2; }
+                return 1;
+            });
+            // PZEngine.call(obj, "method", args...): a reflective call that picks
+            // the overload by argument count and type, and RETURNS a failure
+            // (nil, "Error: msg @ frames") instead of letting Kahlua swallow it.
+            // Kahlua drops java.lang.Error thrown inside a method call, so an
+            // engine method that dies of NoSuchMethodError/NoSuchFieldError just
+            // looks like it did nothing. Use it whenever a call "had no effect".
+            pzEngine.rawset("call", (JavaFunction) (frame, n) -> {
+                try {
+                    Object obj = frame.get(0);
+                    String name = String.valueOf(frame.get(1));
+                    Object[] args = new Object[Math.max(0, n - 2)];
+                    for (int i = 0; i < args.length; i++) args[i] = frame.get(i + 2);
+                    java.lang.reflect.Method pick = null; Object[] conv = null;
+                    for (java.lang.reflect.Method m : obj.getClass().getMethods()) {
+                        if (!m.getName().equals(name) || m.getParameterCount() != args.length) continue;
+                        Class<?>[] pt = m.getParameterTypes();
+                        Object[] c = new Object[args.length];
+                        boolean ok = true;
+                        for (int i = 0; i < args.length && ok; i++) {
+                            Object a = args[i];
+                            Class<?> t = pt[i];
+                            if (a == null) { ok = !t.isPrimitive(); c[i] = null; }
+                            else if (a instanceof Double d && (t.isPrimitive() || Number.class.isAssignableFrom(t))) {
+                                if (t == int.class || t == Integer.class) c[i] = d.intValue();
+                                else if (t == float.class || t == Float.class) c[i] = d.floatValue();
+                                else if (t == long.class || t == Long.class) c[i] = d.longValue();
+                                else if (t == short.class || t == Short.class) c[i] = d.shortValue();
+                                else if (t == byte.class || t == Byte.class) c[i] = d.byteValue();
+                                else if (t == double.class || t == Double.class) c[i] = d;
+                                else ok = false;
+                            }
+                            else if (a instanceof Boolean b && (t == boolean.class || t == Boolean.class)) c[i] = b;
+                            else if (t.isInstance(a)) c[i] = a;
+                            else ok = false;
+                        }
+                        if (ok) { pick = m; conv = c; break; }
+                    }
+                    if (pick == null) throw new NoSuchMethodException(obj.getClass().getName() + "." + name + "/" + args.length);
+                    Object r = pick.invoke(obj, conv);
+                    frame.push(r instanceof Number num && !(r instanceof Double) ? (Object) num.doubleValue() : r);
+                    frame.push(null);
+                    return 2;
+                } catch (java.lang.reflect.InvocationTargetException ite) {
+                    frame.push(null); frame.push(describeDeep(ite.getCause() != null ? ite.getCause() : ite)); return 2;
+                } catch (Throwable t) { frame.push(null); frame.push(describeDeep(t)); return 2; }
+            });
+            // The entity system (zombie.entity.GameEntityManager), which the game
+            // starts in IsoWorld load (IsoWorld.java:2053). Headless boot never
+            // runs that, so GameEntityManager.engine is null and anything that
+            // registers an entity -- EQUIPPING AN ITEM (GameEntity.onEquip) among
+            // them -- dies of an NPE that Kahlua swallows. Idempotent.
+            pzEngine.rawset("initEntities", (JavaFunction) (frame, n) -> {
+                try {
+                    Class<?> gem = cls("zombie.entity.GameEntityManager");
+                    java.lang.reflect.Field eng = findField(gem, "engine");
+                    if (eng.get(null) == null) {
+                        int wv = cls("zombie.iso.IsoWorld").getField("WorldVersion").getInt(null);
+                        gem.getMethod("Init", int.class).invoke(null, wv);
+                    }
+                    frame.push(eng.get(null) != null);
+                } catch (java.lang.reflect.InvocationTargetException ite) {
+                    frame.push(false); frame.push(describeDeep(ite.getCause() != null ? ite.getCause() : ite)); return 2;
+                } catch (Throwable t) { frame.push(false); frame.push(describeDeep(t)); return 2; }
+                return 1;
+            });
             pzEngine.rawset("wireRoundTrip", (JavaFunction) (frame, n) -> {
                 Object[] saved = wireSave(frame.get(0));
                 if (saved == null) { frame.push(null); return 1; }
@@ -1886,6 +2066,31 @@ public final class EngineBridge {
         } catch (Throwable t) {
             return new Object[] { null, describe(t) };
         }
+    }
+
+    private static Object savedRand = null;   // seedRand's stash of the engine's own RNG
+
+    private static java.lang.reflect.Field findField(Class<?> c, String name) throws NoSuchFieldException {
+        for (Class<?> k = c; k != null; k = k.getSuperclass()) {
+            try {
+                java.lang.reflect.Field f = k.getDeclaredField(name);
+                f.setAccessible(true);
+                return f;
+            } catch (NoSuchFieldException ignored) { }
+        }
+        throw new NoSuchFieldException(c.getName() + "." + name);
+    }
+
+    // describe() plus the first engine frames: where a hit died, and who called it
+    private static String describeDeep(Throwable t) {
+        Throwable root = t;
+        while (root.getCause() != null) root = root.getCause();
+        StringBuilder sb = new StringBuilder(root.getClass().getSimpleName() + ": " + root.getMessage());
+        int k = 0;
+        for (StackTraceElement el : root.getStackTrace()) {
+            if (el.getClassName().startsWith("zombie.")) { sb.append(k == 0 ? " @ " : " < ").append(el.getClassName().substring(el.getClassName().lastIndexOf('.') + 1)).append(".").append(el.getMethodName()).append(":").append(el.getLineNumber()); if (++k >= 8) break; }
+        }
+        return sb.toString();
     }
 
     private static String describe(Throwable t) {
