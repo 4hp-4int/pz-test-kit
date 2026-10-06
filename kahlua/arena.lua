@@ -94,7 +94,7 @@ function Arena.new(opts)
     if not Arena.available() then error("Arena: this kit's engine bridge lacks hit/forwardEvent (rebuild the kit, restart the VM)", 0) end
     opts = opts or {}
     local self = setmetatable({ opts = opts, zombies = {}, ledger = newLedger(), records = {}, forwards = {}, wasServer = false,
-                                mode = opts.mode or "sp", realSeconds = 0, timers = {} }, Arena)
+                                mode = opts.mode or "sp", realSeconds = 0, timers = {}, spawned = {} }, Arena)
     local at = opts.at or Arena.DEFAULT_AT
     self.at = at
     -- seeds: Lua rolls (ZombRand, used for the damage roll and crit) and the engine's Rand
@@ -174,6 +174,9 @@ function Arena:spawn(n, opts)
                     if opts.health then z:setHealth(opts.health) end
                     if opts.setup then opts.setup(z) end
                     self.zombies[#self.zombies + 1] = z
+                    -- every zombie ever spawned, so close() cleans up even the ones a test
+                    -- dropped from self.zombies (A.zombies = {} to start a fresh phase)
+                    self.spawned[#self.spawned + 1] = z
                     placed = placed + 1
                 end
             end
@@ -546,11 +549,11 @@ function Arena:close()
     for name, fn in pairs(self.forwards) do pcall(PZEngine.unforwardEvent, name, fn) end
     self.forwards = {}
     if self.seed then pcall(PZEngine.seedRand, nil) end
-    for _, z in ipairs(self.zombies) do
+    for _, z in ipairs(self.spawned) do
         pcall(function() if not z:isDead() then z:removeFromWorld() end end)
         pcall(function() self.cell:getZombieList():remove(z) end)
     end
-    self.zombies = {}
+    self.zombies, self.spawned = {}, {}
     PZEngine.setServer(false)
 end
 
