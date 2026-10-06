@@ -37,6 +37,12 @@
     headless, so nothing regenerates); each swing's cost is still recorded.
     fatigue = true lets it drain, and the endurance moodle's damage penalty bite.
     A weapon at 0 condition ends the fight (in game it breaks).
+    CLOCK: each swing or shot takes secondsPerSwing REAL seconds (default 1).
+    The arena keeps real seconds (A:now()) and advances the engine's GameTime
+    by the matching game time (real x 1440 / GameTime:getMinutesPerDay()), then
+    fires OnTick and OnPlayerUpdate to mod Lua and runs timers that fell due
+    (A:at(delay, fn)). So "for 20 seconds", cooldowns and night/day gates run
+    on a clock that really moves.
     KNOWN GAP: a corpse is not created (IsoDeadBody wants an animation model
     headless); the death, OnZombieDead and every effect before it are real.
 
@@ -88,7 +94,7 @@ function Arena.new(opts)
     if not Arena.available() then error("Arena: this kit's engine bridge lacks hit/forwardEvent (rebuild the kit, restart the VM)", 0) end
     opts = opts or {}
     local self = setmetatable({ opts = opts, zombies = {}, ledger = newLedger(), records = {}, forwards = {}, wasServer = false,
-                                mode = opts.mode or "sp" }, Arena)
+                                mode = opts.mode or "sp", realSeconds = 0, timers = {} }, Arena)
     local at = opts.at or Arena.DEFAULT_AT
     self.at = at
     -- seeds: Lua rolls (ZombRand, used for the damage roll and crit) and the engine's Rand
@@ -173,6 +179,51 @@ function Arena:spawn(n, opts)
     return self
 end
 
+-- ---------------------------------------------------------------------------
+-- the clock
+-- ---------------------------------------------------------------------------
+function Arena:now() return self.realSeconds end
+
+local function gameSecondsPerReal()
+    local mpd = try(function() return PZEngine.gameTime():getMinutesPerDay() end) or 60
+    return 1440 / math.max(1, mpd)   -- 60-minute day: 24 game seconds per real second
+end
+
+local function setWorldAge(h)
+    local g = PZEngine.gameTime and PZEngine.gameTime()
+    if not g then return end
+    local nights = math.floor(h / 24)
+    local tod = h - nights * 24 + 7
+    if tod >= 24 then tod = tod - 24 end
+    g:setNightsSurvived(nights)
+    g:setTimeOfDay(tod)
+end
+
+function Arena:advance(seconds)
+    seconds = seconds or 1
+    self.realSeconds = self.realSeconds + seconds
+    local g = PZEngine.gameTime and PZEngine.gameTime()
+    if g then setWorldAge(g:getWorldAgeHours() + seconds * gameSecondsPerReal() / 3600) end
+    if triggerEvent then
+        pcall(triggerEvent, "OnTick", 0)
+        pcall(triggerEvent, "OnPlayerUpdate", self.player)
+    end
+    local due, keep = {}, {}
+    for _, t in ipairs(self.timers) do
+        if t.at <= self.realSeconds then due[#due + 1] = t else keep[#keep + 1] = t end
+    end
+    self.timers = keep
+    table.sort(due, function(a, b) return a.at < b.at end)
+    for _, t in ipairs(due) do
+        local ok, err = pcall(t.fn, self)
+        if not ok then self.ledger.errors[#self.ledger.errors + 1] = "timer: " .. tostring(err) end
+    end
+end
+
+function Arena:at(delay, fn)
+    self.timers[#self.timers + 1] = { at = self.realSeconds + (delay or 0), fn = fn }
+end
+
 function Arena:alive()
     local out = {}
     for _, z in ipairs(self.zombies) do if not z:isDead() then out[#out + 1] = z end end
@@ -209,7 +260,7 @@ local MOODLE_MULT = { [0] = 1, 0.5, 0.2, 0.1, 0.05 }
 function Arena:swing(opts)
     opts = opts or {}
     local p, w, L = self.player, self.weapon, self.ledger
-    local rec = { n = L.swings + 1, targets = {}, events = {}, kills = 0, crit = false }
+    local rec = { n = L.swings + 1, t = self.realSeconds, targets = {}, events = {}, kills = 0, crit = false }
     self.current = rec
     local mark = soundMark()
     asServer(self, function()
@@ -234,6 +285,7 @@ function Arena:swing(opts)
         p:setCriticalHit(rec.crit)
         if rec.crit then L.crits = L.crits + 1 end
         local minD, maxD = w:getMinDamage(), w:getMaxDamage()
+        rec.minD, rec.maxD = minD, maxD
         local split = 1
         for i = 1, math.min(maxHit, #cand) do
             local z, d = cand[i].z, cand[i].d
@@ -464,6 +516,7 @@ function Arena:fight(opts)
         end
         if #self:alive() == 0 and not keep then break end
         if self.weapon:isRanged() then self:shoot(opts) else self:swing(opts) end
+        self:advance(opts.secondsPerSwing or self.opts.secondsPerSwing or 1)
         if opts.kills and self.ledger.kills >= opts.kills then break end
         if self.ledger.broke then break end
     end
