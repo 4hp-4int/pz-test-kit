@@ -270,6 +270,9 @@ WB.register("mpBoot", function(a)
         for i = 1, clients do M.players[i] = makePlayer(i) end
     else
         M.players[1] = makePlayer(index(), WB.craft.setup())
+        -- the client's own player is LOCAL, as in game (IsoPlayer.players[0]):
+        -- isLocalPlayer() reads that array, and mods gate observer events on it
+        if PZEngine.setLocalPlayer then pcall(PZEngine.setLocalPlayer, M.players[1], 0) end
     end
     installNetwork()
 

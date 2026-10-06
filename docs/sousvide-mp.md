@@ -313,3 +313,13 @@ weapon was never held on any MP side.
 PZ's real netcode (UdpConnection, packet classes, prediction, physics sync)
 is not emulated. The Pass models the Lua-visible sync surface the mods
 actually use. Anything below it is confirmed on the docker dedi.
+
+## A client's own player is local (2026-10-06)
+
+`IsoPlayer.isLocalPlayer()` walks `IsoPlayer.players[0..numPlayers)`
+(IsoPlayer.java:6555). The bench made each client's player without putting
+it there, so on its own client it read as REMOTE: a mod gating observer
+events on `isLocalPlayer()` (hits, swings and equips also fire on observers)
+ignored its own player. `80_mp.lua` now registers it with
+`PZEngine.setLocalPlayer(player, 0)`, as the game does. Found by the VPS
+genome runtime's split check.

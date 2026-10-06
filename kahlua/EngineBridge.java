@@ -1605,6 +1605,25 @@ public final class EngineBridge {
                 } catch (Throwable t) { frame.push(false); frame.push(describeDeep(t)); return 2; }
                 return 1;
             });
+            // The client's own player, registered as the game registers it
+            // (IsoPlayer.players[index], numPlayers): IsoPlayer.isLocalPlayer()
+            // walks that array (IsoPlayer.java:6555), so a player the bench made
+            // without it read as REMOTE on its own client, and every "is this
+            // my player" check (observer gating, CombatManager's local paths)
+            // answered wrong. setLocalPlayer(player[, index]) -> true
+            pzEngine.rawset("setLocalPlayer", (JavaFunction) (frame, n) -> {
+                try {
+                    Object player = frame.get(0);
+                    int idx = n > 1 && frame.get(1) instanceof Number num ? num.intValue() : 0;
+                    Class<?> ip = cls("zombie.characters.IsoPlayer");
+                    Object arr = ip.getField("players").get(null);
+                    java.lang.reflect.Array.set(arr, idx, player);
+                    java.lang.reflect.Field np = ip.getField("numPlayers");
+                    if (np.getInt(null) < idx + 1) np.setInt(null, idx + 1);
+                    frame.push(true);
+                } catch (Throwable t) { frame.push(false); frame.push(describeDeep(t)); return 2; }
+                return 1;
+            });
             // A static field by class name (Kahlua reads no fields, static or not):
             // PZEngine.static("zombie.WorldSoundManager", "instance").
             pzEngine.rawset("static", (JavaFunction) (frame, n) -> {
