@@ -168,6 +168,9 @@ function Arena:spawn(n, opts)
                 if sq then
                     local z = PZEngine.newZombie(sq)
                     pcall(function() z:setX(x + 0.5); z:setY(y + 0.5); z:setZ(self.at.z); z:setCurrent(sq) end)
+                    -- in the cell's zombie list, as the game's own are (code that looks
+                    -- around the player -- a chain, an area stagger -- searches it)
+                    pcall(function() if not self.cell:getZombieList():contains(z) then self.cell:getZombieList():add(z) end end)
                     if opts.health then z:setHealth(opts.health) end
                     if opts.setup then opts.setup(z) end
                     self.zombies[#self.zombies + 1] = z
@@ -352,6 +355,7 @@ function Arena:swing(opts)
             if rec.broke then break end
         end
     end)
+    if triggerEvent then pcall(triggerEvent, "OnPlayerAttackFinished", p, w) end
     takeSounds(self, rec, mark)
     self.current = nil
     self.records[#self.records + 1] = rec
@@ -496,6 +500,7 @@ function Arena:shoot(opts)
             if w:isJammed() then L.jams = L.jams + 1; rec.jammed = true end
         end
     end)
+    if triggerEvent then pcall(triggerEvent, "OnPlayerAttackFinished", p, w) end
     takeSounds(self, rec, mark)
     self.current = nil
     self.records[#self.records + 1] = rec
@@ -543,6 +548,7 @@ function Arena:close()
     if self.seed then pcall(PZEngine.seedRand, nil) end
     for _, z in ipairs(self.zombies) do
         pcall(function() if not z:isDead() then z:removeFromWorld() end end)
+        pcall(function() self.cell:getZombieList():remove(z) end)
     end
     self.zombies = {}
     PZEngine.setServer(false)
