@@ -25,6 +25,12 @@ What the harness does, and why (each was measured, 2026-10-06):
   first windows and ~2.7 us once fully compiled. The compiled code is the
   interpreter, shared by all Lua, so one warm-up per process serves every
   measurement. The game runs for hours; the warm interpreter is the real one.
+- **Warms each measured path too, then waits for it to SETTLE.** At least
+  2000 warm-up calls (bounded by time), then rounds of samples until two
+  rounds agree within 5% (at most 4); the last round is reported. Measured: a
+  hot path sat on a flat ~34 us plateau for its first ~5000-8000 calls, then
+  ran at 3.7 us. Warm-up thresholds differ by path and cannot be predicted; a
+  settled state can be detected.
 - **Times every sample alone**, subtracting the harness's own cost (an empty
   function measured the same way, after warm-up; ~1.5 us).
 - **`setup` is untimed** (a fresh zombie per kill), and `batch` times N calls
@@ -35,6 +41,24 @@ What the harness does, and why (each was measured, 2026-10-06):
 - **A-B-A for comparisons.** Whatever runs second comes out ~7% faster (the VM
   is still warming), so compare B against the mean of an A before and an A
   after.
+
+## Where the time goes: `Perf.profiler()`
+
+```lua
+local P = Perf.profiler()
+P:wrap(WeaponData, "getModData")                       -- module functions
+P:wrapListeners(Events.OnWeaponKillCredit, "kill credit")   -- EventBus listeners
+P:wrap(_G, "syncItemModData", "net: syncItemModData")  -- globals
+P:start(); for i = 1, N do root(work[i]) end; P:stop()   -- stop restores
+P:print(N, "the kill path")    -- calls, inclusive and SELF us per unit of work
+```
+
+Self time is inclusive minus wrapped children, so the column adds up to the
+root. Every wrapped call adds ~1-3 us of profiler overhead (printed with the
+report), so absolute numbers are inflated when many small functions are
+wrapped: **the ranking and the call counts are the finding** (VPS: 8
+`getModData` calls per kill, each unpacking), then confirm the cost with
+`Perf.measure` on the unwrapped code. Only calls through the table are seen.
 
 ## Wire cost: `mp-check.mjs`
 
