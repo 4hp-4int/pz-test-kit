@@ -16,6 +16,11 @@
 // "{{key}}" in a step's lua is replaced by a value saved earlier, so a step
 // on a client can name the item a server step created.
 //
+// Wire cost: a step with `wire: { packets: N, bytes: B }` counts every packet
+// that step sent across the Pass (the engine's own serialised bytes), appends
+// "| wire <n> packets <b> bytes (<kind> <n>/<b>, ...)" to its result, and
+// fails if either budget is exceeded. `wire: {}` just reports.
+//
 // It never touches a session that is already running (someone may be working
 // in it): it refuses, and says so. It always stops the session it started.
 
@@ -52,13 +57,35 @@ async function runScenario(file) {
     try {
         for (const s of sc.steps) {
             const lua = s.lua.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in vars ? String(vars[k]) : `{{${k}}}`));
+            let before = 0;
+            if (s.wire) {
+                const p0 = await api(mod, "pass");
+                for (const e of p0.packets || []) if (e.seq > before) before = e.seq;
+            }
             let value, err;
             try {
                 const r = await api(mod, "eval", { side: s.side, lua });
                 value = r && r.result ? r.result.value : undefined;
             } catch (e) { err = e.message; }
-            const text = err ? `ERROR ${err}` : String(value);
-            const ok = !err && (!s.expect || s.expect.test(text));
+            let text = err ? `ERROR ${err}` : String(value);
+            let wireOk = true;
+            if (s.wire && !err) {
+                const p1 = await fetch(`${BASE}/api/mp/${mod}/pass?since=${before}`).then((r) => r.json());
+                const pk = (p1.packets || []).filter((e) => e.kind && e.kind !== "storm" && !e.dropped);
+                const by = {};
+                let bytes = 0;
+                for (const e of pk) {
+                    const k = e.kind + (e.module ? `:${e.module}/${e.command}` : "");
+                    by[k] = by[k] || { n: 0, b: 0 };
+                    by[k].n++; by[k].b += e.size || 0; bytes += e.size || 0;
+                }
+                const parts = Object.entries(by).map(([k, v]) => `${k} ${v.n}/${v.b}`).join(", ");
+                text += ` | wire ${pk.length} packets ${bytes} bytes (${parts})`;
+                if (s.wire.packets != null && pk.length > s.wire.packets) wireOk = false;
+                if (s.wire.bytes != null && bytes > s.wire.bytes) wireOk = false;
+                vars._wirePackets = pk.length; vars._wireBytes = bytes;
+            }
+            const ok = !err && wireOk && (!s.expect || s.expect.test(text));
             if (ok && s.save) {
                 for (const [k, re] of Object.entries(s.save)) {
                     const m = text.match(re);

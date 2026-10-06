@@ -848,6 +848,18 @@ public final class EngineBridge {
         KahluaTable pzEngine = platform.newTable();
         env.rawset("PZEngine", pzEngine);
         pzEngine.rawset("available", (JavaFunction) (frame, n) -> { frame.push(booted); return 1; });
+        // Performance (PZTestKit.Perf). nanoTime: a monotonic clock in
+        // nanoseconds, as a double (exact to 2^53 ns, ~104 days of uptime).
+        // memUsed: heap in use (bytes); gc: a collection request, so a
+        // measurement starts from a settled heap. Coarse by nature: the JVM
+        // decides when to collect, so allocation numbers are estimates.
+        pzEngine.rawset("nanoTime", (JavaFunction) (frame, n) -> { frame.push((double) System.nanoTime()); return 1; });
+        pzEngine.rawset("memUsed", (JavaFunction) (frame, n) -> {
+            Runtime rt = Runtime.getRuntime();
+            frame.push((double) (rt.totalMemory() - rt.freeMemory()));
+            return 1;
+        });
+        pzEngine.rawset("gc", (JavaFunction) (frame, n) -> { System.gc(); return 0; });
         pzEngine.rawset("bootError", (JavaFunction) (frame, n) -> { frame.push(bootError); return 1; });
         // The Lua thread engine code uses to call back into Lua and to print Lua
         // stacks (KahluaThread.doStacktraceProper via UIManager.defaultthread).

@@ -1328,6 +1328,7 @@ public class KahluaTestRunner {
         // The Arena (PZTestKit.Arena): headless one-way combat through the
         // game's own hit pipeline. Defines functions only; engine mode only.
         loadFile(thread, env, kahluaDir.resolve("arena.lua"));
+        loadFile(thread, env, kahluaDir.resolve("perf.lua"));
 
         // 1b. Override context functions. mock_environment defaults to client.
         if (isServer) {
