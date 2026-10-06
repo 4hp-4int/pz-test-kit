@@ -154,4 +154,44 @@ public class LuaManager {
         se.krka.kahlua.vm.KahluaTable target = platform.newTable();
         return copyTable(target, source);
     }
+
+    /**
+     * Engine code calls LuaManager.GlobalObject's statics directly (the XP
+     * award: CraftRecipe.addXP -> GlobalObject.getCore(), CraftRecipe:1459).
+     * The REAL nested class cannot load beside this stub outer class: its
+     * static init builds a private nested comparator, and the JVM rejects the
+     * access because the stub outer does not list it as a nest member
+     * (IllegalAccessError in GlobalObject.<clinit>:10355). Kahlua swallowed
+     * it, so every recipe with an xpAward consumed its inputs, created its
+     * outputs and then skipped OnCreate (repairs, sharpening, smelting...)
+     * and the craft history. Declared here it is a true nestmate; each
+     * method mirrors the real body (LuaManager.java line in the comment).
+     * Engine calls to a method not listed here are a NoSuchMethodError at
+     * that call: add it from the real class.
+     */
+    public static class GlobalObject {
+        public static zombie.core.Core getCore() { return zombie.core.Core.getInstance(); }                         // :6287
+        public static String getRecipeDisplayName(String name) { return zombie.core.Translator.getRecipeName(name); } // :7536
+        public static zombie.characters.IsoPlayer getSpecificPlayer(int player) { return zombie.characters.IsoPlayer.players[player]; } // :3798
+        public static zombie.characters.IsoPlayer getPlayer() { return zombie.characters.IsoPlayer.getInstance(); }  // :3603
+        public static zombie.iso.IsoWorld getWorld() { return zombie.iso.IsoWorld.instance; }                        // :5008
+        public static zombie.iso.IsoCell getCell() { return zombie.iso.IsoWorld.instance.getCell(); }                // :5013
+        public static zombie.SandboxOptions getSandboxOptions() { return zombie.SandboxOptions.instance; }           // :5043
+        public static boolean isMultiplayer() { return zombie.network.GameClient.client || zombie.network.GameServer.server; } // :3973
+        public static boolean isAdmin() { return false; }   // :7697 (headless: no client connection)
+        public static double ZombRand(double max) {                                                                  // :6147
+            if (max == 0.0) return 0.0;
+            return max < 0.0 ? -zombie.core.random.RandLua.INSTANCE.Next(-((long) max)) : zombie.core.random.RandLua.INSTANCE.Next((long) max);
+        }
+        public static double ZombRand(double min, double max) { return zombie.core.random.RandLua.INSTANCE.Next((int) min, (int) max); } // :6175
+        public static zombie.inventory.InventoryItem instanceItem(String item) { return zombie.inventory.InventoryItemFactory.CreateItem(item); } // :4903
+        public static zombie.iso.sprite.IsoSprite getSprite(String sprite) { return zombie.iso.sprite.IsoSpriteManager.instance.getSprite(sprite); } // :7551
+        public static zombie.radio.ZomboidRadio getZomboidRadio() {                                                  // :2874
+            return zombie.radio.ZomboidRadio.hasInstance() ? zombie.radio.ZomboidRadio.getInstance() : null;
+        }
+        public static void sendAddItemToContainer(zombie.inventory.ItemContainer container, zombie.inventory.InventoryItem item) { // :10336
+            if (zombie.network.GameServer.server) zombie.network.GameServer.sendAddItemToContainer(container, item);
+        }
+        public static boolean isSystemWindows() { return System.getProperty("os.name").startsWith("Win"); }         // :6381
+    }
 }

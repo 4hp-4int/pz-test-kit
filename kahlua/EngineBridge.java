@@ -96,6 +96,10 @@ public final class EngineBridge {
         // The game exposes it (LuaManager.java:1824); without it a mod's
         // traits:set(...) silently did nothing here (EffectChannels.setTrait).
         "zombie.characters.traits.CharacterTraits",
+        // Weather reads (LuaManager.java:9661 exposes getClimateManager()):
+        // rain/fog/snow intensity are plain reads of its ClimateFloats, so a
+        // test sets them with PZEngine.setField on the float's finalValue.
+        "zombie.iso.weather.ClimateManager",
         // The AI states vanilla ISTimedActionQueue indexes at file load
         // (STATES[ClimbThroughWindowState.instance()] = true; LuaManager.java
         // :1741-1750): unexposed, the queue -- and every timed action an MP
@@ -1250,6 +1254,14 @@ public final class EngineBridge {
                 thread.pcall(closure, new Object[0]);
                 log.println("[engine] global instanceItem chained (engine_items = true)");
             }
+            // The game's global (LuaManager.java:9661). The mock world's
+            // getClimateManager stays for non-engine tests; this is the real one.
+            env.rawset("getClimateManager", (JavaFunction) (frame, n) -> {
+                try {
+                    frame.push(cls("zombie.iso.weather.ClimateManager").getMethod("getInstance").invoke(null));
+                } catch (Throwable t) { frame.push(null); }
+                return 1;
+            });
             env.rawset("getScriptManager", (JavaFunction) (frame, n) -> {
                 try {
                     frame.push(cls("zombie.scripting.ScriptManager").getField("instance").get(null));

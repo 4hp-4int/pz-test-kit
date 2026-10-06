@@ -148,4 +148,8 @@ public class Core {
     // single-player hit (CombatManager.processHit -> setUsePhysicHitReaction).
     // Missing, the hit died after its damage and before stagger/knockdown.
     public boolean getOptionUsePhysicsHitReaction() { return false; }
+    // CraftRecipe.addXP:1459 gates the "+N XP" halo note on it; the real
+    // value is a client display option (Core.java:4522). Missing, every
+    // recipe with an xpAward died mid-craft after creating its outputs.
+    public boolean getOptionShowCraftingXP() { return false; }
 }
