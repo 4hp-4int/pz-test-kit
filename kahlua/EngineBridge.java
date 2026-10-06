@@ -84,6 +84,9 @@ public final class EngineBridge {
         "zombie.CombatManager",
         "zombie.combat.CombatConfig",
         "zombie.combat.CombatConfigKey",
+        // The game exposes it (LuaManager.java:1824); without it a mod's
+        // traits:set(...) silently did nothing here (EffectChannels.setTrait).
+        "zombie.characters.traits.CharacterTraits",
         // The AI states vanilla ISTimedActionQueue indexes at file load
         // (STATES[ClimbThroughWindowState.instance()] = true; LuaManager.java
         // :1741-1750): unexposed, the queue -- and every timed action an MP
