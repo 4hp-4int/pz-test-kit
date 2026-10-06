@@ -1295,6 +1295,27 @@ public final class EngineBridge {
                 } catch (Throwable t) { frame.push(null); }
                 return 1;
             });
+            // World sounds, the game's globals (LuaManager.java:9865 addSound,
+            // :3662 getWorldSoundManager). Unexposed, every mod sound that
+            // calls zombies (a lure, a decoy, a noisy price) died on a nil
+            // global, usually inside a pcall, so it passed while doing nothing.
+            // PZEngine.sounds() reads what they put into the world.
+            env.rawset("getWorldSoundManager", (JavaFunction) (frame, n) -> {
+                try {
+                    frame.push(cls("zombie.WorldSoundManager").getField("instance").get(null));
+                } catch (Throwable t) { frame.push(null); }
+                return 1;
+            });
+            env.rawset("addSound", (JavaFunction) (frame, n) -> {
+                try {
+                    Class<?> wsmCls = cls("zombie.WorldSoundManager");
+                    Object wsm = wsmCls.getField("instance").get(null);
+                    java.lang.reflect.Method m = wsmCls.getMethod("addSound", Object.class, int.class, int.class, int.class, int.class, int.class);
+                    m.invoke(wsm, frame.get(0), ((Number) frame.get(1)).intValue(), ((Number) frame.get(2)).intValue(),
+                        ((Number) frame.get(3)).intValue(), ((Number) frame.get(4)).intValue(), ((Number) frame.get(5)).intValue());
+                } catch (Throwable t) { throw new RuntimeException("addSound: " + describeDeep(t)); }
+                return 0;
+            });
             env.rawset("getScriptManager", (JavaFunction) (frame, n) -> {
                 try {
                     frame.push(cls("zombie.scripting.ScriptManager").getField("instance").get(null));
