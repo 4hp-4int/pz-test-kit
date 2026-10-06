@@ -20,6 +20,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KAHLUA_DIR="$SCRIPT_DIR/kahlua"
+
+# down: stop every SousVide process on this machine -- dashboards, their VMs
+# (single and MP sides), stray test runs. For when a dashboard died and left
+# its VMs behind, or to start fresh. MCP servers (dashboard/mcp.js) are left
+# alone: they belong to editor sessions.
+if [ "${1:-}" = "down" ]; then
+    shift
+    exec node "$SCRIPT_DIR/dashboard/down.js" "$@"
+fi
 JAR="$KAHLUA_DIR/kahlua-runtime.jar"
 STUBS="$KAHLUA_DIR/stubs"
 

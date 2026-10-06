@@ -770,7 +770,7 @@ public final class EngineBridge {
     }
 
     /** Mod id from mod.info, falling back to the directory name. */
-    private static String modIdOf(Path modRoot) {
+    static String modIdOf(Path modRoot) {
         try {
             Path info = modRoot.resolve("mod.info");
             if (Files.exists(info)) {

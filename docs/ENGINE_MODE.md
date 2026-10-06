@@ -98,8 +98,8 @@ entry's scripts are parsed after vanilla and before the mod under test.
   and stopped that server loading its world.
 - **Missing entries are skipped, not fatal.** Guard suites on
   `PZEngine.modLoaded("<mod.info id>")`.
-- **Scripts only.** The mod's Lua never runs; framework behaviour is a job for
-  a live server (pz-shell).
+- **Scripts only.** The mod's Lua never runs here. To run it too, use
+  `lua_mods` on an MP session (`docs/lua-mods.md`).
 - **Gotcha that shaped the implementation:** the list is regex-sniffed from
   `pz-test.lua`, not loaded through a Kahlua env. Building ANY env before boot
   touches `zombie.*` classes while `projectzomboid.jar` is not yet on the

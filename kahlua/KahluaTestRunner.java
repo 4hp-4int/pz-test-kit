@@ -48,6 +48,16 @@ public class KahluaTestRunner {
     // so loading them for a whole suite silently swaps vanilla out from under
     // every other test. Run the files that want them with the flag.
     private static boolean engineModsOn = false;
+    // --lua-mod <spec> (repeatable): third-party mods whose LUA runs too, not
+    // just their scripts (the interop smoke test: docs/lua-mods.md). Same
+    // specs as engine_mods (workshop:<id>/<folder>, or a path). Their
+    // scripts load with them, their files join the module index after the
+    // mod under test and its dependencies, and _pz_mod_load lists every
+    // mod's files in the game's load order (LuaManager.LoadDirBase: one mod
+    // at a time; listed mods, then dependencies, then the mod under test).
+    // Per run only, like --engine-mods.
+    private static final List<String> luaModSpecs = new ArrayList<>();
+    private static final List<Path> luaModVariants = new ArrayList<>();
     private static String  coverageScope = null;
     private static boolean coverageLines = false;   // --coverage-lines: dump uncovered line ranges
     private static boolean coveragePerTest = false; // --coverage-per-test: record which lines EACH test ran
@@ -153,6 +163,12 @@ public class KahluaTestRunner {
                 if (a.equals("--engine")) { engineOn = true; continue; }
                 if (a.equals("--no-engine")) { engineOn = false; engineForcedOff = true; continue; }
                 if (a.equals("--engine-mods")) { engineOn = true; engineModsOn = true; continue; }
+                // one spec per --lua-mod: a ';'-joined list is a POSIX path
+                // list to Git Bash, which rewrites it before java sees it
+                if (a.equals("--lua-mod") && i + 1 < args.length) {
+                    if (!args[++i].isBlank()) luaModSpecs.add(args[i].trim());
+                    engineOn = true; continue;
+                }
                 if (a.equals("--help") || a.equals("-h")) {
                     printUsage(); System.exit(0);
                 }
@@ -283,6 +299,8 @@ public class KahluaTestRunner {
                     while (str.find()) engineMods.add(str.group(1) != null ? str.group(1) : str.group(2));
                 }
             }
+            // a mod whose Lua runs needs its items too
+            for (String sp : luaModSpecs) if (!engineMods.contains(sp)) engineMods.add(sp);
             EngineBridge.boot(null, modRoot, engineMods, System.out);
         }
 
@@ -1293,6 +1311,12 @@ public class KahluaTestRunner {
             System.out.println(reply);
             System.out.flush();
         }
+        // stdin closed (the dashboard is gone, even killed outright) or
+        // __quit__: leave. Returning was not enough -- the engine's
+        // non-daemon threads kept the JVM alive, and dashboards that died
+        // left their VMs running for days.
+        System.out.flush();
+        System.exit(0);
     }
 
     private static void buildEnv(KahluaThread thread, KahluaTable env,
@@ -1573,40 +1597,67 @@ public class KahluaTestRunner {
 
     private static class ModuleIndex {
         final Map<String, ModuleEntry> byName = new LinkedHashMap<>();
+        // every file of every mod in the game's load order (see indexModuleTree)
+        final List<LoadEntry> order = new ArrayList<>();
+        final List<String> modIds = new ArrayList<>();
         int size() { return byName.size(); }
     }
 
-    /** Scan media/lua/{shared,client,server}/**&#47;*.lua and build a name→source
+    /** One file as the game's LoadDirBase runs it: its mod, folder and require name. */
+    private static class LoadEntry {
+        String mod, folder, name;
+        Path path;
+    }
+
+    /** One mod's directories (B42: common/ plus its version folder; else the mod root). */
+    private record ModGroup(String id, List<Path> variants, List<String> requires) {}
+
+    /** Scan media/lua/{shared,client,server}/**&#47;*.lua and build a name->source
      *  index. First match wins (shared > client > server) to mirror real PZ
-     *  semantics. Also scans dependency mods declared in pz-test.lua so a
-     *  mod's tests can `require` modules from another mod it depends on. */
+     *  semantics; the mod under test beats its dependencies, which beat
+     *  --lua-mod. Also records every mod's files in the game's load order
+     *  (idx.order): LuaManager.LoadDirBase runs one folder at a time, and in
+     *  it ONE MOD AT A TIME in mod order, each mod's common/ and version
+     *  files together, sorted case-insensitively by path. A path already run
+     *  (an earlier mod's) is not run again; the later mod's file is the one
+     *  that runs there. */
     private static ModuleIndex indexModuleTree(Path modRoot) throws IOException {
         ModuleIndex idx = new ModuleIndex();
 
-        // Dependency roots get indexed FIRST — so the target mod's own files
-        // naturally win on name conflicts via the "first match wins" rule
-        // reversed: we walk the primary mod LAST. Wait, actually the opposite
-        // makes more sense: target mod's modules should beat deps. Walk target
-        // first, then deps (they'll be skipped for any name the target shares).
-        List<Path> roots = new ArrayList<>();
-        roots.add(modRoot);
-        for (Path dep : readDependencyRoots(modRoot)) {
-            roots.add(dep);
+        // load order: listed --lua-mod mods, then dependencies, then the mod under
+        // test; then, as the game sorts the mod list, each mod moves after the
+        // mods its mod.info require= names (SauceTooltips after TooltipLib)
+        List<ModGroup> groups = new ArrayList<>();
+        Set<Path> seen = new HashSet<>();
+        luaModVariants.clear();
+        for (String spec : luaModSpecs) {
+            Path pz = pzInstallCached();
+            List<Path> v = pz == null && spec.startsWith("workshop:") ? List.of()
+                : EngineBridge.resolveModSpec(pz, modRoot, spec);
+            if (v.isEmpty()) { System.out.println("  WARNING: lua mod not found: " + spec); continue; }
+            addGroup(groups, seen, v);
+            luaModVariants.addAll(v);
         }
+        for (Path dep : readDependencyRoots(modRoot)) {
+            List<Path> v = EngineBridge.resolveModSpec(null, modRoot, dep.toString());
+            addGroup(groups, seen, v.isEmpty() ? List.of(dep) : v);
+        }
+        addGroup(groups, seen, List.of(modRoot));
+        groups = requiresFirst(groups);
 
+        // the index: the mod under test first, then dependencies, then lua
+        // mods; within a mod its version folder before common/ (it overrides)
+        List<ModGroup> byPriority = new ArrayList<>(groups);
+        Collections.reverse(byPriority);
         String[] contexts = { "shared", "client", "server" };
-        for (Path root : roots) {
-            for (String ctx : contexts) {
-                Path ctxRoot = root.resolve("media/lua/" + ctx);
-                if (!Files.isDirectory(ctxRoot)) continue;
-                try (Stream<Path> walk = Files.walk(ctxRoot)) {
-                    List<Path> files = walk
-                        .filter(Files::isRegularFile)
-                        .filter(p -> p.getFileName().toString().endsWith(".lua"))
-                        .sorted()
-                        .collect(Collectors.toList());
-                    for (Path p : files) {
-                        String rel = ctxRoot.relativize(p).toString().replace('\\', '/');
+        for (ModGroup g : byPriority) {
+            List<Path> variants = new ArrayList<>(g.variants());
+            Collections.reverse(variants);
+            for (Path root : variants) {
+                for (String ctx : contexts) {
+                    Path base = root.resolve("media/lua/" + ctx);
+                    for (Path p : luaFiles(base)) {
+                        String rel = base.relativize(p).toString().replace('\\', '/');
                         String name = rel.substring(0, rel.length() - 4);
                         if (idx.byName.containsKey(name)) continue;
                         ModuleEntry e = new ModuleEntry();
@@ -1618,7 +1669,96 @@ public class KahluaTestRunner {
                 }
             }
         }
+
+        // the load order
+        for (ModGroup g : groups) idx.modIds.add(g.id());
+        for (String ctx : contexts) {
+            Map<String, LoadEntry> at = new HashMap<>();   // lower-case rel path -> its entry
+            for (ModGroup g : groups) {
+                TreeMap<String, LoadEntry> mine = new TreeMap<>();
+                for (Path root : g.variants()) {   // common/ first: the version folder's file replaces it
+                    Path base = root.resolve("media/lua/" + ctx);
+                    for (Path p : luaFiles(base)) {
+                        String rel = base.relativize(p).toString().replace('\\', '/');
+                        LoadEntry e = new LoadEntry();
+                        e.mod = g.id(); e.folder = ctx; e.path = p;
+                        e.name = rel.substring(0, rel.length() - 4);
+                        mine.put(rel.toLowerCase(Locale.ROOT), e);
+                    }
+                }
+                for (Map.Entry<String, LoadEntry> me : mine.entrySet()) {
+                    LoadEntry prev = at.get(me.getKey());
+                    if (prev != null) { prev.path = me.getValue().path; prev.mod = me.getValue().mod; continue; }
+                    at.put(me.getKey(), me.getValue());
+                    idx.order.add(me.getValue());
+                }
+            }
+        }
         return idx;
+    }
+
+    private static void addGroup(List<ModGroup> groups, Set<Path> seen, List<Path> variants) {
+        Path key;
+        try { key = variants.get(0).toRealPath(); } catch (IOException e) { key = variants.get(0).toAbsolutePath().normalize(); }
+        if (!seen.add(key)) return;
+        Path info = null;
+        for (Path v : variants) if (Files.exists(v.resolve("mod.info"))) { info = v; break; }
+        Path first = variants.get(0);
+        String id = info != null ? EngineBridge.modIdOf(info)
+            : first.getParent() != null && Files.exists(first.getParent().resolve("mod.info")) ? EngineBridge.modIdOf(first.getParent())
+            : EngineBridge.modIdOf(first);
+        groups.add(new ModGroup(id, variants, requiresOf(info != null ? info
+            : first.getParent() != null && Files.exists(first.getParent().resolve("mod.info")) ? first.getParent() : first)));
+    }
+
+    /** mod.info require= ("\\TooltipLib,\\Foo" in B42, "TooltipLib,Foo" before). */
+    private static List<String> requiresOf(Path dir) {
+        List<String> out = new ArrayList<>();
+        try {
+            Path info = dir.resolve("mod.info");
+            if (!Files.exists(info)) return out;
+            for (String line : Files.readAllLines(info)) {
+                String l = line.trim();
+                if (!l.toLowerCase(Locale.ROOT).startsWith("require=")) continue;
+                for (String r : l.substring(8).split(",")) {
+                    String id = r.replace("\\", "").trim();
+                    if (!id.isEmpty()) out.add(id);
+                }
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+
+    /** Stable: each mod after the present mods it requires, otherwise as listed. */
+    private static List<ModGroup> requiresFirst(List<ModGroup> groups) {
+        Set<String> present = new HashSet<>();
+        for (ModGroup g : groups) present.add(g.id());
+        List<ModGroup> out = new ArrayList<>();
+        Set<String> placed = new HashSet<>();
+        List<ModGroup> left = new ArrayList<>(groups);
+        while (!left.isEmpty()) {
+            ModGroup pick = null;
+            for (ModGroup g : left) {
+                boolean ready = true;
+                for (String r : g.requires()) if (present.contains(r) && !placed.contains(r) && !r.equals(g.id())) { ready = false; break; }
+                if (ready) { pick = g; break; }
+            }
+            if (pick == null) pick = left.get(0);   // a require cycle: as listed
+            left.remove(pick);
+            out.add(pick);
+            placed.add(pick.id());
+        }
+        return out;
+    }
+
+    private static List<Path> luaFiles(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) return List.of();
+        try (Stream<Path> walk = Files.walk(dir)) {
+            return walk.filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".lua"))
+                .sorted()
+                .collect(Collectors.toList());
+        }
     }
 
     /** Read the `dependencies` array from pz-test.lua. Each entry is either
@@ -1671,6 +1811,25 @@ public class KahluaTestRunner {
         }
         env.rawset("_pz_module_sources", sources);
         env.rawset("_pz_module_files", files);
+        KahluaTable order = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+        int n = 0;
+        for (LoadEntry e : idx.order) {
+            KahluaTable t = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+            t.rawset("mod", e.mod);
+            t.rawset("folder", e.folder);
+            t.rawset("name", e.name);
+            t.rawset("path", e.path.toString());
+            order.rawset(Double.valueOf(++n), t);
+        }
+        env.rawset("_pz_mod_load", order);
+        // getActivatedMods() lists the mods loaded, only under --lua-mod
+        // (suites have always run with it empty)
+        if (!luaModSpecs.isEmpty()) {
+            KahluaTable ids = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+            int k = 0;
+            for (String id : idx.modIds) ids.rawset(Double.valueOf(++k), id);
+            env.rawset("_pz_active_mods", ids);
+        }
     }
 
     /**
@@ -2358,6 +2517,7 @@ public class KahluaTestRunner {
                         }
                     }
                 }
+                for (Path v : luaModVariants) roots.add(v.resolve("media/lua/shared/Translate").resolve(lang));
             }
             label = lang;
             for (Path dir : roots) {

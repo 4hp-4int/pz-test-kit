@@ -33,8 +33,17 @@ function isServer() return false end
 function isClient() return true end
 function isCoopHost() return false end
 function getTimestampMs() return 0 end
+-- Empty, unless the run loads other mods' Lua (--lua-mods): then the mods
+-- loaded, in load order, shaped like the game's ArrayList<String>.
 function getActivatedMods()
-    return { size = function(self) return 0 end, get = function(self, i) return "" end }
+    local ids = rawget(_G, "_pz_active_mods") or {}
+    local function find(_, id)
+        for i, v in ipairs(ids) do if v == id then return i - 1 end end
+        return -1
+    end
+    return { size = function() return #ids end, get = function(_, i) return ids[i + 1] end,
+             isEmpty = function() return #ids == 0 end, contains = function(self, id) return find(self, id) >= 0 end,
+             indexOf = find }
 end
 
 -- ZombRand is the MIDPOINT by default, so suites are deterministic. The trap:

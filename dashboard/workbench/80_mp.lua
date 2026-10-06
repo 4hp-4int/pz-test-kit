@@ -211,7 +211,12 @@ local function fire(name, ...)
     out.listeners = #list
     for _, fn in ipairs(list) do
         local ok, err = pcall(fn, ...)
-        if not ok then out.errors[#out.errors + 1] = { where = where(fn), err = tostring(err) } end
+        if not ok then
+            -- whose listener: a mod file (by the module where() names) or vanilla
+            local w = where(fn)
+            local owner = M.modOf and M.modOf[tostring(w):match("^(.-):%d+") or ""] or "vanilla"
+            out.errors[#out.errors + 1] = { where = w, err = tostring(err), owner = owner }
+        end
     end
     return out
 end
@@ -398,36 +403,71 @@ WB.register("mpBoot", function(a)
         if ok then vanilla.loaded = vanilla.loaded + 1 else vanilla.failed[#vanilla.failed + 1] = { file = f, err = tostring(err) } end
     end
 
-    -- every file the game runs on this side, in its order
-    local byFolder = {}
-    for name, path in pairs(_pz_module_files or {}) do
-        local f = folderOf(path)
-        local p = tostring(path):gsub("\\", "/")
-        if f and not p:find("/Tests/", 1, true) then
-            byFolder[f] = byFolder[f] or {}
-            table.insert(byFolder[f], { name = name, path = p })
+    -- every file the game runs on this side, in its order: LoadDirBase(folder)
+    -- runs vanilla's files (sorted), then each mod's in mod order (the
+    -- runner's _pz_mod_load: listed --lua-mod mods, dependencies, the mod under
+    -- test). A mod file at a vanilla path replaces it, at vanilla's place.
+    local order = rawget(_G, "_pz_mod_load")
+    if not order then
+        -- an older runner: every indexed file as one mod, by path
+        order = {}
+        for name, path in pairs(_pz_module_files or {}) do
+            local f = folderOf(path)
+            if f then order[#order + 1] = { name = name, path = tostring(path), folder = f, mod = "?" } end
         end
+        table.sort(order, function(x, y) return x.name:lower() < y.name:lower() end)
     end
     local loaded, failed, already = 0, {}, 0
+    local byMod = {}   -- mod id -> { loaded, failed }
+    M.modOf = {}       -- require name -> mod id (whose listener an event error came from)
+    for _, m in ipairs(order) do M.modOf[m.name] = m.mod end
     local full = { folders = {}, failed = {}, failedCount = 0 }
+    local function runMod(m)
+        local tally = byMod[m.mod] or { loaded = 0, failed = 0 }
+        byMod[m.mod] = tally
+        local mine = _pz_module_files and _pz_module_files[m.name]
+        if mine and tostring(mine):gsub("\\", "/") == m.path then
+            if _pz_package_loaded[m.name] ~= nil then already = already + 1; return end
+            local ok, err = pcall(require, m.name)
+            if ok then loaded = loaded + 1; tally.loaded = tally.loaded + 1; return true end
+            failed[#failed + 1] = { module = m.name, mod = m.mod, err = tostring(err) }
+            tally.failed = tally.failed + 1
+            return
+        end
+        -- a file whose require name another mod's file holds: the game runs
+        -- both (LoadDirBase goes by path), so run this one by path
+        local src = _pz_read_file(m.path)
+        local chunk, err = src and (_pz_compile or loadstring)(src, m.mod .. ":" .. m.name)
+        local ok = false
+        if chunk then ok, err = pcall(chunk) end
+        if ok then loaded = loaded + 1; tally.loaded = tally.loaded + 1; return true end
+        failed[#failed + 1] = { module = m.name, mod = m.mod, err = tostring(err or "unreadable") }
+        tally.failed = tally.failed + 1
+    end
     for _, f in ipairs(FOLDERS[r]) do
         M.openFolders[#M.openFolders + 1] = f
-        local list = {}
-        for _, m in ipairs(byFolder[f] or {}) do
-            local rel = (m.path:match("/media/lua/" .. f .. "/(.*)%.lua$") or m.path):lower()
-            list[#list + 1] = { mod = m, key = rel }
+        local mods = {}
+        for _, m in ipairs(order) do
+            m.path = tostring(m.path):gsub("\\", "/")
+            if m.folder == f and not m.path:find("/Tests/", 1, true) then mods[#mods + 1] = m end
         end
+        local list, atVanilla = {}, {}
         if M.full then
-            -- LoadDirBase(f): vanilla and mod files of the folder together,
-            -- by path; a mod file at a vanilla path replaces it
-            local modKeys = {}
-            for _, e in ipairs(list) do modKeys[e.key] = true end
+            local byKey = {}
+            for _, m in ipairs(mods) do byKey[m.name:lower()] = byKey[m.name:lower()] or m end
+            local van = {}
             for _, v in ipairs(a.vanillaFiles or {}) do
                 local rel = v:match("^" .. f .. "/(.*)$")
-                if rel and not modKeys[rel:lower()] and not M.uiSkip[rel] then list[#list + 1] = { vanilla = v, key = rel:lower() } end
+                if rel and not M.uiSkip[rel] then van[#van + 1] = { file = v, key = rel:lower() } end
+            end
+            table.sort(van, function(x, y) return x.key < y.key end)
+            for _, v in ipairs(van) do
+                local m = byKey[v.key]
+                if m then list[#list + 1] = { mod = m }; atVanilla[m] = true
+                else list[#list + 1] = { vanilla = v.file } end
             end
         end
-        table.sort(list, function(x, y) return x.key < y.key end)
+        for _, m in ipairs(mods) do if not atVanilla[m] then list[#list + 1] = { mod = m } end end
         local fs = { folder = f, vanilla = 0, vanillaFailed = 0, mod = 0 }
         for _, e in ipairs(list) do
             if e.vanilla then
@@ -440,11 +480,8 @@ WB.register("mpBoot", function(a)
                         if #full.failed < 60 then full.failed[#full.failed + 1] = { file = e.vanilla, err = tostring(err) } end
                     end
                 end
-            elseif _pz_package_loaded[e.mod.name] ~= nil then
-                already = already + 1
-            else
-                local ok, err = pcall(require, e.mod.name)
-                if ok then loaded = loaded + 1; fs.mod = fs.mod + 1 else failed[#failed + 1] = { module = e.mod.name, err = tostring(err) } end
+            elseif runMod(e.mod) then
+                fs.mod = fs.mod + 1
             end
         end
         full.folders[#full.folders + 1] = fs
@@ -458,13 +495,22 @@ WB.register("mpBoot", function(a)
         events[#events + 1] = fire("OnCreatePlayer", 0, M.players[1])
     end
 
+    -- what a smoke test reads first: mod files that failed to load and mod
+    -- listeners that threw at a start event (vanilla's headless noise apart)
+    local modErrors = {}
+    for _, f in ipairs(failed) do modErrors[#modErrors + 1] = { mod = f.mod, at = "load " .. tostring(f.module), err = f.err } end
+    for _, e in ipairs(events) do
+        for _, x in ipairs(e.errors) do
+            if x.owner ~= "vanilla" then modErrors[#modErrors + 1] = { mod = x.owner, at = e.event .. " " .. tostring(x.where), err = x.err } end
+        end
+    end
     M.booted = true
     local names = {}
     for _, p in ipairs(M.players) do names[#names + 1] = tostring(try(function() return p:getUsername() end)) end
     M.report = { role = r, index = index(), folders = FOLDERS[r], vanilla = vanilla, ui = ui, identityError = M.identityError,
                  requireMisses = M.requireMisses, autoloaded = M.autoloaded, autoloadFailed = M.autoloadFailed,
                  full = M.full and full or nil,
-                 loaded = loaded, alreadyLoaded = already,
+                 loaded = loaded, alreadyLoaded = already, mods = byMod, modErrors = modErrors, activeMods = rawget(_G, "_pz_active_mods"),
                  failed = failed, events = events, players = names, packets = #M.outbox }
     return M.report
 end)

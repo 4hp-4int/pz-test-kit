@@ -323,3 +323,13 @@ events on `isLocalPlayer()` (hits, swings and equips also fire on observers)
 ignored its own player. `80_mp.lua` now registers it with
 `PZEngine.setLocalPlayer(player, 0)`, as the game does. Found by the VPS
 genome runtime's split check.
+
+## Other mods' Lua on the bench (2026-10-06)
+
+`mp_start lua_mods=[...]` runs other mods' Lua (and scripts) on every side
+next to the mod under test, in the game's load order (one mod at a time,
+`mod.info` `require=` respected). The mod and its dependencies now load the
+same way: per mod, not interleaved by path. Boot reports carry `mods`,
+`modErrors` and `activeMods`. Full design: `docs/lua-mods.md`. MP sessions
+are now stopped when the dashboard exits and after 30 idle minutes; `pztest
+down` sweeps everything.

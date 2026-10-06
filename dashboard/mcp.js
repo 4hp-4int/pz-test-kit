@@ -158,8 +158,12 @@ const TOOLS = [
   {
     name: "mp_start",
     description: "SousVide MP: boot a multiplayer session for a mod -- a server side (separate JVM, GameServer.server, loads shared+server like a dedi, fires OnServerStarted) and N client sides (load shared+client+server, fire OnGameStart/OnCreatePlayer), each with its player identity (cook1..cookN). Packets between them cross the Pass (the dashboard) as real TableNetworkUtils bytes. Returns each side's boot report (vanilla deps loaded, mod files run, start-event errors).",
-    inputSchema: { type: "object", properties: { mod: MOD, clients: { type: "number", description: "1-4 (default 1)" } }, required: ["mod"] },
-    run: async (a) => mp(a.mod, "start", { clients: a.clients || 1 }),
+    inputSchema: { type: "object", properties: {
+      mod: MOD, clients: { type: "number", description: "1-4 (default 1)" },
+      full: { type: "boolean", description: "load EVERY vanilla file of each side's folders in game order, not just the classes the mod names (default: false; true when lua_mods is given)" },
+      lua_mods: { type: "array", items: { type: "string" }, description: "other mods whose Lua (and scripts) run on every side too: 'workshop:<id>/<folder>' or a path. Load order as listed, then the mod's dependencies, then the mod, each mod moved after the mods its mod.info require= names. The interop smoke test (docs/lua-mods.md). Each side's boot report: mods (files loaded/failed per mod), modErrors (mod files that failed and mod listeners that threw at a start event; vanilla's headless noise left out), activeMods." },
+    }, required: ["mod"] },
+    run: async (a) => mp(a.mod, "start", { clients: a.clients || 1, full: a.full, luaMods: a.lua_mods }),
   },
   {
     name: "mp_eval",

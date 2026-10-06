@@ -288,10 +288,15 @@ function luaLit(v) {
   return "{" + Object.entries(v).map(([k, x]) => "[" + luaLit(k) + "]=" + luaLit(x)).join(",") + "}";
 }
 
-function killTree(proc) {
+// sync: from an exit handler, where an async spawn never runs (the
+// dashboard used to leave every VM behind on Windows when it exited)
+function killTree(proc, sync) {
   if (!proc || proc.exitCode !== null) return;
-  if (process.platform === "win32") spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"]);
-  else proc.kill();
+  if (process.platform === "win32") {
+    const args = ["/pid", String(proc.pid), "/T", "/F"];
+    if (sync) { try { require("child_process").spawnSync("taskkill", args, { stdio: "ignore" }); } catch (_) {} }
+    else spawn("taskkill", args);
+  } else proc.kill();
 }
 
 class Bridge {
@@ -302,6 +307,8 @@ class Bridge {
     this.ctx = ctx;
     this.role = (opts && opts.role) || null;
     this.index = (opts && opts.index) || 0;
+    // other mods whose Lua runs in this VM too (--lua-mod; docs/lua-mods.md)
+    this.luaMods = (opts && Array.isArray(opts.luaMods)) ? opts.luaMods.filter(Boolean) : [];
     this.state = "idle";        // idle | booting | loading | ready | dead
     this.bootLog = [];
     this.error = null;
@@ -323,6 +330,7 @@ class Bridge {
     const pztest = path.join(this.ctx.KIT, "pztest");
     const flags = workbenchConfig(this.mod).engine ? ["--bridge", "--engine"] : ["--bridge"];
     if (this.role) flags.push("--role", this.role, ...(this.role === "client" ? ["--client-index", String(this.index)] : []));
+    for (const m of this.luaMods) flags.push("--lua-mod", m);
     this.proc = spawn(this.ctx.bashPath(), [pztest, ...flags], { cwd: this.mod.root });
     let buf = "";
     this.proc.stdout.on("data", (chunk) => {
@@ -484,15 +492,33 @@ function bridgeFor(mod, ctx) {
   return b;
 }
 
+// An MP session is two or more JVMs; one left open overnight held ~4 GB.
+// Idle means no side has been called (mp_eval, a check step, a pump).
+const MP_IDLE_MS = 30 * 60 * 1000;
 setInterval(() => {
   for (const b of bridges.values()) {
     if (b.state === "ready" && !b.current && Date.now() - b.lastUsed > IDLE_MS) b.stop();
   }
+  for (const [id, s] of mp.sessions) {
+    const sides = s.sides().map(([, b]) => b);
+    const last = Math.max(...sides.map((b) => b.lastUsed || 0));
+    if (s.state === "ready" && sides.every((b) => !b.current) && Date.now() - last > MP_IDLE_MS) {
+      console.log("[workbench] MP session " + id + " idle " + Math.round((Date.now() - last) / 60000) + " min: stopped");
+      s.stop();
+      mp.sessions.delete(id);
+    }
+  }
 }, 30 * 1000).unref();
 
-const cleanup = () => { for (const b of bridges.values()) if (b.proc) killTree(b.proc); };
+// Every VM this dashboard started, single and MP sides alike. A hard kill of
+// the dashboard runs none of this; the VMs then exit on their own when their
+// stdin closes (KahluaTestRunner.bridgeMode), and `pztest down` sweeps the rest.
+const cleanup = () => {
+  for (const b of bridges.values()) if (b.proc) killTree(b.proc, true);
+  for (const s of mp.sessions.values()) for (const [, b] of s.sides()) if (b.proc) killTree(b.proc, true);
+};
 process.on("exit", cleanup);
-for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { cleanup(); process.exit(0); });
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) process.on(sig, () => { cleanup(); process.exit(0); });
 
 // ── HTTP ───────────────────────────────────────────────────────────────────
 function json(res, code, body) {

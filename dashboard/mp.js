@@ -181,11 +181,15 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
       // order (LoadDirBase), instead of only the classes the mod names
       // (opt-in: it surfaces a long tail of unexposed Java the targeted mode
       // never touches -- docs/sousvide-mp.md)
-      this.full = !!(opts && opts.full === true);
+      // luaMods: other mods whose Lua runs on every side too (the interop
+      // smoke test, docs/lua-mods.md). Third-party code assumes every
+      // vanilla file has run, so they mean full mode unless told otherwise.
+      this.luaMods = (opts && Array.isArray(opts.luaMods)) ? opts.luaMods.filter(Boolean) : [];
+      this.full = opts && opts.full != null ? opts.full === true : this.luaMods.length > 0;
       this.n = Math.max(1, Math.min(4, clients || 1));
-      this.server = new Bridge(mod, ctx, { role: "server" });
+      this.server = new Bridge(mod, ctx, { role: "server", luaMods: this.luaMods });
       this.clients = [];
-      for (let i = 1; i <= this.n; i++) this.clients.push(new Bridge(mod, ctx, { role: "client", index: i }));
+      for (let i = 1; i <= this.n; i++) this.clients.push(new Bridge(mod, ctx, { role: "client", index: i, luaMods: this.luaMods }));
       this.queue = [];
       this.log = [];
       this.seq = 0;
@@ -317,7 +321,7 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
     }
     status() {
       return {
-        mod: this.mod.id, state: this.state, error: this.error || null, clients: this.n, hold: this.hold, full: this.full,
+        mod: this.mod.id, state: this.state, error: this.error || null, clients: this.n, hold: this.hold, full: this.full, luaMods: this.luaMods,
         queued: this.queue.length, packets: this.seq, boot: this.boot,
         sides: this.sides().map(([name, b]) => ({ side: name, state: b.state, error: b.error, bootMs: b.bootMs || null })),
       };
@@ -326,7 +330,12 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
 
   function sessionFor(mod, ctx, clients, opts) {
     let s = sessions.get(mod.id);
-    if (!s || s.state === "dead" || (clients && clients !== s.n && s.state !== "ready")) {
+    // a different setup replaces a session that is not running yet; a ready
+    // one is never torn down under whoever is using it (mp_status stop first)
+    const want = opts && Array.isArray(opts.luaMods) ? opts.luaMods.join(";") : null;
+    const differs = s && ((clients && clients !== s.n) || (want !== null && want !== s.luaMods.join(";"))
+      || (opts && opts.full != null && (opts.full === true) !== s.full));
+    if (!s || s.state === "dead" || (differs && s.state !== "ready")) {
       if (s) s.stop();
       s = new Session(mod, ctx, clients, opts);
       sessions.set(mod.id, s);
@@ -342,7 +351,7 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
     try {
       if (action === "start" && req.method === "POST") {
         const body = await readBody(req);
-        const s = sessionFor(mod, ctx, body.clients, { full: body.full });
+        const s = sessionFor(mod, ctx, body.clients, { full: body.full, luaMods: body.luaMods });
         await s.start();
         json(res, 200, s.status());
         return true;
