@@ -110,6 +110,14 @@ function sendClientCommand(...) end
 function syncItemModData(...) end
 function syncHandWeaponFields(...) end
 function syncItemFields(...) end
+-- The item-container wire globals (LuaManager GlobalObject): real PZ sends
+-- only on a client or a server and does nothing in SP. Missing here, any
+-- vanilla timed action that moves an item (ISUpgradeWeapon:complete removes the
+-- attached part with sendRemoveItemFromContainer) died in pztest while it
+-- worked in the dashboard, which defines them. Fixtures.networkSpy replaces
+-- them to record calls.
+function sendAddItemToContainer(...) end
+function sendRemoveItemFromContainer(...) end
 -- triggerEvent(name, ...) — fire every listener registered on Events[name].
 -- Matches real PZ's dispatch semantics so tests that verify whether a shim
 -- or handler actually invokes listeners (not just fires a side-effect) can
