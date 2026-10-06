@@ -50,6 +50,8 @@ local result = {
     profile     = profile,
     sigs        = {},   -- [Type] = { params, vararg, vanillaParams, vanilla, replicates }
     hooks       = {},   -- ["Type.field"] = origin ("file load" | event name)
+    globals     = {},   -- [name] = true: global functions vanilla's files defined here
+    globalHooks = {},   -- [name] = origin: those globals the mod replaced
     loadErrors  = {},   -- array of "name: message"
     eventErrors = {},   -- array of "Event: message"
     vanillaFiles = 0,
@@ -125,6 +127,12 @@ for _, rel in ipairs(vanillaRels) do
         end
     end
 end
+-- Global functions before vanilla runs: whatever vanilla defines or replaces
+-- below is a vanilla global (forceDropHeavyItems, isForceDropHeavyItem...).
+local preVanillaFns = {}
+for k, v in pairs(_G) do
+    if type(k) == "string" and type(v) == "function" then preVanillaFns[k] = v end
+end
 for _, rel in ipairs(vanillaRels) do
     local name = requireName(rel)
     if toLoad[rel] then
@@ -139,6 +147,18 @@ for _, rel in ipairs(vanillaRels) do
 end
 
 -- ── 3. Snapshot ────────────────────────────────────────────────────────────
+
+-- Vanilla's global functions. SaucedCarts 2.1.21-2.1.22 wrapped
+-- forceDropHeavyItems (ForceDropGuard) from OnGameStart only; in MP the
+-- server runs it (ClientCommands.lua:643), so on a dedi the cleanup flag and
+-- the dupe guard were both missing. Class hooks never covered a global.
+local vanillaGlobalFns = {}
+for k, v in pairs(_G) do
+    if type(k) == "string" and type(v) == "function" and preVanillaFns[k] ~= v then
+        vanillaGlobalFns[k] = v
+        result.globals[k] = true
+    end
+end
 
 local function isTimedAction(name, v)
     if type(v) ~= "table" or rawget(v, "Type") ~= name then return false end
@@ -175,6 +195,9 @@ end
 -- ── 4 + 5. The mod, then the boot events, recording hooks as they appear ───
 
 local function collectHooks(origin)
+    for name, fn in pairs(vanillaGlobalFns) do
+        if _G[name] ~= fn and not result.globalHooks[name] then result.globalHooks[name] = origin end
+    end
     for name, snap in pairs(vanilla) do
         local class = _G[name]
         if class ~= snap.class then

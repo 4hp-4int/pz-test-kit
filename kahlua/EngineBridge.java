@@ -78,6 +78,10 @@ public final class EngineBridge {
         "zombie.characters.IsoGameCharacter",
         "zombie.characters.IsoPlayer",
         "zombie.characters.IsoZombie",   // PZEngine.newZombie (event lab)
+        // The server's authoritative gate for every vanilla item transfer
+        // (ItemTransactionPacket -> isConsistent, all Java-internal calls):
+        // MP probes ask it directly what a dedi would accept.
+        "zombie.core.TransactionManager",
         // Vanilla logs through it (DebugType.ClientCommand:noise(...) in
         // server/ClientCommands.lua, before it dispatches); the game exposes
         // it (LuaManager.java:1877). Unexposed, every vanilla client command

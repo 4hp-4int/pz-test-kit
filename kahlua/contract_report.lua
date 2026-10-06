@@ -24,7 +24,10 @@
       animEvent), on an action that replicates. The usual cause is
       installing from OnGameStart/OnLoad/OnPreMapLoad, none of which a dedi
       fires. Hooks on client-only methods (perform, start, update, stop, ...)
-      are listed as a note, not a failure.
+      are listed as a note, not a failure. Vanilla GLOBAL functions follow
+      the same rule (a global the dedi's vanilla also defines, wrapped in SP,
+      never on a dedi): SaucedCarts' forceDropHeavyItems guard slipped
+      through when only classes were checked.
 
     Silence a deliberate case with, in pz-test.lua:
         contract_allow = { "ISFooAction.complete", "ISBarAction.new" }
@@ -129,7 +132,18 @@ for _, key in ipairs(sortedKeys(spHooks)) do
         end
     end
 end
-local nHooks = #sortedKeys(spHooks)
+-- Vanilla global functions get the same rule: wrapped in SP, present on a
+-- dedi (its vanilla defines it too), never wrapped there. Which machine calls
+-- a global can't be read off it, so every dedi-side vanilla global counts;
+-- list deliberate client-only wrappers in contract_allow by name.
+local spGlobals, dediGlobals = R.sp.globalHooks or {}, R.dedi.globalHooks or {}
+for _, name in ipairs(sortedKeys(spGlobals)) do
+    if not dediGlobals[name] and not allow[name] and (R.dedi.globals or {})[name] then
+        missing[#missing + 1] = string.format("%s (global function): installed in SP by %s, never on a dedicated server",
+            name, spGlobals[name])
+    end
+end
+local nHooks = #sortedKeys(spHooks) + #sortedKeys(spGlobals)
 if #missing > 0 then
     missing[#missing + 1] = "(a dedi fires OnGameBoot, OnInitWorld, OnInitGlobalModData, OnServerStarted -- "
         .. "never OnGameStart/OnLoad/OnPreMapLoad/OnConnected; install from one it fires, or list the hook in "

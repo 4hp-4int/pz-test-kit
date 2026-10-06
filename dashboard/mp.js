@@ -216,6 +216,16 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
           const folders = name === "server" ? ["shared", "server"] : ["shared", "client", "server"];
           let vanilla = [];
           try { if (pzLua && fs.existsSync(pzLua)) vanilla = vanillaFor(files, folders, pzLua); } catch (_) {}
+          // The vanilla end of the wire, always: the Pass delivers commands to
+          // OnClientCommand / OnServerCommand, and in game vanilla's own
+          // dispatcher is always listening there (server/ClientCommands.lua
+          // handles player/onDropHeavyItem, object/*, vehicle/*, ...). A mod
+          // never names it, so the class scan above never picks it.
+          const endpoint = name === "server" ? "server/ClientCommands.lua" : "client/ServerCommands.lua";
+          if (pzLua && fs.existsSync(path.join(pzLua, endpoint))) {
+            const f = endpoint.replace(/\.lua$/, "");
+            if (!vanilla.includes(f)) vanilla.push(f);
+          }
           let ui = { sources: [], skip: [] };
           if (name !== "server") { try { ui = uiLayer(pzLua && fs.existsSync(pzLua) ? pzLua : null); } catch (_) {} }
           if (name !== "server" && ui.skip.length) vanilla = vanilla.filter((f) => !ui.skip.includes(f.split("/").slice(1).join("/")));
