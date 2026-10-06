@@ -79,7 +79,9 @@ local function newLedger()
     -- kills = OnZombieDead events seen; deaths = zombies the arena saw die.
     -- They should match; a gap means the death event did not reach Lua.
     return { swings = 0, hits = 0, kills = 0, deaths = 0, damage = 0, crits = 0, staggers = 0, knockdowns = 0, fires = 0,
-             wearRolls = 0, conditionLost = 0, staminaSpent = 0, misses = 0, corpsesSkipped = 0, broke = false, events = {}, errors = {} }
+             wearRolls = 0, conditionLost = 0, staminaSpent = 0, misses = 0, corpsesSkipped = 0, broke = false,
+             shots = 0, shotHits = 0, shotMisses = 0, jams = 0, reloads = 0, ammoUsed = 0, hitChanceSum = 0,
+             sounds = 0, soundRadiusSum = 0, soundRadiusMax = 0, events = {}, errors = {} }
 end
 
 function Arena.new(opts)
@@ -177,6 +179,22 @@ function Arena:alive()
     return out
 end
 
+local function soundMark()
+    local _, n = PZEngine.sounds(1e9)
+    return n or 0
+end
+local function takeSounds(self, rec, since)
+    local list = PZEngine.sounds(since) or {}
+    local L = self.ledger
+    rec.sounds = {}
+    for _, snd in ipairs(list) do
+        rec.sounds[#rec.sounds + 1] = snd.radius
+        L.sounds = L.sounds + 1
+        L.soundRadiusSum = L.soundRadiusSum + snd.radius
+        if snd.radius > L.soundRadiusMax then L.soundRadiusMax = snd.radius end
+    end
+end
+
 local function dist(p, z)
     local dx, dy = z:getX() - p:getX(), z:getY() - p:getY()
     return math.sqrt(dx * dx + dy * dy)
@@ -193,6 +211,7 @@ function Arena:swing(opts)
     local p, w, L = self.player, self.weapon, self.ledger
     local rec = { n = L.swings + 1, targets = {}, events = {}, kills = 0, crit = false }
     self.current = rec
+    local mark = soundMark()
     asServer(self, function()
         L.swings = L.swings + 1
         if not self.opts.fatigue then pcall(function() p:getStats():set(CharacterStat.ENDURANCE, 1.0) end) end
@@ -237,6 +256,15 @@ function Arena:swing(opts)
             local loc, locErr = PZEngine.meleeHitLocation(z, w, partHit, 0, false, dmgSplit)
             if loc then dmgSplit = loc elseif locErr then L.errors[#L.errors + 1] = "hitLocation: " .. tostring(locErr) end
             t.split, t.rangeDel = dmgSplit, rangeDel
+            -- the swing's own noise, as attackCollisionCheck makes it per target (:1110-1120)
+            pcall(function()
+                p:addWorldSoundUnlessInvisible(8, 8, false)
+                if ZombRand(3) ~= 0 then
+                    if ZombRand(7) == 0 then p:addWorldSoundUnlessInvisible(16, 16, false) end
+                else
+                    p:addWorldSoundUnlessInvisible(10, 10, false)
+                end
+            end)
             if self.mode == "sp" then PZEngine.setServer(false) end
             local dealt, hitErr = PZEngine.hit(z, w, p, dmgSplit, false, rangeDel)
             if self.mode == "sp" then PZEngine.setServer(true) end
@@ -272,12 +300,158 @@ function Arena:swing(opts)
             if rec.broke then break end
         end
     end)
+    takeSounds(self, rec, mark)
     self.current = nil
     self.records[#self.records + 1] = rec
     if #self.records > 2000 then table.remove(self.records, 1) end
     if opts.after then opts.after(rec, self) end
     return rec
 end
+
+-- ---------------------------------------------------------------------------
+-- FIREARMS: one shot, vanilla's way.
+--   ready     a jam is cleared and an empty gun reloaded instantly (the
+--             player's rack/reload stand-in), both counted
+--   sound     ISReloadWeaponAction.attackHook: soundRadius x FirearmNoiseMultiplier,
+--             halved indoors, addWorldSoundUnlessInvisible(radius, volume)
+--   ammo/jam  ISReloadWeaponAction.onShoot (OnWeaponSwingHitPoint): chamber,
+--             ammo, and the REAL jam roll (HandWeapon.checkJam); vanilla's own
+--             onShoot runs instead when it is loaded
+--   hit       CombatManager.calculateHitChanceData (the game's to-hit chance),
+--             calculateCritChance, Rand(min,max), processHit (body part),
+--             applyRangeHitLocationDamage, IsoZombie.Hit
+--   wear      one roll per SHOT, after the targets (CombatManager:1224-1225)
+--   rack      rack-after-shoot guns (shotguns) chamber the next round and
+--             roll the jam, as ISRackFirearm does
+-- ---------------------------------------------------------------------------
+local function noiseMult()
+    return try(function() return getSandboxOptions():getOptionByName("FirearmNoiseMultiplier"):getValue() end) or 1
+end
+
+function Arena:shoot(opts)
+    opts = opts or {}
+    local p, w, L = self.player, self.weapon, self.ledger
+    local rec = { n = L.shots + 1, gun = true, targets = {}, events = {}, kills = 0, crit = false }
+    self.current = rec
+    local mark = soundMark()
+    asServer(self, function()
+        L.shots = L.shots + 1
+        L.swings = L.swings + 1
+        if not self.opts.fatigue then pcall(function() p:getStats():set(CharacterStat.ENDURANCE, 1.0) end) end
+        local per = try(function() return w:getAmmoPerShoot() end) or 1
+        -- ready the gun
+        if w:isJammed() then w:setJammed(false); rec.unjammed = true end
+        if w:haveChamber() and not w:isRoundChambered() and w:getCurrentAmmoCount() >= per then
+            w:setRoundChambered(true); w:setCurrentAmmoCount(w:getCurrentAmmoCount() - per)
+        end
+        local empty = (w:haveChamber() and not w:isRoundChambered()) or ((not w:haveChamber()) and w:getCurrentAmmoCount() < per)
+        if empty then
+            w:setCurrentAmmoCount(w:getMaxAmmo())
+            if w:haveChamber() then w:setRoundChambered(true); w:setCurrentAmmoCount(w:getMaxAmmo() - per) end
+            L.reloads = L.reloads + 1; rec.reloaded = true
+        end
+        -- the shot's sound
+        local radius = w:getSoundRadius() * noiseMult()
+        if not (try(function() return p:isOutside() end) or false) then radius = radius * 0.5 end
+        pcall(function() p:addWorldSoundUnlessInvisible(radius, w:getSoundVolume(), true) end)
+        rec.radius = radius
+        if triggerEvent then triggerEvent("OnWeaponSwing", p, w) end
+        -- ammo + jam
+        local ammo0 = w:getCurrentAmmoCount() + ((w:haveChamber() and w:isRoundChambered()) and per or 0)
+        local vanillaShoot = ISReloadWeaponAction and ISReloadWeaponAction.onShoot
+        if not vanillaShoot then
+            if w:haveChamber() then w:setRoundChambered(false); w:setSpentRoundChambered(true) end
+            if not w:isRackAfterShoot() then
+                if not w:isManuallyRemoveSpentRounds() then w:setSpentRoundChambered(false) end
+                if w:getCurrentAmmoCount() >= per then
+                    if w:haveChamber() then w:setRoundChambered(true) end
+                    w:setCurrentAmmoCount(w:getCurrentAmmoCount() - per)
+                    if w:getJamGunChance() > 0 then w:checkJam(p, false) end
+                end
+            end
+            if w:isManuallyRemoveSpentRounds() then w:setSpentRoundCount(w:getSpentRoundCount() + per) end
+        end
+        if triggerEvent then triggerEvent("OnWeaponSwingHitPoint", p, w) end
+        local ammo1 = w:getCurrentAmmoCount() + ((w:haveChamber() and w:isRoundChambered()) and per or 0)
+        if ammo0 > ammo1 then L.ammoUsed = L.ammoUsed + (ammo0 - ammo1) end
+        if w:isJammed() then L.jams = L.jams + 1; rec.jammed = true end
+        -- targets in range
+        local maxRange = try(function() return w:getMaxRange(p) end) or w:getMaxRange()
+        local cand = {}
+        for _, z in ipairs(self:alive()) do
+            local d = dist(p, z)
+            if d <= maxRange + 0.0001 then cand[#cand + 1] = { z = z, d = d } end
+        end
+        table.sort(cand, function(a, b) return a.d < b.d end)
+        if #cand == 0 then L.misses = L.misses + 1; return end
+        local cm = CombatManager.getInstance()
+        local hcd, hcErr = PZEngine.call(cm, "calculateHitChanceData", p, w, nil)
+        local chance = hcd and PZEngine.field(hcd, "hitChance") or nil
+        if not chance then L.errors[#L.errors + 1] = "hitChance: " .. tostring(hcErr); chance = w:getHitChance() end
+        rec.hitChance = chance
+        L.hitChanceSum = L.hitChanceSum + chance
+        local critChance = try(function() return p:calculateCritChance(cand[1].z) end) or 0
+        if opts.forceCrit ~= nil then rec.crit = opts.forceCrit else rec.crit = ZombRand(100) < critChance end
+        rec.critChance = critChance
+        L.critChanceSum = (L.critChanceSum or 0) + critChance
+        p:setCriticalHit(rec.crit)
+        if rec.crit then L.crits = L.crits + 1 end
+        local maxHit = try(function() return w:getMaxHitCount() end) or 1
+        local rangeDel = ((try(function() return w:isRangeFalloff() end)) and 1 or 0.5) * 2
+        local hitAny = false
+        for i = 1, math.min(maxHit, #cand) do
+            local z = cand[i].z
+            if ZombRand(100) < chance then
+                hitAny = true
+                local t = { hp0 = z:getHealth() }
+                local dmg = w:getMinDamage() + (w:getMaxDamage() - w:getMinDamage()) * ZombRandFloat(0, 1)
+                local part = try(function() return cm:processHit(w, p, z) end)
+                if part then
+                    local loc, locErr = PZEngine.call(cm, "applyRangeHitLocationDamage", z, w, part, dmg)
+                    if loc then dmg = loc elseif locErr then L.errors[#L.errors + 1] = "rangeLocation: " .. tostring(locErr) end
+                end
+                if self.mode == "sp" then PZEngine.setServer(false) end
+                local _, hitErr = PZEngine.hit(z, w, p, dmg, false, rangeDel)
+                if self.mode == "sp" then PZEngine.setServer(true) end
+                if hitErr and not tostring(hitErr):find("IsoDeadBody", 1, true) then L.errors[#L.errors + 1] = "hit: " .. tostring(hitErr) end
+                if triggerEvent then triggerEvent("OnWeaponHitXp", p, w, z, dmg, 1) end
+                t.hp1, t.dead = z:getHealth(), z:isDead()
+                t.dealt = t.hp0 - t.hp1
+                if t.dead and t.hp0 > 0 then L.deaths = L.deaths + 1 end
+                t.stagger = try(function() return z:isStaggerBack() end) or false
+                t.knockdown = try(function() return z:isKnockedDown() end) or false
+                t.fire = try(function() return z:isOnFire() end) or false
+                L.hits = L.hits + 1; L.shotHits = L.shotHits + 1
+                L.damage = L.damage + math.max(0, t.dealt)
+                if t.stagger then L.staggers = L.staggers + 1 end
+                if t.knockdown then L.knockdowns = L.knockdowns + 1 end
+                if t.fire then L.fires = L.fires + 1 end
+                rec.targets[#rec.targets + 1] = t
+            end
+        end
+        if not hitAny then L.shotMisses = L.shotMisses + 1 end
+        -- wear: one roll per shot
+        local c0 = w:getCondition()
+        pcall(function() w:damageCheck(0, 1.0, false, true, p) end)
+        L.wearRolls = L.wearRolls + 1
+        if w:getCondition() < c0 then L.conditionLost = L.conditionLost + (c0 - w:getCondition()) end
+        if w:getCondition() <= 0 then L.broke = true; rec.broke = true end
+        -- rack-after-shoot (shotguns): chamber the next round, roll the jam
+        if w:isRackAfterShoot() and w:getCurrentAmmoCount() >= per and not w:isJammed() then
+            w:setSpentRoundChambered(false)
+            w:setRoundChambered(true); w:setCurrentAmmoCount(w:getCurrentAmmoCount() - per)
+            if w:getJamGunChance() > 0 then w:checkJam(p, false) end
+            if w:isJammed() then L.jams = L.jams + 1; rec.jammed = true end
+        end
+    end)
+    takeSounds(self, rec, mark)
+    self.current = nil
+    self.records[#self.records + 1] = rec
+    if #self.records > 2000 then table.remove(self.records, 1) end
+    if opts.after then opts.after(rec, self) end
+    return rec
+end
+
 
 -- swing until `swings` swings (or `kills` kills), keeping `keep` zombies standing
 function Arena:fight(opts)
@@ -289,7 +463,7 @@ function Arena:fight(opts)
             if a < keep then self:spawn(keep - a, opts.spawn) end
         end
         if #self:alive() == 0 and not keep then break end
-        self:swing(opts)
+        if self.weapon:isRanged() then self:shoot(opts) else self:swing(opts) end
         if opts.kills and self.ledger.kills >= opts.kills then break end
         if self.ledger.broke then break end
     end
@@ -304,6 +478,9 @@ function Arena:summary()
     s.conditionMax = self.weapon:getConditionMax()
     s.swingsPerKill = L.kills > 0 and (math.floor(L.swings / L.kills * 100 + 0.5) / 100) or nil
     s.damagePerHit = L.hits > 0 and (math.floor(L.damage / L.hits * 1000 + 0.5) / 1000) or 0
+    s.soundRadiusMean = L.sounds > 0 and (math.floor(L.soundRadiusSum / L.sounds * 100 + 0.5) / 100) or 0
+    s.hitRate = L.shots > 0 and (math.floor(L.shotHits / L.shots * 1000 + 0.5) / 1000) or nil
+    s.jamRate = L.shots > 0 and (math.floor(L.jams / L.shots * 10000 + 0.5) / 10000) or nil
     return s
 end
 

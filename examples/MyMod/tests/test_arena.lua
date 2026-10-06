@@ -52,4 +52,25 @@ tests["arena_same_seed_same_fight"] = function()
     return Assert.equal(key(a), key(b), "replays exactly")
 end
 
+tests["arena_pistol_fires_reloads_and_is_heard"] = function()
+    local A = PZTestKit.Arena.new{ weapon = "Base.Pistol", seed = 9 }
+    A:spawn(3, { distance = 2 })
+    local s = A:fight{ swings = 200, keep = 3, spawn = { distance = 2 } }
+    local radius = A.weapon:getSoundRadius()
+    A:close()
+    if not Assert.equal(#s.errors, 0, "no engine errors: " .. table.concat(s.errors, "; ")) then return false end
+    if not Assert.equal(s.ammoUsed, s.shots, "one round per shot") then return false end
+    if not Assert.isTrue(s.reloads > 0 and s.deaths > 0, "it reloads and kills") then return false end
+    if not Assert.isTrue(s.hitRate > 0.3 and s.hitRate < 0.8, "the game's to-hit chance decides hits (~50%): " .. tostring(s.hitRate)) then return false end
+    return Assert.equal(s.soundRadiusMax, radius, "the shot is heard at the weapon's sound radius (outdoors)")
+end
+
+tests["arena_shotgun_hits_several_and_racks"] = function()
+    local A = PZTestKit.Arena.new{ weapon = "Base.Shotgun", seed = 9 }
+    A:spawn(3, { distance = 2 })
+    local s = A:fight{ swings = 100, keep = 3, spawn = { distance = 2 } }
+    A:close()
+    return Assert.isTrue(s.shotHits > s.shots, "a shotgun blast hits more than one zombie")
+end
+
 return tests

@@ -1438,7 +1438,11 @@ public final class EngineBridge {
                     Object[] args = new Object[Math.max(0, n - 2)];
                     for (int i = 0; i < args.length; i++) args[i] = frame.get(i + 2);
                     java.lang.reflect.Method pick = null; Object[] conv = null;
-                    for (java.lang.reflect.Method m : obj.getClass().getMethods()) {
+                    java.util.List<java.lang.reflect.Method> cands = new java.util.ArrayList<>(java.util.Arrays.asList(obj.getClass().getMethods()));
+                    // then private/protected ones up the hierarchy (the engine keeps
+                    // whole pipeline steps private: CombatManager.calculateHitChanceData)
+                    for (Class<?> k = obj.getClass(); k != null; k = k.getSuperclass()) cands.addAll(java.util.Arrays.asList(k.getDeclaredMethods()));
+                    for (java.lang.reflect.Method m : cands) {
                         if (!m.getName().equals(name) || m.getParameterCount() != args.length) continue;
                         Class<?>[] pt = m.getParameterTypes();
                         Object[] c = new Object[args.length];
@@ -1463,6 +1467,7 @@ public final class EngineBridge {
                         if (ok) { pick = m; conv = c; break; }
                     }
                     if (pick == null) throw new NoSuchMethodException(obj.getClass().getName() + "." + name + "/" + args.length);
+                    pick.setAccessible(true);
                     Object r = pick.invoke(obj, conv);
                     frame.push(r instanceof Number num && !(r instanceof Double) ? (Object) num.doubleValue() : r);
                     frame.push(null);
@@ -1489,6 +1494,41 @@ public final class EngineBridge {
                     frame.push(false); frame.push(describeDeep(ite.getCause() != null ? ite.getCause() : ite)); return 2;
                 } catch (Throwable t) { frame.push(false); frame.push(describeDeep(t)); return 2; }
                 return 1;
+            });
+            // A static field by class name (Kahlua reads no fields, static or not):
+            // PZEngine.static("zombie.WorldSoundManager", "instance").
+            pzEngine.rawset("static", (JavaFunction) (frame, n) -> {
+                try {
+                    java.lang.reflect.Field f = findField(cls(String.valueOf(frame.get(0))), String.valueOf(frame.get(1)));
+                    Object v = f.get(null);
+                    frame.push(v instanceof Number num ? (Object) num.doubleValue() : v);
+                } catch (Throwable t) { frame.push(null); frame.push(describeDeep(t)); return 2; }
+                return 1;
+            });
+            // World sounds emitted since index `since` (WorldSoundManager.instance
+            // .soundList; headless nothing ages them out, so the list only grows):
+            // returns { {x,y,z,radius,volume,player}, ... }, newCount. This is how
+            // "did the weapon get louder or quieter" is read: the radius the game
+            // actually put into the world, which zombies hear.
+            pzEngine.rawset("sounds", (JavaFunction) (frame, n) -> {
+                try {
+                    Object wsm = cls("zombie.WorldSoundManager").getField("instance").get(null);
+                    java.util.List<?> list = (java.util.List<?>) findField(wsm.getClass(), "soundList").get(wsm);
+                    int since = n > 0 && frame.get(0) instanceof Number num ? num.intValue() : 0;
+                    KahluaTable out = platform.newTable();
+                    int k = 1;
+                    for (int i = Math.max(0, since); i < list.size(); i++) {
+                        Object ws = list.get(i);
+                        KahluaTable t = platform.newTable();
+                        for (String fld : new String[] { "x", "y", "z", "radius", "volume" }) {
+                            t.rawset(fld, ((Number) findField(ws.getClass(), fld).get(ws)).doubleValue());
+                        }
+                        t.rawset("player", findField(ws.getClass(), "sourceIsPlayer").get(ws));
+                        out.rawset(k++, t);
+                    }
+                    frame.push(out); frame.push((double) list.size());
+                } catch (Throwable t) { frame.push(null); frame.push(describeDeep(t)); return 2; }
+                return 2;
             });
             pzEngine.rawset("wireRoundTrip", (JavaFunction) (frame, n) -> {
                 Object[] saved = wireSave(frame.get(0));
