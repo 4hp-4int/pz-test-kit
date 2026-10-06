@@ -78,6 +78,11 @@ public final class EngineBridge {
         "zombie.characters.IsoGameCharacter",
         "zombie.characters.IsoPlayer",
         "zombie.characters.IsoZombie",   // PZEngine.newZombie (event lab)
+        // Vanilla logs through it (DebugType.ClientCommand:noise(...) in
+        // server/ClientCommands.lua, before it dispatches); the game exposes
+        // it (LuaManager.java:1877). Unexposed, every vanilla client command
+        // died on its log line.
+        "zombie.debug.DebugType",
         // The Arena (headless combat): the damage pipeline's own steps and its
         // tunables (CombatManager.attackCollisionCheck's per-target maths,
         // applyMeleeEnduranceLoss, the CombatConfig multipliers).
@@ -221,6 +226,18 @@ public final class EngineBridge {
         "zombie.scripting.objects.XuiLayoutScript",
         "zombie.scripting.objects.XuiSkinScript",
         "zombie.vehicles.VehicleEngineRPM",
+        // Vehicles as the game exposes them (LuaManager.java:2437, :2445): a
+        // BaseVehicle built from its script has its parts and their
+        // containers (trunk, glovebox, seats) without entering the physics
+        // world -- enough for every container rule (hasRoomFor's empty-seat
+        // exemption, ItemContainer.java:243-247; TransactionManager's
+        // vehicle branches).
+        "zombie.vehicles.BaseVehicle",
+        "zombie.vehicles.VehiclePart",
+        // Its parts are built by the private createParts() when a vehicle
+        // enters the world; VehicleParts.createParts()/initParts() (public,
+        // via getParts()) do the same without physics.
+        "zombie.vehicles.VehicleParts",
         // Entities (LuaManager.java:1885-1889, 1940): workstation crafts build an
         // IsoObject entity from its script and hand HandcraftLogic its CraftBench.
         "zombie.entity.ComponentType",
@@ -883,6 +900,47 @@ public final class EngineBridge {
             }
             return 1;
         });
+        // Script types the boot leaves out (the ALLOWLIST above), on demand:
+        // every file was already PARSED at boot, so their buckets hold the
+        // blocks; this runs the load pass boot skipped for them
+        // (ScriptManager.loadScripts(Init, types)). For tests that need, e.g.,
+        // real vehicles: loadScriptTypes("VehicleTemplate,Vehicle"), then
+        // BaseVehicle.new(cell):setScriptName/setScript + getParts():
+        // createParts(). Returns (ms) or (nil, error).
+        pzEngine.rawset("loadScriptTypes", (JavaFunction) (frame, n) -> {
+            try {
+                long t0 = System.currentTimeMillis();
+                Class<?> stC = cls("zombie.scripting.ScriptType");
+                java.util.EnumSet set = java.util.EnumSet.noneOf((Class) stC);
+                for (String t : String.valueOf(frame.get(0)).split(",")) {
+                    if (t.isBlank()) continue;
+                    set.add(Enum.valueOf((Class) stC, t.trim()));
+                }
+                Class<?> smC = cls("zombie.scripting.ScriptManager");
+                Object sm = smC.getField("instance").get(null);
+                Class<?> modeC = cls("zombie.scripting.ScriptLoadMode");
+                Method load = smC.getDeclaredMethod("loadScripts", modeC, java.util.EnumSet.class);
+                load.setAccessible(true);
+                // Loaded the way a dedicated server loads them: VehicleScript.Loaded
+                // hands every vehicle's shape to the Bullet natives unless
+                // GameServer.server (VehicleScript.java:538-540), and headless has
+                // no natives (UnsatisfiedLinkError: Bullet.defineVehicleScript).
+                java.lang.reflect.Field srv = cls("zombie.network.GameServer").getField("server");
+                boolean wasServer = srv.getBoolean(null);
+                srv.setBoolean(null, true);
+                try {
+                    load.invoke(sm, enumConst(modeC, "Init"), set);
+                } finally {
+                    srv.setBoolean(null, wasServer);
+                }
+                frame.push((double) (System.currentTimeMillis() - t0));
+            } catch (Throwable t) {
+                frame.push(null);
+                frame.push(describe(t));
+                return 2;
+            }
+            return 1;
+        });
         // The game's debug script reload (ScriptManager.ReloadScripts): clear the
         // named buckets (PreReloadScripts), re-read every script file from disk,
         // run the post-load passes -- an edited craftRecipe/item/entity is picked
@@ -1532,6 +1590,59 @@ public final class EngineBridge {
                     frame.push(out); frame.push((double) list.size());
                 } catch (Throwable t) { frame.push(null); frame.push(describeDeep(t)); return 2; }
                 return 2;
+            });
+            // An engine object through the engine's own byte form, as its network
+            // packet carries it: bytesSave(obj, "save"|"write"|"saveMainFields")
+            // -> base64; bytesLoad(obj, "load"|"read"|"loadMainFields", b64[, int])
+            // calls the method with a ByteBuffer (or ByteBufferWriter/Reader) and,
+            // when it takes one, the int (world version). The MP bench's player
+            // sync packets ride on these (PlayerStatsPacket: Stats.save/load,
+            // SyncPlayerFieldsPacket: CharacterTraits.write/read).
+            pzEngine.rawset("bytesSave", (JavaFunction) (frame, n) -> {
+                try {
+                    Object obj = frame.get(0);
+                    String name = String.valueOf(frame.get(1));
+                    java.nio.ByteBuffer bb = java.nio.ByteBuffer.allocate(1 << 16);
+                    Class<?> bbw = cls("zombie.core.network.ByteBufferWriter");
+                    java.lang.reflect.Method pick = null;
+                    for (java.lang.reflect.Method m : obj.getClass().getMethods()) {
+                        if (m.getName().equals(name) && m.getParameterCount() == 1
+                            && (m.getParameterTypes()[0] == java.nio.ByteBuffer.class || m.getParameterTypes()[0] == bbw)) { pick = m; break; }
+                    }
+                    if (pick == null) throw new NoSuchMethodException(obj.getClass().getName() + "." + name + "(ByteBuffer)");
+                    Object arg = pick.getParameterTypes()[0] == java.nio.ByteBuffer.class ? bb : bbw.getConstructor(java.nio.ByteBuffer.class).newInstance(bb);
+                    pick.invoke(obj, arg);
+                    bb.flip();
+                    byte[] out = new byte[bb.remaining()];
+                    bb.get(out);
+                    frame.push(java.util.Base64.getEncoder().encodeToString(out));
+                } catch (java.lang.reflect.InvocationTargetException ite) {
+                    frame.push(null); frame.push(describeDeep(ite.getCause() != null ? ite.getCause() : ite)); return 2;
+                } catch (Throwable t) { frame.push(null); frame.push(describeDeep(t)); return 2; }
+                return 1;
+            });
+            pzEngine.rawset("bytesLoad", (JavaFunction) (frame, n) -> {
+                try {
+                    Object obj = frame.get(0);
+                    String name = String.valueOf(frame.get(1));
+                    java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(java.util.Base64.getDecoder().decode(String.valueOf(frame.get(2))));
+                    Integer extra = n > 3 && frame.get(3) instanceof Number num ? num.intValue() : null;
+                    Class<?> bbr = cls("zombie.core.network.ByteBufferReader");
+                    java.lang.reflect.Method pick = null;
+                    for (java.lang.reflect.Method m : obj.getClass().getMethods()) {
+                        if (!m.getName().equals(name)) continue;
+                        Class<?>[] pt = m.getParameterTypes();
+                        if (pt.length == 0 || !(pt[0] == java.nio.ByteBuffer.class || pt[0] == bbr)) continue;
+                        if (pt.length == 1 || (pt.length == 2 && pt[1] == int.class && extra != null)) { pick = m; if (pt.length == 2) break; }
+                    }
+                    if (pick == null) throw new NoSuchMethodException(obj.getClass().getName() + "." + name + "(ByteBuffer)");
+                    Object arg = pick.getParameterTypes()[0] == java.nio.ByteBuffer.class ? bb : bbr.getConstructor(java.nio.ByteBuffer.class).newInstance(bb);
+                    if (pick.getParameterCount() == 2) pick.invoke(obj, arg, extra); else pick.invoke(obj, arg);
+                    frame.push(true);
+                } catch (java.lang.reflect.InvocationTargetException ite) {
+                    frame.push(false); frame.push(describeDeep(ite.getCause() != null ? ite.getCause() : ite)); return 2;
+                } catch (Throwable t) { frame.push(false); frame.push(describeDeep(t)); return 2; }
+                return 1;
             });
             pzEngine.rawset("wireRoundTrip", (JavaFunction) (frame, n) -> {
                 Object[] saved = wireSave(frame.get(0));

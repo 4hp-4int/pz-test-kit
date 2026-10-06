@@ -68,6 +68,19 @@ own code, logged and delivered by the dashboard.
 | world item | `transmitCompleteItemToClients`, `transmitRemoveItemFromSquare` | object bytes | add / remove on the square |
 | equip | `sendEquip` | ids | set hands |
 | global ModData | `ModData.transmit` | `TableNetworkUtils` | `OnReceiveGlobalModData` |
+| player stats | `syncPlayerStats(player, mask)` (server only); `mpPlayerTick` every 1 s: the full `PlayerStats` push | `Stats.save` + `BodyDamage.saveMainFields` (all) or the masked values | `Stats.load` / set on the client's player |
+| player health | `mpPlayerTick` every 0.5 s (`PlayerHealthPacket`) | every body part's health | `SetHealth` per part |
+| player body | `mpPlayerTick` every 2 s (`PlayerDamagePacket`) | `BodyDamage.save` | `BodyDamage.load` |
+| body part | `syncBodyPart(part, fields)` (server only) | the fields its mask names (`BD_Health` = 1, `BD_stiffness` = 2^40) | those fields on that part |
+| traits | `sendSyncPlayerFields(player, 2)` (server only, `PF_Traits`) | `CharacterTraits.write` | `CharacterTraits.read` |
+| client stat | `sendPlayerStat(player, stat)` (client) | stat | **refused**: `SyncPlayerStatsPacket` needs `CanModifyBodyStats` |
+
+**The player's state is the server's** (`workbench/83_mp_player.lua`,
+2026-10-06). `mpPlayerTick{seconds}` on the server sends what
+`NetworkPlayerManager.update` sends in that time (health 0.5 s, stats 1 s,
+body 2 s), so a client's write to its own stats, wounds or strain is erased
+the way it is in game. Use it whenever a question is "does this player-state
+change survive in MP".
 
 Delivery is explicit: `pump` delivers everything queued, or one packet at a
 time. **Fault injection** works per packet: hold, drop, duplicate, reorder.
