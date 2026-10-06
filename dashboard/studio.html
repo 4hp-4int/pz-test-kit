@@ -94,6 +94,7 @@ pre.log { background: var(--bg); border: 1px solid var(--line); padding: 6px; fo
     </aside>
   </main>
 </div>
+<script src="/radar.js"></script>
 <script>
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -222,7 +223,7 @@ function renderListen() {
   const head = `<div class="muted" style="margin-bottom:8px">${rows.length} airings${m.profile ? ` · ${esc(m.profile)}, ${esc(m.days)} days` : ""}${m.predecessor ? ` · predecessor ${esc(m.predecessor)} (${esc(m.fate)})` : ""}${m.fidelity != null ? ` · end fidelity ${Math.round(m.fidelity)}` : ""}
     <label style="margin-left:12px"><input type="checkbox" id="why" ${S.why ? "checked" : ""}> show why</label></div>`;
   $("#pane").innerHTML = head + (rows.length ? rows.map((r, i) =>
-    `<div class="row ${i === S.sel ? "sel" : ""}" data-i="${i}"><div class="at">${esc(r.at)}</div><div><div class="txt">${esc(r.text)}</div>${S.why && r.trace ? subjectChips(r.trace) : ""}</div></div>`).join("")
+    `<div class="row ${i === S.sel ? "sel" : ""}" data-i="${i}"><div class="at">${esc(r.at)}</div><div style="display:flex;gap:10px;align-items:center">${r.radar && window.PZRadar ? `<div style="flex:none">${PZRadar.svg(r.radar, null, { size: 64 })}</div>` : ""}<div><div class="txt">${esc(r.text)}</div>${S.why && r.trace ? subjectChips(r.trace) : ""}</div></div></div>`).join("")
     : '<div class="empty">This voice never aired in that life. Try another profile, more days, or sample mode.</div>');
   $("#why").onchange = (e) => { S.why = e.target.checked; renderListen(); };
   $("#pane").querySelectorAll(".row").forEach((el) => el.onclick = () => { S.sel = +el.dataset.i; renderListen(); renderAnatomy(rows[S.sel]); });
@@ -240,7 +241,8 @@ function renderAnatomy(r) {
       <td class="mono">${esc(sl.family || "")}${sl.magnitude != null ? " m" + sl.magnitude : ""}</td><td class="num">${esc(p)}</td></tr>`;
   }).join("");
   const q = Object.entries(r.q || {}).map(([k, v]) => kv(k, typeof v === "number" ? Math.round(v * 100) / 100 : v)).join("");
-  $("#anatomy").innerHTML = `<div style="white-space:pre-wrap;margin-bottom:8px">${esc(r.text)}</div>
+  const radar = r.radar && window.PZRadar ? `<div style="margin-bottom:8px">${PZRadar.svg(r.radar, r.radarBefore || null, { size: 200 })}${r.radar.note ? `<div class="muted" style="font-size:11px">${esc(r.radar.note)}</div>` : ""}</div>` : "";
+  $("#anatomy").innerHTML = radar + `<div style="white-space:pre-wrap;margin-bottom:8px">${esc(r.text)}</div>
     <table>${kv("at", r.at)}${kv("era", tr.era + (tr.eraIdx != null ? " (#" + tr.eraIdx + ")" : ""))}${kv("counter", tr.counter)}${kv("shape", tr.shape)}${kv("magnitude", tr.magnitude)}${kv("eligible subjects", tr.eligible)}${tr.shift ? kv("era shift line", tr.shift) : ""}${q}</table>
     <div class="h">Slots</div><table><tr><th>slot</th><th>fragment</th><th>family</th><th class="num">odds</th></tr>${slots}</table>`;
 }

@@ -966,6 +966,12 @@ async function handle(req, res, url, ctx) {
     fs.createReadStream(path.join(HERE, "studio.html")).pipe(res);
     return true;
   }
+  if (p === "/radar.js") {
+    // Shared polygon chart for Workbench panels ($radar) and Studio rows.
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    fs.createReadStream(path.join(HERE, "radar.js")).pipe(res);
+    return true;
+  }
   if (p === "/uiview/replay.js") {
     res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
     fs.createReadStream(path.join(KIT_ROOT, "uiview", "replay.js")).pipe(res);

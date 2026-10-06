@@ -227,6 +227,7 @@ details > summary { cursor: pointer; color: var(--muted); }
       <pre id="bootLog"></pre></div></div>
   </main>
 </div>
+<script src="/radar.js"></script>
 <script>
 "use strict";
 const $ = (s, el = document) => el.querySelector(s);
@@ -443,6 +444,15 @@ function panelsHtml(panels, before) {
     const was = before ? prev[p.addon + "/" + p.id] : undefined;
     if (p.error) return `<div class="panel"><div class="ph">${esc(p.title)}</div><pre class="fail" style="padding:4px 8px">${esc(p.error)}</pre></div>`;
     const d = p.data;
+    // A panel carrying $radar draws as a polygon chart (radar.js); the "before"
+    // set becomes the dashed ghost, so a change reads as the shape moving.
+    if (d && typeof d === "object" && d.$radar && window.PZRadar) {
+      const wasR = was && was.$radar ? was.$radar : null;
+      return `<div class="panel"><div class="ph">${esc(p.title)} <span class="dim" style="text-transform:none">· ${esc(p.addonName || p.addon)}</span></div>
+        <div style="padding:4px 6px">${PZRadar.svg(d.$radar, wasR, { size: 190 })}</div>
+        ${d.$radar.note ? `<div class="muted" style="font-size:11px;padding:0 8px 4px">${esc(d.$radar.note)}</div>` : ""}
+        <details style="padding:0 8px 4px"><summary class="dim" style="font-size:11px">values</summary>${PZRadar.table(d.$radar, wasR)}</details></div>`;
+    }
     if (typeof d !== "object" || Array.isArray(d)) return `<div class="panel"><div class="ph">${esc(p.title)}</div><div style="padding:3px 8px">${val(d)}</div></div>`;
     const keys = Array.from(new Set([...Object.keys(d), ...Object.keys(was || {})])).sort();
     return `<div class="panel"><div class="ph">${esc(p.title)} <span class="dim" style="text-transform:none">· ${esc(p.addonName || p.addon)}</span></div><table>${keys.map((k) => {
