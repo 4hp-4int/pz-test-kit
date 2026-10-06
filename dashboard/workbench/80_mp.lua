@@ -259,6 +259,12 @@ WB.register("mpBoot", function(a)
     if M.booted then return M.report end
     local clients = math.max(1, tonumber(a.clients) or 1)
 
+    -- The entity system, as the game starts it before any player acts:
+    -- without it setPrimaryHandItem silently does nothing (the Arena found
+    -- this first), so on an MP side a held weapon was never held -- a
+    -- server-side equip, a death holding a weapon, anything reading the hands.
+    if PZEngine.initEntities then pcall(PZEngine.initEntities) end
+
     -- players first: mod files may read getPlayer() at load
     if r == "server" then
         for i = 1, clients do M.players[i] = makePlayer(i) end

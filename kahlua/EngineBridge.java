@@ -100,6 +100,12 @@ public final class EngineBridge {
         // rain/fog/snow intensity are plain reads of its ClimateFloats, so a
         // test sets them with PZEngine.setField on the float's finalValue.
         "zombie.iso.weather.ClimateManager",
+        // Repairs by fixing script (guns, vehicle parts): vanilla ISFixAction
+        // reads FixingManager.getFixes at :new and calls fixItem at complete
+        // (the game exposes all four, LuaManager.java:2077, 2310-2312).
+        "zombie.inventory.FixingManager",
+        "zombie.scripting.objects.Fixing$Fixer",
+        "zombie.scripting.objects.Fixing$FixerSkill",
         // The AI states vanilla ISTimedActionQueue indexes at file load
         // (STATES[ClimbThroughWindowState.instance()] = true; LuaManager.java
         // :1741-1750): unexposed, the queue -- and every timed action an MP
@@ -334,10 +340,20 @@ public final class EngineBridge {
         "zombie.iso.IsoWorld",
         "zombie.iso.IsoChunk",
         "zombie.iso.SpriteDetails.IsoFlagType",
-        // The collections PZ itself exposes; getInputs()/getAllItems() etc.
-        // hand these back and Lua calls :size()/:get() on them.
+        // The collections PZ itself exposes (LuaManager.java:1703-1712);
+        // getInputs()/getAllItems() etc. hand these back and Lua calls
+        // :size()/:get() on them. Only ArrayList and HashMap were here, so
+        // vanilla ISFixAction died on Fixing.getFixers() (a LinkedList).
         "java.util.ArrayList",
+        "java.util.List",
+        "java.util.EnumMap",
         "java.util.HashMap",
+        "java.util.HashSet",
+        "java.util.LinkedHashMap",
+        "java.util.LinkedList",
+        "java.util.Stack",
+        "java.util.Vector",
+        "java.util.Iterator",
     };
 
     public static boolean isBooted() { return booted; }

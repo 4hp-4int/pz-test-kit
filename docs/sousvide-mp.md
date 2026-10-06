@@ -272,6 +272,24 @@ vehicle containers are addressable as world objects; their own packets are
 untested.
 
 
+## MP checks: proofs that run again (2026-10-06)
+
+`mp-check.mjs` turns MP proofs into repeatable checks. A mod keeps scenario
+modules (VorpallySauced: `mpchecks/*.mjs`); each step runs Lua on one side and
+must return a string matching its `expect`; `save` captures a value (an item
+ID) for later steps as `{{key}}`. The runner starts a fresh session, runs the
+steps, always stops the session, and exits non-zero on any failure. It
+**refuses** to run while a session for that mod is already up, so it never
+disturbs one somebody is working in.
+
+    node ../pz-test-kit/mp-check.mjs mpchecks/genome_life.mjs
+
+Engine events raised from Java (OnCharacterDeath, OnZombieDead...) reach mod
+Lua on an MP side only through `PZEngine.forwardEvent`, as the Arena forwards
+its combat events. And each side now starts the entity system at boot
+(`80_mp.lua`): without it `setPrimaryHandItem` silently did nothing, so a held
+weapon was never held on any MP side.
+
 ## Phases
 
 1. **Two burners.** Role boot (flags, game-faithful loading, start events),
