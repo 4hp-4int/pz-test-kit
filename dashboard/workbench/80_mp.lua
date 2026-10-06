@@ -281,6 +281,15 @@ WB.register("mpBoot", function(a)
     end
     installNetwork()
 
+    -- A client shows halos, as in game (HaloTextHelper is a Java class the
+    -- kit does not expose by default). Without it, VPS's upgrade listener
+    -- threw at HaloTextHelper.getColorGreen() and the discovery it records
+    -- next never ran on the bench (found 2026-10-06 by the lua_mods smoke
+    -- test, whose game exposer supplied the class).
+    if r == "client" and rawget(_G, "HaloTextHelper") == nil and PZEngine.expose then
+        pcall(PZEngine.expose, "zombie.characters.HaloTextHelper")
+    end
+
     -- A client's UI layer: uiview's UIMock (clean-room ISUIElement, ISPanel,
     -- ISBaseObject... with vanilla signatures) stands in for the Java UI the
     -- headless VM lacks, so the vanilla UI tree (ISContextMenu,
@@ -309,11 +318,27 @@ WB.register("mpBoot", function(a)
     do
         local baseCore = getCore
         local dedicated = r == "server"
+        -- the engine's own Core, when its class is exposed (lua_mods runs)
+        pcall(function() M.realCore = rawget(_G, "Core") and Core.getInstance and Core.getInstance() or nil end)
         getCore = function()
             local c = baseCore and baseCore()
             return setmetatable({ isDedicated = function() return dedicated end }, { __index = function(_, k)
                 local v = c and c[k]
-                if type(v) == "function" then return function(_, ...) return v(c, ...) end end
+                if type(v) == "function" then
+                    return function(_, ...)
+                        local r = v(c, ...)
+                        if r == nil and M.realCore then
+                            -- the stand-in has no answer (getGameVersion): the real Core's
+                            local ok, rv = pcall(function(...) return M.realCore[k](M.realCore, ...) end, ...)
+                            if ok then return rv end
+                        end
+                        return r
+                    end
+                end
+                if v == nil and M.realCore then
+                    local ok, rv = pcall(function() return M.realCore[k] end)
+                    if ok and type(rv) == "function" then return function(_, ...) return rv(M.realCore, ...) end end
+                end
                 return v
             end })
         end
@@ -419,6 +444,19 @@ WB.register("mpBoot", function(a)
     end
     local loaded, failed, already = 0, {}, 0
     local byMod = {}   -- mod id -> { loaded, failed }
+
+    -- ModRegistries.init: each mod's media/registries.lua (item tags and
+    -- other registries mods name at load: RAF's RAFTags) runs before any Lua
+    local registries = { ran = 0, failed = {} }
+    for _, path in ipairs(rawget(_G, "_pz_mod_registries") or {}) do
+        local p = tostring(path)
+        local src = _pz_read_file(p)
+        local chunk, err = src and (_pz_compile or loadstring)(src, "registries:" .. p)
+        local ok = false
+        if chunk then ok, err = pcall(chunk) end
+        if ok then registries.ran = registries.ran + 1
+        else failed[#failed + 1] = { module = "registries.lua", mod = (p:gsub("\\", "/"):match("/mods/([^/]+)/") or p), err = tostring(err) } end
+    end
     M.modOf = {}       -- require name -> mod id (whose listener an event error came from)
     for _, m in ipairs(order) do M.modOf[m.name] = m.mod end
     local full = { folders = {}, failed = {}, failedCount = 0 }
@@ -510,7 +548,7 @@ WB.register("mpBoot", function(a)
     M.report = { role = r, index = index(), folders = FOLDERS[r], vanilla = vanilla, ui = ui, identityError = M.identityError,
                  requireMisses = M.requireMisses, autoloaded = M.autoloaded, autoloadFailed = M.autoloadFailed,
                  full = M.full and full or nil,
-                 loaded = loaded, alreadyLoaded = already, mods = byMod, modErrors = modErrors, activeMods = rawget(_G, "_pz_active_mods"),
+                 loaded = loaded, alreadyLoaded = already, mods = byMod, modErrors = modErrors, registries = registries, activeMods = rawget(_G, "_pz_active_mods"),
                  failed = failed, events = events, players = names, packets = #M.outbox }
     return M.report
 end)

@@ -40,6 +40,12 @@ public class TestPlatform implements Platform {
 
         MathLib.register(this, env);
         BaseLib.register(env);
+        // The game's platform (J2SEPlatform.setupEnvironment) registers these
+        // too: newrandom() and newarray(). Missing, any mod calling newrandom()
+        // died at load (Gunworks' ItemSpawnCore, and every Guns of Marz file
+        // behind it, found by the lua_mods smoke test 2026-10-06).
+        RandomLib.register(this, env);
+        se.krka.kahlua.test.UserdataArray.register(this, env);
         // 42.20 print routing: BaseLib.print writes to KahluaThread.getOut() (the
         // per-thread stream) AND the static callback. The kit passes System.out to
         // every KahluaThread constructor (null would route to PZ's DebugLogStream,

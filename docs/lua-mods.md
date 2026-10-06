@@ -63,8 +63,43 @@ Each side's report (`mp_start`'s `boot.<side>`):
 | `activeMods` | what `getActivatedMods()` returns, in load order |
 | `failed`, `events`, `full` | the raw lists (vanilla included) |
 
+For a mod's MP checks with other mods beside it: `node mp-check.mjs
+--lua-mods <file.json> <scenarios>` (`--full` for full mode alone, `--keep`
+to inspect the last session afterwards).
+
 Then drive the session with `mp_eval` as usual: equip, hit, kill, open a
 tooltip; any later error is in that call's result.
+
+## What the game provides that the kit had to learn (2026-10-06)
+
+The first smoke run (nine popular mods beside VorpallySauced) failed ~20 files
+per side on kit gaps, not on the mods. Closed, so they no longer hide real
+interop results:
+
+- **The game's exposer.** Under `lua_mods`, the kit runs the game's own
+  `LuaManager.Exposer.exposeAll` into a scratch table and adds every global
+  and class metatable the env still lacks (616 globals, 648 metatables):
+  `BloodBodyPartType`, `BodyLocations`, `HaloTextHelper` and the rest. The
+  kit's stand-ins win. The GlobalObject functions themselves cannot come
+  this way: the real nested class cannot load beside the kit's stub
+  `LuaManager` (see the stub's comment), so `exposeAll` stops there.
+- **`newrandom()` / `newarray()`** (Kahlua's RandomLib and UserdataArray):
+  the game's platform registers them for every env; the kit's did not. Now
+  in `TestPlatform`, for every suite.
+- **`media/registries.lua`**: run per mod before any Lua, as
+  `ModRegistries.init` does (RAF's `RAFTags` live there).
+- **Case-insensitive `require`**: the game finds files case-insensitively
+  (`require("WeaponSystems/utils/RateOfFire")` loads `Utils/`). Every suite.
+- **Other mods' sandbox options** are registered too.
+- **`getFileSeparator()`** stand-in.
+- **`HaloTextHelper` on MP clients** (`PZEngine.expose`), every MP session:
+  without it VPS's upgrade listener threw before recording discoveries, so
+  the genesis wire budget had been measured on a broken path (387 bytes in 4
+  packets; the real cost is 477 in 6).
+
+Still not handled: `mod.info` `loadModAfter=` / `loadModBefore=` (the game
+reads them, `ChooseGameInfo.java:228`); mods reading their own files from
+disk (Bandits' `loadFile`).
 
 ## Limits
 

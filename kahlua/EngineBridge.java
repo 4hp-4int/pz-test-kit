@@ -588,6 +588,11 @@ public final class EngineBridge {
                 if (id == null) id = modIdOf(variants.get(0).getParent());
                 int added = 0;
                 for (Path v : variants) added += collected.addTree(v.resolve("media/scripts"), id);
+                // its sandbox options too (the version folder's, else common/'s)
+                for (int vi = variants.size() - 1; vi >= 0; vi--) {
+                    Path so = variants.get(vi).resolve("media/sandbox-options.txt");
+                    if (Files.exists(so)) { extraSandboxFiles.add(so); break; }
+                }
                 loadedModIds.add(id);
                 log.println("[engine] engine_mods: " + id + " (" + added + " script files from "
                     + variants.stream().map(p -> p.getFileName().toString()).toList() + ")");
@@ -611,9 +616,28 @@ public final class EngineBridge {
             // (initInstance -> SandboxOptions.newCustomOption), as a game load
             // does for every enabled mod. PZEngine.sandboxSet then sets values
             // through the real typed option, min/max enforced.
+            for (Path so : extraSandboxFiles) {
+                try {
+                    Class<?> cso = cls("zombie.sandbox.CustomSandboxOptions");
+                    Object csoInst = cso.getField("instance").get(null);
+                    Method read = cso.getDeclaredMethod("readFile", String.class);
+                    read.setAccessible(true);
+                    read.invoke(csoInst, so.toString());
+                    log.println("[engine] sandbox options read from " + so);
+                } catch (Throwable t) {
+                    Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                    log.println("[engine] sandbox options skipped (" + so + "): " + r);
+                }
+            }
             if (modRoot != null) {
                 try {
                     Path so = modRoot.resolve("media/sandbox-options.txt");
+                    if (!Files.exists(so) && !extraSandboxFiles.isEmpty()) {
+                        // the extra mods' options still need registering
+                        Class<?> cso = cls("zombie.sandbox.CustomSandboxOptions");
+                        Object sbo = cls("zombie.SandboxOptions").getField("instance").get(null);
+                        cso.getMethod("initInstance", cls("zombie.SandboxOptions")).invoke(cso.getField("instance").get(null), sbo);
+                    }
                     if (Files.exists(so)) {
                         Class<?> cso = cls("zombie.sandbox.CustomSandboxOptions");
                         Object csoInst = cso.getField("instance").get(null);
@@ -720,6 +744,67 @@ public final class EngineBridge {
     }
 
     private static List<String> pendingExtraMods = List.of();
+    private static final List<Path> extraSandboxFiles = new ArrayList<>();
+
+    /**
+     * --lua-mod runs: after the kit's own exposure, everything the GAME's
+     * exposer (LuaManager.Exposer.exposeAll: every class it exposes, and the
+     * GlobalObject functions such as newrandom) provides that the env still
+     * lacks. Third-party mods name classes the kit never picked
+     * (BloodBodyPartType, BodyLocations) and die at load on each one. The
+     * kit's own stand-ins win: only missing globals are added. Off for
+     * ordinary suites, whose environment stays exactly what it was.
+     */
+    static boolean fillFromGame = false;
+
+    private static void fillFromGameExposer(KahluaConverterManager manager, Platform platform,
+                                            KahluaTable env, PrintStream log) {
+        try {
+            Class<?> lm = cls("zombie.Lua.LuaManager");
+            java.lang.reflect.Field envField = lm.getField("env");
+            Object prev = envField.get(null);
+            KahluaTable scratch = platform.newTable();
+            String note = "";
+            envField.set(null, scratch);   // exposeAll writes into LuaManager.env
+            try {
+                Class<?> ex = cls("zombie.Lua.LuaManager$Exposer");
+                Object exposer = ex.getConstructor(KahluaConverterManager.class, Platform.class, KahluaTable.class)
+                    .newInstance(manager, platform, scratch);
+                try {
+                    ex.getMethod("exposeAll").invoke(exposer);
+                } catch (Throwable t) {
+                    Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                    note = " (exposeAll stopped early: " + r + ")";
+                }
+            } finally {
+                envField.set(null, prev);
+            }
+            int added = 0, metas = 0;
+            // methods on instances: the exposer registers each class's
+            // metatable in ITS env's __classmetatables, so copy the missing ones
+            Object sm = scratch.rawget("__classmetatables");
+            if (sm instanceof KahluaTable smt) {
+                Object em = env.rawget("__classmetatables");
+                if (!(em instanceof KahluaTable)) { em = platform.newTable(); env.rawset("__classmetatables", em); }
+                KahluaTable emt = (KahluaTable) em;
+                se.krka.kahlua.vm.KahluaTableIterator mi = smt.iterator();
+                while (mi.advance()) {
+                    if (emt.rawget(mi.getKey()) == null) { emt.rawset(mi.getKey(), mi.getValue()); metas++; }
+                }
+            }
+            se.krka.kahlua.vm.KahluaTableIterator it = scratch.iterator();
+            while (it.advance()) {
+                Object k = it.getKey();
+                if ("__classmetatables".equals(k)) continue;
+                if (env.rawget(k) == null) { env.rawset(k, it.getValue()); added++; }
+            }
+            note = " (" + metas + " class metatables)" + note;
+            log.println("[engine] lua mods: " + added + " globals added from the game's exposer" + note);
+        } catch (Throwable t) {
+            Throwable r = t; while (r.getCause() != null) r = r.getCause();
+            log.println("[engine] lua mods: the game's exposer unavailable: " + r);
+        }
+    }
 
     /**
      * The directories whose media/ a mod actually loads from, B42 layout:
@@ -1255,6 +1340,25 @@ public final class EngineBridge {
             }
             for (Class<?> c : classes) exposer.expose(c);
             for (Class<?> c : classes) exposer.exposeLikeJavaRecursively(c, env);
+            if (fillFromGame) fillFromGameExposer(manager, platform, env, log);
+            // PZEngine.expose("zombie.characters.HaloTextHelper"): one more real
+            // class, after boot, for a context that needs it (an MP client side
+            // shows halos; the single VM's VHS player records its own instead).
+            // true when exposed, or nil + the reason.
+            final KitExposer exposerRef = exposer;
+            pzEngine.rawset("expose", (JavaFunction) (frame, n) -> {
+                Object nm = n > 0 ? frame.get(0) : null;
+                if (!(nm instanceof String cn)) { frame.push(null); frame.push("expose: class name expected"); return 2; }
+                try {
+                    Class<?> c = Class.forName(cn, true, loader);
+                    exposerRef.expose(c);
+                    exposerRef.exposeLikeJavaRecursively(c, env);
+                    frame.push(Boolean.TRUE);
+                    return 1;
+                } catch (Throwable t) {
+                    frame.push(null); frame.push(String.valueOf(t)); return 2;
+                }
+            });
 
             // Real minting is ALWAYS on PZEngine.instanceItem — engine test
             // files reach it regardless of what the mod's harness did to the

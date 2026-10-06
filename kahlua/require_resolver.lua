@@ -94,6 +94,20 @@ function require(name)
 
     name = normalize(name)
 
+    -- The game finds files case-insensitively (ZomboidFileSystem keys its
+    -- file map in lower case): require("WeaponSystems/utils/RateOfFire")
+    -- loads Utils/RateOfFire.lua in game, so one spelling is one module here.
+    if _pz_module_sources[name] == nil and _pz_package_loaded[name] == nil then
+        if not _pz_lower_names then
+            _pz_lower_names = {}
+            for k in pairs(_pz_module_sources) do
+                local l = k:lower()
+                if _pz_lower_names[l] == nil then _pz_lower_names[l] = k end
+            end
+        end
+        name = _pz_lower_names[name:lower()] or name
+    end
+
     -- Cache hit
     local cached = _pz_package_loaded[name]
     if cached ~= nil then

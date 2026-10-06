@@ -33,7 +33,10 @@ function isServer() return false end
 function isClient() return true end
 function isCoopHost() return false end
 function getTimestampMs() return 0 end
--- Empty, unless the run loads other mods' Lua (--lua-mods): then the mods
+-- GlobalObject.getFileSeparator (File.separator): mods build config paths with it
+function getFileSeparator() return package and package.config and package.config:sub(1, 1) or "/" end
+
+-- Empty, unless the run loads other mods' Lua (--lua-mod): then the mods
 -- loaded, in load order, shaped like the game's ArrayList<String>.
 function getActivatedMods()
     local ids = rawget(_G, "_pz_active_mods") or {}

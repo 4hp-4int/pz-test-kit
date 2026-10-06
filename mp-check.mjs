@@ -52,8 +52,19 @@ async function runScenario(file) {
     const vars = {};
     let passed = 0, failed = 0;
     console.log(`\n=== ${name} (${mod}, ${sc.clients || 1} client(s)) ===`);
-    const boot = await api(mod, "start", { clients: sc.clients || 1 });
+    const startBody = { clients: sc.clients || 1 };
+    if (luaMods) startBody.luaMods = luaMods;
+    if (full) startBody.full = true;
+    const boot = await api(mod, "start", startBody);
     if (boot.state !== "ready") throw new Error(`session did not start: ${boot.error || boot.state}`);
+    if (luaMods) {
+        // what loaded beside the mod, and what of it broke (vanilla noise apart)
+        for (const [side, b] of Object.entries(boot.boot || {})) {
+            const errs = Array.isArray(b && b.modErrors) ? b.modErrors : [];
+            console.log(`  [mods] ${side}: ${Array.isArray(b && b.activeMods) ? b.activeMods.length : "?"} mods, ${errs.length} mod error(s)` +
+                (errs.length ? ": " + errs.map((e) => `${e.mod} (${e.at})`).join(", ") : ""));
+        }
+    }
     try {
         for (const s of sc.steps) {
             const lua = s.lua.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in vars ? String(vars[k]) : `{{${k}}}`));
@@ -96,14 +107,35 @@ async function runScenario(file) {
             if (ok) passed++; else failed++;
         }
     } finally {
-        await api(mod, "stop", {}).catch(() => {});
+        if (keep) console.log(`  [keep] the session stays up for inspection (mp_pass, mp_eval); stop it with mp_status stop`);
+        else await api(mod, "stop", {}).catch(() => {});
     }
     return { name, passed, failed };
 }
 
-const files = process.argv.slice(2);
+// --lua-mods <file.json>: run every scenario with other mods' Lua loaded too
+// (a JSON array of specs, or {"luaMods": [...]}; docs/lua-mods.md). The
+// interop smoke test: the mod's own checks, with popular mods beside it.
+const argv = process.argv.slice(2);
+let luaMods = null;
+const lmAt = argv.indexOf("--lua-mods");
+if (lmAt >= 0) {
+    const fsMod = await import("node:fs");
+    const j = JSON.parse(fsMod.readFileSync(argv[lmAt + 1], "utf8"));
+    luaMods = Array.isArray(j) ? j : j.luaMods;
+    argv.splice(lmAt, 2);
+}
+// --full: every vanilla file of each side's folders loads first (full mode)
+const fullAt = argv.indexOf("--full");
+const full = fullAt >= 0;
+if (full) argv.splice(fullAt, 1);
+// --keep: leave the (last) session running afterwards, to inspect it
+const keepAt = argv.indexOf("--keep");
+const keep = keepAt >= 0;
+if (keep) argv.splice(keepAt, 1);
+const files = argv;
 if (files.length === 0) {
-    console.error("usage: node mp-check.mjs <scenario.mjs> [...]");
+    console.error("usage: node mp-check.mjs [--lua-mods <file.json>] [--full] [--keep] <scenario.mjs> [...]");
     process.exit(2);
 }
 let total = 0, bad = 0, skipped = 0;

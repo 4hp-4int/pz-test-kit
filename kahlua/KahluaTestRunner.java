@@ -301,6 +301,7 @@ public class KahluaTestRunner {
             }
             // a mod whose Lua runs needs its items too
             for (String sp : luaModSpecs) if (!engineMods.contains(sp)) engineMods.add(sp);
+            EngineBridge.fillFromGame = !luaModSpecs.isEmpty();
             EngineBridge.boot(null, modRoot, engineMods, System.out);
         }
 
@@ -1600,6 +1601,8 @@ public class KahluaTestRunner {
         // every file of every mod in the game's load order (see indexModuleTree)
         final List<LoadEntry> order = new ArrayList<>();
         final List<String> modIds = new ArrayList<>();
+        // each mod's media/registries.lua, in mod order (ModRegistries.init)
+        final List<Path> registries = new ArrayList<>();
         int size() { return byName.size(); }
     }
 
@@ -1671,7 +1674,14 @@ public class KahluaTestRunner {
         }
 
         // the load order
-        for (ModGroup g : groups) idx.modIds.add(g.id());
+        for (ModGroup g : groups) {
+            idx.modIds.add(g.id());
+            // ModRegistries.init: the version folder's registries.lua, else common/'s
+            for (int vi = g.variants().size() - 1; vi >= 0; vi--) {
+                Path r = g.variants().get(vi).resolve("media/registries.lua");
+                if (Files.isRegularFile(r)) { idx.registries.add(r); break; }
+            }
+        }
         for (String ctx : contexts) {
             Map<String, LoadEntry> at = new HashMap<>();   // lower-case rel path -> its entry
             for (ModGroup g : groups) {
@@ -1822,6 +1832,10 @@ public class KahluaTestRunner {
             order.rawset(Double.valueOf(++n), t);
         }
         env.rawset("_pz_mod_load", order);
+        KahluaTable regs = new se.krka.kahlua.j2se.KahluaTableImpl(new java.util.HashMap<>());
+        int ri = 0;
+        for (Path r : idx.registries) regs.rawset(Double.valueOf(++ri), r.toString());
+        env.rawset("_pz_mod_registries", regs);
         // getActivatedMods() lists the mods loaded, only under --lua-mod
         // (suites have always run with it empty)
         if (!luaModSpecs.isEmpty()) {
@@ -1924,6 +1938,8 @@ public class KahluaTestRunner {
             if (!(o instanceof String)) return null;
             Path p = Paths.get((String) o).toAbsolutePath().normalize();
             if (p.startsWith(kit) || p.startsWith(mods) || (pz != null && p.startsWith(pz))) return p;
+            // --lua-mod mods (their registries.lua; a file run by path)
+            for (Path v : luaModVariants) if (p.startsWith(v.toAbsolutePath().normalize())) return p;
             return null;
         };
         env.rawset("_pz_kit_dir", kit.toString().replace('\\', '/'));
