@@ -169,6 +169,16 @@ public class LuaManager {
      * Engine calls to a method not listed here are a NoSuchMethodError at
      * that call: add it from the real class.
      */
+    /** ChooseGameInfo.readModInfo checks a mod's url with it (the game's mod
+     *  registry, filled under --lua-mod). The real body, LuaManager.java:1286. */
+    public static boolean isIndieStoneUrl(String url) {
+        return url != null
+            && (url.equals("https://steamcommunity.com") || url.startsWith("https://steamcommunity.com/")
+                || url.equals("https://projectzomboid.com") || url.startsWith("https://projectzomboid.com/")
+                || url.equals("https://theindiestone.com") || url.startsWith("https://theindiestone.com/")
+                || url.equals("https://pzwiki.net") || url.startsWith("https://pzwiki.net/"));
+    }
+
     public static class GlobalObject {
         public static zombie.core.Core getCore() { return zombie.core.Core.getInstance(); }                         // :6287
         public static String getRecipeDisplayName(String name) { return zombie.core.Translator.getRecipeName(name); } // :7536

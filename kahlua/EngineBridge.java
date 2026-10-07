@@ -422,6 +422,7 @@ public final class EngineBridge {
         try {
             loader.getClass().getMethod("addJar", URL.class)
                 .invoke(loader, pzDir.resolve("projectzomboid.jar").toUri().toURL());
+            bootJar = pzDir.resolve("projectzomboid.jar");
             log.println("[engine] adopted " + pzDir.resolve("projectzomboid.jar"));
 
             // The game seeds its RNGs during boot; entity scripts roll during
@@ -757,6 +758,131 @@ public final class EngineBridge {
      */
     static boolean fillFromGame = false;
 
+    /**
+     * --lua-mod runs: the game's mod registry knows the loaded mods, as a game
+     * load does (ChooseGameInfo.readModInfo per mod folder), so getModInfoByID
+     * answers: Starlit's update check reads its own version through it.
+     */
+    static void registerModInfo(List<Path> modDirs, PrintStream log) {
+        if (!booted) return;
+        int n = 0;
+        for (Path d : modDirs) {
+            try {
+                Object mod = cls("zombie.gameStates.ChooseGameInfo").getMethod("readModInfo", String.class).invoke(null, d.toString());
+                if (mod != null) n++;
+            } catch (Throwable t) {
+                Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                log.println("[engine] lua mods: no mod.info read from " + d + ": " + r);
+            }
+        }
+        log.println("[engine] lua mods: " + n + " mod(s) in the game's mod registry");
+    }
+    private static Path bootJar;
+    private static int fontsLoaded = -1;
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static synchronized int loadFonts(PrintStream log) throws Exception {
+        if (fontsLoaded >= 0) return fontsLoaded;
+        if (bootJar == null) throw new IllegalStateException("no game install");
+        Path fonts = bootJar.getParent().resolve("media/fonts");
+        String txt = Files.readString(fonts.resolve("EN/fonts.txt"));
+        Class<?> tmC = cls("zombie.ui.TextManager");
+        Object tm = tmC.getField("instance").get(null);
+        Object[] enumToFont = (Object[]) tmC.getField("enumToFont").get(tm);
+        Class uiFont = cls("zombie.ui.UIFont");
+        Class<?> acf = cls("zombie.core.fonts.AngelCodeFont");
+        // (fnt, img) with no img: it records the .fnt's own file, which the
+        // page lines resolve against; (fnt, Texture) leaves that null (an NPE)
+        java.lang.reflect.Constructor<?> ctor = acf.getConstructor(String.class, String.class);
+        Method setSdf = acf.getMethod("setSdf", boolean.class);
+        java.util.Map<String, Object> built = new java.util.HashMap<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("font\\s+(\\w+)\\s*\\{([^}]*)\\}").matcher(txt);
+        int n = 0;
+        while (m.find()) {
+            String name = m.group(1), body = m.group(2);
+            java.util.regex.Matcher f = java.util.regex.Pattern.compile("fnt\\s*=\\s*([^,\\s]+)").matcher(body);
+            if (!f.find()) continue;
+            boolean sdf = java.util.regex.Pattern.compile("type\\s*=\\s*sdf", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(body).find();
+            Path fnt = fonts.resolve("EN").resolve(f.group(1));
+            if (!Files.exists(fnt)) fnt = fonts.resolve(f.group(1));
+            if (!Files.exists(fnt)) continue;
+            Object ui;
+            try { ui = Enum.valueOf(uiFont, name); } catch (IllegalArgumentException e) { continue; }
+            Object font = built.get(fnt.toString());
+            if (font == null) {
+                font = ctor.newInstance(fnt.toString().replace(java.io.File.separatorChar, '/'), (String) null);
+                setSdf.invoke(font, sdf);
+                built.put(fnt.toString(), font);
+            }
+            enumToFont[((Enum<?>) ui).ordinal()] = font;
+            n++;
+        }
+        // the convenience fields TextManager.Init sets from the table
+        String[][] fields = { { "font", "Small" }, { "font2", "Medium" }, { "font3", "Large" }, { "font4", "Massive" },
+                              { "main1", "MainMenu1" }, { "main2", "MainMenu2" }, { "intro", "Intro" }, { "handwritten", "Handwritten" } };
+        for (String[] fe : fields) {
+            try {
+                Object v = enumToFont[((Enum<?>) Enum.valueOf(uiFont, fe[1])).ordinal()];
+                if (v != null) tmC.getField(fe[0]).set(tm, v);
+            } catch (Throwable ignored) {}
+        }
+        fontsLoaded = n;
+        log.println("[engine] fonts: " + n + " UI fonts from " + built.size() + " .fnt files (metrics; no textures headless)");
+        return n;
+    }
+    private static ClassLoader gameLuaLoader;
+
+    /**
+     * The game's own LuaManager, Exposer and GlobalObject, in a loader of their
+     * own. The kit's stub LuaManager (stubs/) must stay for the harness (Kahlua
+     * reads its fields), and the REAL GlobalObject cannot load beside it: its
+     * static init touches a private nested class of its nest host, and a stub
+     * host lists no nest members (IllegalAccessError / InnerClasses mismatch).
+     * Here zombie.Lua.LuaManager* is defined from projectzomboid.jar, child-first,
+     * so the nest is whole; every other class (engine singletons, Kahlua) comes
+     * from the kit's loader, shared. Its LuaManager statics (env, thread) are
+     * its own: a global function needing them sees the game's defaults.
+     */
+    private static ClassLoader gameLuaLoader() throws Exception {
+        if (gameLuaLoader != null) return gameLuaLoader;
+        if (bootJar == null) throw new IllegalStateException("no game jar adopted");
+        final java.util.jar.JarFile jar = new java.util.jar.JarFile(bootJar.toFile());
+        gameLuaLoader = new ClassLoader(loader) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (!name.startsWith("zombie.Lua.LuaManager")) return super.loadClass(name, resolve);
+                synchronized (getClassLoadingLock(name)) {
+                    Class<?> c = findLoadedClass(name);
+                    if (c == null) {
+                        java.util.jar.JarEntry e = jar.getJarEntry(name.replace('.', '/') + ".class");
+                        if (e == null) throw new ClassNotFoundException(name);
+                        byte[] b;
+                        try (java.io.InputStream in = jar.getInputStream(e)) { b = in.readAllBytes(); }
+                        catch (java.io.IOException x) { throw new ClassNotFoundException(name, x); }
+                        c = defineClass(name, b, 0, b.length);
+                    }
+                    if (resolve) resolveClass(c);
+                    return c;
+                }
+            }
+        };
+        return gameLuaLoader;
+    }
+
+    /** Add what `from` has and `into` lacks, recursing into tables both have (a package tree). */
+    private static int mergeMissing(KahluaTable into, KahluaTable from, int depth) {
+        if (depth > 12) return 0;
+        int n = 0;
+        se.krka.kahlua.vm.KahluaTableIterator it = from.iterator();
+        while (it.advance()) {
+            Object k = it.getKey(), v = it.getValue();
+            Object have = into.rawget(k);
+            if (have == null) { into.rawset(k, v); n++; }
+            else if (have instanceof KahluaTable ht && v instanceof KahluaTable vt && ht != vt) n += mergeMissing(ht, vt, depth + 1);
+        }
+        return n;
+    }
+
     private static void fillFromGameExposer(KahluaConverterManager manager, Platform platform,
                                             KahluaTable env, PrintStream log) {
         try {
@@ -779,6 +905,29 @@ public final class EngineBridge {
             } finally {
                 envField.set(null, prev);
             }
+            // The global FUNCTIONS (GlobalObject: getModInfoByID, getSteamModeActive,
+            // getPuddlesManager...): exposeAll stops before them here, so take a
+            // REAL GlobalObject from the isolated loader (gameLuaLoader) and hand it
+            // to the kit's own exposer. Its methods are called reflectively, so a
+            // function that needs something headless lacks fails alone, when called.
+            int fns = 0;
+            try {
+                Object go = Class.forName("zombie.Lua.LuaManager$GlobalObject", true, gameLuaLoader())
+                    .getDeclaredConstructor().newInstance();
+                KahluaTable fnScratch = platform.newTable();
+                new LuaJavaClassExposer(manager, platform, fnScratch).exposeGlobalFunctions(go);
+                // every game global function, the ones a kit stand-in shadows too
+                // (the MP bench's getCore falls back to the real Core through it)
+                env.rawset("_pz_game_globals", fnScratch);
+                se.krka.kahlua.vm.KahluaTableIterator fi = fnScratch.iterator();
+                while (fi.advance()) {
+                    if (scratch.rawget(fi.getKey()) == null) { scratch.rawset(fi.getKey(), fi.getValue()); fns++; }
+                }
+                note = note + " (" + fns + " global functions from the game's GlobalObject)";
+            } catch (Throwable t) {
+                Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                note = note + " (global functions unavailable: " + r + ")";
+            }
             int added = 0, metas = 0;
             // methods on instances: the exposer registers each class's
             // metatable in ITS env's __classmetatables, so copy the missing ones
@@ -789,14 +938,26 @@ public final class EngineBridge {
                 KahluaTable emt = (KahluaTable) em;
                 se.krka.kahlua.vm.KahluaTableIterator mi = smt.iterator();
                 while (mi.advance()) {
-                    if (emt.rawget(mi.getKey()) == null) { emt.rawset(mi.getKey(), mi.getValue()); metas++; }
+                    Object have = emt.rawget(mi.getKey());
+                    if (have == null) { emt.rawset(mi.getKey(), mi.getValue()); metas++; }
+                    else if (have instanceof KahluaTable ht && mi.getValue() instanceof KahluaTable st && ht != st) {
+                        // the kit exposed this class with fewer methods (Core: 16):
+                        // add the game's others (its __index), keeping the kit's
+                        if (mergeMissing(ht, st, 0) > 0) metas++;
+                    }
                 }
             }
             se.krka.kahlua.vm.KahluaTableIterator it = scratch.iterator();
             while (it.advance()) {
                 Object k = it.getKey();
                 if ("__classmetatables".equals(k)) continue;
-                if (env.rawget(k) == null) { env.rawset(k, it.getValue()); added++; }
+                Object have = env.rawget(k);
+                if (have == null) { env.rawset(k, it.getValue()); added++; }
+                else if (have instanceof KahluaTable ht && it.getValue() instanceof KahluaTable st && have != st) {
+                    // the package tree (zombie.gameStates.ChooseGameInfo.Mod.class...):
+                    // the kit's own exposure already made `zombie`, so merge into it
+                    added += mergeMissing(ht, st, 0);
+                }
             }
             note = " (" + metas + " class metatables)" + note;
             log.println("[engine] lua mods: " + added + " globals added from the game's exposer" + note);
@@ -1266,6 +1427,54 @@ public final class EngineBridge {
                 f.setBoolean(null, n > 0 && Boolean.TRUE.equals(frame.get(0)));
                 frame.push(prev);
             } catch (Throwable t) { frame.push(null); }
+            return 1;
+        });
+        // PZEngine.loadFonts(): the game's UI fonts, for code that measures or
+        // lays out text in Java (ObjectTooltip asks the font's line height in
+        // its constructor). TextManager.Init's own work, minus what headless
+        // cannot do: media/fonts/EN/fonts.txt read the same way, each font
+        // built from its .fnt with no image (the page textures fail to load and
+        // the font carries on, as the game's own log shows when a page is
+        // missing). Metrics -- line height, glyph widths -- are the real ones.
+        // Returns how many UIFont slots it filled.
+        pzEngine.rawset("loadFonts", (JavaFunction) (frame, n) -> {
+            try { frame.push((double) loadFonts(log)); }
+            catch (Throwable t) { Throwable r = t; while (r.getCause() != null) r = r.getCause(); frame.push(null); frame.push(String.valueOf(r)); return 2; }
+            return 1;
+        });
+        // PZEngine.textRecord(on) / PZEngine.textDraws(): every string the game's
+        // Java drew through a font (the kit's AngelCodeFont, stubs/: the game's
+        // own class plus a recorder), so a headless render can be read: a
+        // tooltip's vanilla rows, labels, values. textDraws() returns
+        // { {text, x, y, r, g, b, a}, ... } and clears the list.
+        pzEngine.rawset("textRecord", (JavaFunction) (frame, n) -> {
+            try {
+                Class<?> f = cls("zombie.core.fonts.AngelCodeFont");
+                f.getField("recording").setBoolean(null, n > 0 && Boolean.TRUE.equals(frame.get(0)));
+                if (n > 0 && Boolean.TRUE.equals(frame.get(0))) ((java.util.List<?>) f.getField("drawn").get(null)).clear();
+                frame.push(Boolean.TRUE);
+            } catch (Throwable t) { frame.push(null); frame.push(String.valueOf(t)); return 2; }
+            return 1;
+        });
+        pzEngine.rawset("textDraws", (JavaFunction) (frame, n) -> {
+            KahluaTable out = frame.getPlatform().newTable();
+            try {
+                @SuppressWarnings("unchecked")
+                java.util.List<Object[]> drawn = (java.util.List<Object[]>) cls("zombie.core.fonts.AngelCodeFont").getField("drawn").get(null);
+                synchronized (drawn) {
+                    int i = 0;
+                    for (Object[] d : drawn) {
+                        KahluaTable row = frame.getPlatform().newTable();
+                        row.rawset("text", d[0]);
+                        row.rawset("x", ((Number) d[1]).doubleValue()); row.rawset("y", ((Number) d[2]).doubleValue());
+                        row.rawset("r", ((Number) d[3]).doubleValue()); row.rawset("g", ((Number) d[4]).doubleValue());
+                        row.rawset("b", ((Number) d[5]).doubleValue()); row.rawset("a", ((Number) d[6]).doubleValue());
+                        out.rawset(Double.valueOf(++i), row);
+                    }
+                    drawn.clear();
+                }
+            } catch (Throwable t) { frame.push(null); frame.push(String.valueOf(t)); return 2; }
+            frame.push(out);
             return 1;
         });
         pzEngine.rawset("modLoaded", (JavaFunction) (frame, n) -> {

@@ -1673,6 +1673,19 @@ public class KahluaTestRunner {
             }
         }
 
+        // under --lua-mod the game's mod registry knows every loaded mod (its
+        // folder: the parent of common/ and 42*/, or the mod itself)
+        if (!luaModSpecs.isEmpty()) {
+            List<Path> dirs = new ArrayList<>();
+            for (ModGroup g : groups) {
+                Path v = g.variants().get(0);
+                String leaf = v.getFileName().toString();
+                Path dir = (leaf.equals("common") || leaf.startsWith("42")) && v.getParent() != null ? v.getParent() : v;
+                if (!dirs.contains(dir)) dirs.add(dir);
+            }
+            EngineBridge.registerModInfo(dirs, System.out);
+        }
+
         // the load order
         for (ModGroup g : groups) {
             idx.modIds.add(g.id());

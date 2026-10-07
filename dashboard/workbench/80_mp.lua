@@ -325,6 +325,10 @@ WB.register("mpBoot", function(a)
         local dedicated = r == "server"
         -- the engine's own Core, when its class is exposed (lua_mods runs)
         pcall(function() M.realCore = rawget(_G, "Core") and Core.getInstance and Core.getInstance() or nil end)
+        -- under lua_mods the game's own getCore (_pz_game_globals) is the real Core
+        if not M.realCore then
+            pcall(function() local gg = rawget(_G, "_pz_game_globals"); M.realCore = gg and gg.getCore and gg.getCore() or nil end)
+        end
         getCore = function()
             local c = baseCore and baseCore()
             return setmetatable({ isDedicated = function() return dedicated end }, { __index = function(_, k)

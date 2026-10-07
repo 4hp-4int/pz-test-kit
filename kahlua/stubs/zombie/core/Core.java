@@ -152,4 +152,21 @@ public class Core {
     // value is a client display option (Core.java:4522). Missing, every
     // recipe with an xpAward died mid-craft after creating its outputs.
     public boolean getOptionShowCraftingXP() { return false; }
+
+    // Client display options and colours that mods read at load (2026-10-07,
+    // the tooltip gauntlet: Starlit's Colour.lua and InventoryUI.lua died on
+    // these). Real defaults (Core.java:169-170, :231). The colours are made on
+    // first use, so a run without the game jar never touches ColorInfo.
+    private String optionTooltipFont = "Small";
+    public String getOptionTooltipFont() { return optionTooltipFont; }
+    public void setOptionTooltipFont(String font) { if (font != null) optionTooltipFont = font; }
+    private Object goodHighlitedColor, badHighlitedColor;
+    public zombie.core.textures.ColorInfo getGoodHighlitedColor() {
+        if (goodHighlitedColor == null) goodHighlitedColor = new zombie.core.textures.ColorInfo(0.0F, 1.0F, 0.0F, 1.0F);
+        return (zombie.core.textures.ColorInfo) goodHighlitedColor;
+    }
+    public zombie.core.textures.ColorInfo getBadHighlitedColor() {
+        if (badHighlitedColor == null) badHighlitedColor = new zombie.core.textures.ColorInfo(1.0F, 0.0F, 0.0F, 1.0F);
+        return (zombie.core.textures.ColorInfo) badHighlitedColor;
+    }
 }
