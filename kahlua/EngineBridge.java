@@ -1210,6 +1210,17 @@ public final class EngineBridge {
         return n;
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void addEnumNameConverter(KahluaConverterManager manager, Class<?> enumClass) {
+        manager.addLuaConverter(new se.krka.kahlua.converter.LuaToJavaConverter() {
+            public Class getLuaType() { return String.class; }
+            public Class getJavaType() { return enumClass; }
+            public Object fromLuaToJava(Object lua, Class javaClass) {
+                try { return Enum.valueOf((Class) enumClass, (String) lua); } catch (IllegalArgumentException e) { return null; }
+            }
+        });
+    }
+
     private static void fillFromGameExposer(KahluaConverterManager manager, Platform platform,
                                             KahluaTable env, PrintStream log) {
         try {
@@ -1876,7 +1887,15 @@ public final class EngineBridge {
             }
             for (Class<?> c : classes) exposer.expose(c);
             for (Class<?> c : classes) exposer.exposeLikeJavaRecursively(c, env);
-            if (fillFromGame) fillFromGameExposer(manager, platform, env, log);
+            if (fillFromGame) {
+                fillFromGameExposer(manager, platform, env, log);
+                // On a bench client UIFont is uiview's Lua stand-in (plain strings: "Small"),
+                // which mods pass straight to Java (DrawTextRight(UIFont.Small, ...): TooltipLib's
+                // "[Shift] Details" hint threw). In game it is the Java enum; let a font's NAME
+                // convert to it wherever Java wants a UIFont.
+                try { addEnumNameConverter(manager, cls("zombie.ui.UIFont")); }
+                catch (Throwable t) { log.println("[engine] UIFont name converter unavailable: " + t); }
+            }
             // PZEngine.expose("zombie.characters.HaloTextHelper"): one more real
             // class, after boot, for a context that needs it (an MP client side
             // shows halos; the single VM's VHS player records its own instead).
