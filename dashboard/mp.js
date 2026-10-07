@@ -395,6 +395,14 @@ module.exports = function makeMp({ Bridge, luaLit, json, readBody }) {
           const p = s.queue.shift();
           if (p) { await s.deliver(p); await s.deliver({ ...p, duplicate: true }); }
           r = { duplicated: p ? p.seq : null, queued: s.queue.length };
+        } else if (body.swap) {
+          // Swap the next two queued packets, then deliver both: a reorder
+          // across RakNet ordering channels (order holds only within one;
+          // e.g. Equip rides channel 0, AddInventoryItemToContainer 1).
+          if (s.queue.length >= 2) [s.queue[0], s.queue[1]] = [s.queue[1], s.queue[0]];
+          const swapped = s.queue.slice(0, 2).map((p) => p.seq);
+          r = await s.flush(2);
+          r.swapped = swapped;
         } else {
           r = await s.flush(body.n);
         }
