@@ -287,6 +287,11 @@ WB.register("mpBoot", function(a)
     -- next never ran on the bench (found 2026-10-06 by the lua_mods smoke
     -- test, whose game exposer supplied the class).
     if r == "client" and rawget(_G, "HaloTextHelper") == nil and PZEngine.expose then
+        -- ColorRGB FIRST: the game exposes both (LuaManager :1837-1838), and
+        -- mods build colours with ColorRGB.new; exposing the outer class first
+        -- registers the inner one without its global, and a later expose of it
+        -- returns early (found 2026-10-07: every VPS notification threw there)
+        pcall(PZEngine.expose, "zombie.characters.HaloTextHelper$ColorRGB")
         pcall(PZEngine.expose, "zombie.characters.HaloTextHelper")
     end
 
