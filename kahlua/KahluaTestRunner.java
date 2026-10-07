@@ -1647,6 +1647,8 @@ public class KahluaTestRunner {
         }
         addGroup(groups, seen, List.of(modRoot));
         groups = requiresFirst(groups);
+        // the same order is the one the game mounts mod files and texture packs in
+        { List<List<Path>> mg = new ArrayList<>(); for (ModGroup g : groups) mg.add(g.variants()); EngineBridge.setModGroups(mg); }
 
         // the index: the mod under test first, then dependencies, then lua
         // mods; within a mod its version folder before common/ (it overrides)

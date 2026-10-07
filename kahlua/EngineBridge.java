@@ -830,6 +830,333 @@ public final class EngineBridge {
         log.println("[engine] fonts: " + n + " UI fonts from " + built.size() + " .fnt files (metrics; no textures headless)");
         return n;
     }
+
+    // ------------------------------------------------------------------
+    // Textures, headless (PZEngine.loadTextures)
+    // ------------------------------------------------------------------
+
+    /**
+     * The mods whose files the game would load, in mod order (each entry: a
+     * mod's directories, common/ before its version folder). Set by the runner
+     * from the same groups it builds the Lua load order from (listed --lua-mod
+     * mods, dependencies, the mod under test, require= sorted); null when the
+     * runner never published them (standalone smoke).
+     */
+    static volatile List<List<Path>> modGroupsInLoadOrder;
+    public static void setModGroups(List<List<Path>> groups) { modGroupsInLoadOrder = groups == null ? null : List.copyOf(groups); }
+
+    private static boolean texAssetsWired;
+    private static final Set<String> texRootsMapped = new LinkedHashSet<>();
+    private static final Set<String> texPacksMounted = new LinkedHashSet<>();
+    private static int texLooseFiles, texVanillaSubs, texModSubs;
+    private static boolean texTilesLoaded;
+    static volatile boolean texturesLoaded;
+
+    /** The game's client UI packs (GameWindow.initShared, GameWindow.java:186-192), flags 2. */
+    private static final String[] VANILLA_UI_PACKS = { "UI", "UI2", "IconsMoveables", "RadioIcons", "ApComUI", "Mechanics", "WeatherFx" };
+    /** The world packs at Core.tileScale 2 (GameWindow.enter, GameWindow.java:646-653). Opt-in: Tiles2x alone is 321 MB. */
+    private static final String[] VANILLA_TILE_PACKS = { "Tiles2x", "Overlays2x", "JumboTrees2x", "JumboTreesBigs2x", "Tiles2x.floor",
+                                                         "B42ChunkCaching2x", "B42ChunkCaching2x.floor", "Clock2x" };
+
+    /**
+     * PZEngine.loadTextures: the game's texture lookup, working headless.
+     *
+     * Nothing here builds a Texture. It stands up the state the game's own
+     * lookup reads -- the file map, the mounted packs, the asset managers --
+     * and leaves Texture.getSharedTexture / trygetTexture to build them on
+     * demand, through the same calls they make in game:
+     *
+     *  1. Asset managers: TextureIDAssetManager / TextureAssetManager created
+     *     on GameWindow.assetManagers, as a dedicated server does
+     *     (GameServer.java:1438-1439). Texture's asset constructor asks its
+     *     owner for the file system and the TextureID manager.
+     *  2. The file map: every .png and .pack under vanilla media/ (maps, lua,
+     *     scripts, sound, anims and models skipped) and under each mod's
+     *     directories, in mod order, put in ZomboidFileSystem.activeFileMap
+     *     under the keys ZomboidFileSystem.init / loadMod use (lower-case,
+     *     relative); a later mod's file replaces an earlier one, as in game.
+     *     getString("media/ui/X.png") then answers the absolute path.
+     *  3. Packs: GameWindow.LoadTexturePack(name, flags, modId) -- the real
+     *     one: TexturePackDevice reads every page's sub-texture table
+     *     (name, x, y, w, h, offsets, original size) and skips the PNG bytes.
+     *     Vanilla's UI packs (initShared's list), the world packs when
+     *     tiles = true, then each mod's mod.info pack= lines (loadModPackFiles,
+     *     through ChooseGameInfo.readModInfo). Then
+     *     GameWindow.setTexturePackLookup(); mod packs whose id the game's mod
+     *     list does not hold (headless it holds none) are merged after it, in
+     *     its own order.
+     *  4. Mod folders are added to ZomboidFileSystem's allowed path prefixes
+     *     (in game a mod lives under one of the mod folders, which are on it).
+     *
+     * What never happens: the pixels. A Texture's TextureID load is queued on
+     * the file system (FileSystemImpl.runAsync appends to a list that only
+     * GameWindow's loop, updateAsyncTransactions, ever starts), so no PNG is
+     * decoded and nothing reaches GL or the render thread. The engine is
+     * built for exactly this state -- a texture whose data is still loading:
+     * a pack sub-texture carries its size from the pack's table
+     * (Texture(AssetPath, ...), Texture.java:116-133), and a loose file's
+     * getWidth()/getHeight() read the PNG header (Texture.syncReadSize,
+     * Texture.java:1614).
+     *
+     * Idempotent: roots and packs already done are skipped; a later call with
+     * tiles = true or more mods adds to what is there. Returns the totals.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static synchronized java.util.Map<String, Object> loadTextures(boolean tiles, List<String> extraMods, PrintStream log) throws Exception {
+        if (!booted) throw new IllegalStateException("engine not booted");
+        if (pzInstallDir == null) throw new IllegalStateException("no game install");
+        long t0 = System.currentTimeMillis();
+        Class<?> gw = cls("zombie.GameWindow");
+        Class<?> zfsC = cls("zombie.ZomboidFileSystem");
+        Object zfs = zfsC.getField("instance").get(null);
+        if (!texAssetsWired) {
+            Object managers = gw.getField("assetManagers").get(null);
+            Class<?> amsC = cls("zombie.asset.AssetManagers");
+            Class<?> typeC = cls("zombie.asset.AssetType");
+            Method create = cls("zombie.asset.AssetManager").getMethod("create", typeC, amsC);
+            Class<?> tidM = cls("zombie.core.textures.TextureIDAssetManager");
+            Class<?> texM = cls("zombie.core.textures.TextureAssetManager");
+            Object tidInst = tidM.getField("instance").get(null), texInst = texM.getField("instance").get(null);
+            Method owner = cls("zombie.asset.AssetManager").getMethod("getOwner");
+            if (owner.invoke(tidInst) == null)
+                create.invoke(tidInst, cls("zombie.core.textures.TextureID").getField("ASSET_TYPE").get(null), managers);
+            if (owner.invoke(texInst) == null)
+                create.invoke(texInst, cls("zombie.core.textures.Texture").getField("ASSET_TYPE").get(null), managers);
+            texAssetsWired = true;
+        }
+
+        // the mods, in the game's mod order
+        List<List<Path>> groups = new ArrayList<>();
+        List<List<Path>> published = modGroupsInLoadOrder;
+        if (published != null) groups.addAll(published);
+        else {
+            for (String spec : pendingExtraMods) {
+                List<Path> v = resolveModSpec(pzInstallDir, bootModRoot, spec);
+                if (!v.isEmpty()) groups.add(v);
+            }
+            if (bootModRoot != null) groups.add(List.of(bootModRoot));
+        }
+        for (String spec : extraMods == null ? List.<String>of() : extraMods) {
+            List<Path> v = resolveModSpec(pzInstallDir, bootModRoot, spec);
+            if (v.isEmpty()) { log.println("[engine] textures: mod not found, skipping " + spec); continue; }
+            boolean dup = false;
+            for (List<Path> g : groups) if (g.get(0).toAbsolutePath().normalize().equals(v.get(0).toAbsolutePath().normalize())) dup = true;
+            if (!dup) groups.add(v);
+        }
+
+        // 2. the file map
+        java.util.Map<String, String> active = (java.util.Map<String, String>) zfsC.getField("activeFileMap").get(zfs);
+        texLooseFiles += mapImageFiles(pzInstallDir, active, true);
+        for (List<Path> g : groups) for (Path v : g) texLooseFiles += mapImageFiles(v, active, false);
+
+        // 4. mod folders on the allowed prefixes (validatePrefix guards every texture file read)
+        allowTexturePrefixes(zfsC, zfs, groups, log);
+
+        // 3. packs
+        Method load = gw.getMethod("LoadTexturePack", String.class, int.class, String.class);
+        java.util.List<Object> packs = (java.util.List<Object>) gw.getField("texturePacks").get(null);
+        java.util.List<String> packNames = new ArrayList<>(List.of(VANILLA_UI_PACKS));
+        if (tiles && !texTilesLoaded) packNames.addAll(List.of(VANILLA_TILE_PACKS));
+        int tileFlags = (cls("zombie.core.textures.TextureID").getField("useCompression").getBoolean(null) ? 4 : 0) | 64;
+        for (String p : packNames) {
+            String key = "vanilla:" + p;
+            if (texPacksMounted.contains(key)) continue;
+            boolean tile = List.of(VANILLA_TILE_PACKS).contains(p);
+            int before = packs.size();
+            try {
+                load.invoke(null, p, tile ? (p.endsWith(".floor") ? tileFlags & -5 : tileFlags) : 2, null);
+                texVanillaSubs += packTextureCount(packs, before);
+                texPacksMounted.add(key);
+            } catch (Throwable t) {
+                Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                log.println("[engine] textures: pack " + p + " failed: " + r);
+            }
+        }
+        if (tiles) texTilesLoaded = true;
+        Class<?> cgi = cls("zombie.gameStates.ChooseGameInfo");
+        for (List<Path> g : groups) {
+            Path dir = modFolderOf(g.get(0));
+            String modId = null;
+            for (Path v : g) if (modId == null && Files.exists(v.resolve("mod.info"))) modId = modIdOf(v);
+            if (modId == null) modId = modIdOf(dir);
+            for (Object[] pf : modPacks(cgi, dir, g, log)) {
+                String name = (String) pf[0];
+                String rel = ("media/texturepacks/" + name + ".pack").toLowerCase(java.util.Locale.ENGLISH);
+                String file = active.get(rel);
+                if (file == null) { log.println("[engine] textures: pack file \"" + name + "\" needed by " + modId + " not found"); continue; }
+                if (texPacksMounted.contains(file)) continue;   // ZomboidFileSystem.loadedPacks: one mount per file
+                int before = packs.size();
+                try {
+                    load.invoke(null, name, (int) pf[1], modId);
+                    texModSubs += packTextureCount(packs, before);
+                    texPacksMounted.add(file);
+                } catch (Throwable t) {
+                    Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                    log.println("[engine] textures: pack " + name + " (" + modId + ") failed: " + r);
+                }
+            }
+        }
+        // the lookup GameWindow builds from the mounted packs
+        gw.getMethod("setTexturePackLookup").invoke(null);
+        java.util.List<String> modIds = (java.util.List<String>) zfsC.getMethod("getModIDs").invoke(zfs);
+        java.util.Map<String, Object> lookup = (java.util.Map<String, Object>) gw.getField("texturePackTextures").get(null);
+        Class<?> tpC = cls("zombie.GameWindow$TexturePack");
+        java.lang.reflect.Field tpMod = field(tpC, "modId"), tpTex = field(tpC, "textures");
+        for (int i = packs.size() - 1; i >= 0; i--) {
+            Object tp = packs.get(i);
+            String mid = (String) tpMod.get(tp);
+            if (mid != null && (modIds == null || !modIds.contains(mid))) lookup.putAll((java.util.Map<String, Object>) tpTex.get(tp));
+        }
+        cls("zombie.core.textures.Texture").getMethod("onTexturePacksChanged").invoke(null);
+        texturesLoaded = true;
+
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("loose", (double) texLooseFiles);
+        out.put("vanilla", (double) texVanillaSubs);
+        out.put("mods", (double) texModSubs);
+        out.put("packs", (double) packs.size());
+        out.put("lookup", (double) lookup.size());
+        out.put("tiles", texTilesLoaded);
+        log.println("[engine] textures: " + texLooseFiles + " image files mapped, " + packs.size() + " packs ("
+            + texVanillaSubs + " vanilla + " + texModSubs + " mod sub-textures) in " + (System.currentTimeMillis() - t0) + "ms (sizes; no pixels headless)");
+        return out;
+    }
+
+    /** A mod's folder: the parent of common/ and 42*, or the directory itself. */
+    private static Path modFolderOf(Path variant) {
+        String leaf = variant.getFileName() == null ? "" : variant.getFileName().toString();
+        return (leaf.equals("common") || leaf.startsWith("42")) && variant.getParent() != null ? variant.getParent() : variant;
+    }
+
+    /** Sub-textures in the packs GameWindow.LoadTexturePack appended since {@code before}. */
+    @SuppressWarnings("unchecked")
+    private static int packTextureCount(java.util.List<Object> packs, int before) throws Exception {
+        java.lang.reflect.Field f = field(cls("zombie.GameWindow$TexturePack"), "textures");
+        int n = 0;
+        for (int i = before; i < packs.size(); i++) n += ((java.util.Map<String, Object>) f.get(packs.get(i))).size();
+        return n;
+    }
+
+    /**
+     * The packs a mod's mod.info declares ({name, flags}), as the game reads
+     * them (ChooseGameInfo.readModInfo -> Mod.getPacks). Falls back to the
+     * pack= lines of the mod.info files themselves when readModInfo cannot
+     * read the folder.
+     */
+    private static List<Object[]> modPacks(Class<?> cgi, Path dir, List<Path> variants, PrintStream log) {
+        List<Object[]> out = new ArrayList<>();
+        try {
+            Object mod = cgi.getMethod("readModInfo", String.class).invoke(null, dir.toString());
+            if (mod != null) {
+                for (Object pf : (java.util.List<?>) mod.getClass().getMethod("getPacks").invoke(mod)) {
+                    out.add(new Object[] { pf.getClass().getField("name").get(pf), pf.getClass().getField("flags").getInt(pf) });
+                }
+                return out;
+            }
+        } catch (Throwable t) {
+            Throwable r = t; while (r.getCause() != null) r = r.getCause();
+            log.println("[engine] textures: readModInfo(" + dir + ") failed, reading pack= lines: " + r);
+        }
+        for (int i = variants.size() - 1; i >= 0 && out.isEmpty(); i--) {
+            Path info = variants.get(i).resolve("mod.info");
+            if (!Files.exists(info)) continue;
+            try {
+                for (String line : Files.readAllLines(info)) {
+                    if (!line.contains("pack=")) continue;
+                    String p = line.replace("pack=", "").trim();
+                    int sp = p.indexOf(' ');
+                    out.add(new Object[] { sp < 0 ? p : p.substring(0, sp), 64 });
+                }
+            } catch (Exception ignored) {}
+        }
+        return out;
+    }
+
+    private static final Set<String> TEX_SKIP_DIRS = Set.of("maps", "lua", "scripts", "sound", "anims", "anims_x", "animsets",
+        "models", "models_x", "actiongroups", "radio", "shaders", "fonts", "lotpack", "worldmap");
+
+    /** Put every .png / .pack under root/media in the file map (key: lower-case path relative to root). */
+    private static int mapImageFiles(Path root, java.util.Map<String, String> active, boolean vanilla) throws Exception {
+        Path media = root.resolve("media");
+        String key = media.toAbsolutePath().normalize().toString();
+        if (texRootsMapped.contains(key) || !Files.isDirectory(media)) return 0;
+        texRootsMapped.add(key);
+        int[] n = { 0 };
+        Files.walkFileTree(media, new java.nio.file.SimpleFileVisitor<Path>() {
+            @Override
+            public java.nio.file.FileVisitResult preVisitDirectory(Path d, java.nio.file.attribute.BasicFileAttributes a) {
+                if (d.getParent() != null && d.getParent().equals(media)
+                        && TEX_SKIP_DIRS.contains(d.getFileName().toString().toLowerCase(java.util.Locale.ENGLISH)))
+                    return java.nio.file.FileVisitResult.SKIP_SUBTREE;
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+            @Override
+            public java.nio.file.FileVisitResult visitFile(Path f, java.nio.file.attribute.BasicFileAttributes a) {
+                String lower = f.getFileName().toString().toLowerCase(java.util.Locale.ENGLISH);
+                if (lower.endsWith(".png") || lower.endsWith(".pack")) {
+                    String rel = root.relativize(f).toString().replace('\\', '/').toLowerCase(java.util.Locale.ENGLISH);
+                    active.put(rel, f.toAbsolutePath().normalize().toString());
+                    if (lower.endsWith(".png")) n[0]++;
+                }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+        return n[0];
+    }
+
+    /**
+     * ZomboidFileSystem.validatePrefix refuses any file outside the install,
+     * the cache dir and the mod folders (ZomboidFileSystem.java:66-71,1458);
+     * Texture.getSharedTexture and syncReadSize call it on every file. In game
+     * a mod sits under a mod folder; the kit's mods sit wherever the developer
+     * keeps them, so their folders join the list (the lazy value's own list,
+     * extended once computed).
+     */
+    @SuppressWarnings("unchecked")
+    private static void allowTexturePrefixes(Class<?> zfsC, Object zfs, List<List<Path>> groups, PrintStream log) {
+        try {
+            Object lazy = field(zfsC, "allowedPrefixes").get(zfs);
+            List<Path> have;
+            try { have = (List<Path>) lazy.getClass().getMethod("get").invoke(lazy); }
+            catch (Throwable t) {
+                // getAllModFolders needs a full boot; the install and the cache dir are what the kit uses
+                have = new ArrayList<>();
+                have.add(Path.of(pzInstallDir.toAbsolutePath().toString()));
+            }
+            Method norm = zfsC.getDeclaredMethod("normalizeToPath", String.class);
+            norm.setAccessible(true);
+            List<Path> next = new ArrayList<>(have);
+            for (Path p : new Path[] { pzInstallDir }) {
+                Path np = (Path) norm.invoke(null, p.toAbsolutePath().toString());
+                if (!next.contains(np)) next.add(np);
+            }
+            for (List<Path> g : groups) {
+                Path np = (Path) norm.invoke(null, modFolderOf(g.get(0)).toAbsolutePath().normalize().toString());
+                if (!next.contains(np)) next.add(np);
+            }
+            if (next.size() == have.size()) return;
+            java.lang.reflect.Field value = field(cls("zombie.util.LazyValue"), "value");
+            value.set(lazy, List.copyOf(next));
+        } catch (Throwable t) {
+            Throwable r = t; while (r.getCause() != null) r = r.getCause();
+            log.println("[engine] textures: could not extend allowed prefixes: " + r);
+        }
+    }
+
+    /** Forget the exposer's cached shouldExpose answer for c (cached false before it was listed). */
+    private static void clearExposeCache(LuaJavaClassExposer ex, Class<?> c) {
+        try {
+            java.lang.reflect.Field f = LuaJavaClassExposer.class.getDeclaredField("shouldExposeCache");
+            f.setAccessible(true);
+            ((java.util.Map<?, ?>) f.get(ex)).remove(c);
+        } catch (Throwable ignored) {}
+    }
+
+    /** Texture.getSharedTexture(name) (getTexture), or trygetTexture (tryGetTexture). */
+    static Object texture(String name, boolean tryGet) throws Exception {
+        Class<?> t = cls("zombie.core.textures.Texture");
+        return t.getMethod(tryGet ? "trygetTexture" : "getSharedTexture", String.class).invoke(null, name);
+    }
     private static ClassLoader gameLuaLoader;
 
     /**
@@ -1561,13 +1888,71 @@ public final class EngineBridge {
                 try {
                     Class<?> c = Class.forName(cn, true, loader);
                     exposerRef.expose(c);
+                    clearExposeCache(exposerRef, c);
                     exposerRef.exposeLikeJavaRecursively(c, env);
+                    // an earlier walk that met c as a parameter type left it
+                    // visited; the recursive call then skips it
+                    if (!exposerRef.isExposed(c)) exposerRef.exposeLikeJava(c, env);
                     frame.push(Boolean.TRUE);
                     return 1;
                 } catch (Throwable t) {
                     frame.push(null); frame.push(String.valueOf(t)); return 2;
                 }
             });
+
+            // PZEngine.loadTextures{ tiles = bool, mods = { spec, ... } }: the
+            // game's texture lookup, headless (loadTextures above: file map,
+            // packs, asset managers; sizes, never pixels). Returns
+            // { loose, vanilla, mods, packs, lookup, tiles } or nil + error.
+            // Exposes the real Texture class, and installs the game's
+            // getTexture / tryGetTexture globals when the env has none (uiview's
+            // stand-in asks PZEngine.texture itself once this has run).
+            // PZEngine.texture(name) / PZEngine.tryTexture(name): the game's
+            // Texture.getSharedTexture / trygetTexture -- nil on a server side,
+            // as in game (GameServer.server without a ServerGUI).
+            pzEngine.rawset("loadTextures", (JavaFunction) (frame, n) -> {
+                boolean tiles = false;
+                List<String> mods = new ArrayList<>();
+                Object o = n > 0 ? frame.get(0) : null;
+                if (o instanceof KahluaTable opts) {
+                    tiles = Boolean.TRUE.equals(opts.rawget("tiles"));
+                    if (opts.rawget("mods") instanceof KahluaTable mt) {
+                        for (int i = 1; mt.rawget(i) != null; i++) mods.add(String.valueOf(mt.rawget(i)));
+                    }
+                }
+                try {
+                    java.util.Map<String, Object> res = loadTextures(tiles, mods, log);
+                    Class<?> tc = Class.forName("zombie.core.textures.Texture", true, loader);
+                    if (!exposerRef.isExposed(tc)) {
+                        // not exposeLikeJavaRecursively: an earlier walk that met
+                        // Texture as a parameter type marked it visited (and its
+                        // shouldExpose false, cached), so a recursive call skips it
+                        exposerRef.expose(tc);
+                        clearExposeCache(exposerRef, tc);
+                        exposerRef.exposeLikeJava(tc, env);
+                    }
+                    if (env.rawget("getTexture") == null) env.rawset("getTexture", pzEngine.rawget("texture"));
+                    if (env.rawget("tryGetTexture") == null) env.rawset("tryGetTexture", pzEngine.rawget("tryTexture"));
+                    KahluaTable out = frame.getPlatform().newTable();
+                    for (java.util.Map.Entry<String, Object> e : res.entrySet()) out.rawset(e.getKey(), e.getValue());
+                    frame.push(out);
+                    return 1;
+                } catch (Throwable t) {
+                    Throwable r = t; while (r.getCause() != null) r = r.getCause();
+                    frame.push(null); frame.push(String.valueOf(r)); return 2;
+                }
+            });
+            pzEngine.rawset("texturesLoaded", (JavaFunction) (frame, n) -> { frame.push(texturesLoaded); return 1; });
+            for (String[] tf : new String[][] { { "texture", "" }, { "tryTexture", "try" } }) {
+                final boolean tryGet = !tf[1].isEmpty();
+                pzEngine.rawset(tf[0], (JavaFunction) (frame, n) -> {
+                    Object nm = n > 0 ? frame.get(0) : null;
+                    if (!(nm instanceof String s) || !texturesLoaded) { frame.push(null); return 1; }
+                    try { frame.push(texture(s, tryGet)); }
+                    catch (Throwable t) { frame.push(null); }
+                    return 1;
+                });
+            }
 
             // Real minting is ALWAYS on PZEngine.instanceItem — engine test
             // files reach it regardless of what the mod's harness did to the

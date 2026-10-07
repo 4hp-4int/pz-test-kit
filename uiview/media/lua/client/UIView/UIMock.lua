@@ -487,13 +487,23 @@ function ISUIElement:drawTextZoomed(str, x, y, zoom, r, g, b, a, font)
     pushText(self, str, x, y, r, g, b, a, font, "left", false)
 end
 
+-- a real Texture (engine textures) records by its name; a stand-in by tostring
+local function texName(tex)
+    if tex == nil then return "" end
+    if type(tex) == "userdata" then
+        local ok, n = pcall(function() return tex:getName() end)
+        if ok and n then return n end
+    end
+    return tostring(tex)
+end
+
 local function pushTexture(self, name, x, y, w, h, a, r, g, b, static)
     local c = rgba(r, g, b, a)
     local sx, sy = 0, 0
     if not static then sx, sy = scrollXY(self) end
     local ay, ah = clipY(self, self:getAbsoluteY() + y + sy, h or 0)
     if not ay then return end
-    Recorder.push({ op = "texture", name = name and tostring(name) or "",
+    Recorder.push({ op = "texture", name = texName(name),
         x = self:getAbsoluteX() + x + sx, y = ay, w = w or 0, h = ah,
         r = c.r, g = c.g, b = c.b, a = c.a, el = self._uid })
 end
@@ -536,7 +546,7 @@ function ISUIElement:drawTextureTiled(tex, x, y, w, h, r, g, b, a)
     local sx, sy = scrollXY(self)
     local ay, ah = clipY(self, self:getAbsoluteY() + y + sy, h or 0)
     if not ay then return end
-    Recorder.push({ op = "texture_tiled", name = tex and tostring(tex) or "",
+    Recorder.push({ op = "texture_tiled", name = texName(tex),
         x = self:getAbsoluteX() + x + sx, y = ay, w = w or 0, h = ah,
         -- The source rows already scrolled past are skipped by clipY, so the
         -- pattern has to start from the same phase the untruncated draw would.
@@ -910,9 +920,17 @@ if isKeyDown == nil then function isKeyDown(k) return false end end
 local TEX_SIZES = {}
 pcall(function() TEX_SIZES = require "UIView/TextureSizes" or {} end)
 
+-- ENGINE TEXTURES. Once PZEngine.loadTextures() has run (SousVide), this
+-- answers with the game's own lookup instead: a real
+-- zombie.core.textures.Texture with the real size, or nil for a name the
+-- game does not know, exactly as getTexture does in game. Before that call
+-- (and in plain uiview suites) the stand-in below answers as it always has.
 if getTexture == nil then
     function getTexture(path)
         if not path then return nil end
+        if PZEngine and PZEngine.texturesLoaded and PZEngine.texturesLoaded() then
+            return PZEngine.texture(tostring(path))
+        end
         local base = tostring(path):match("([^/\]+)$") or tostring(path)
         base = base:gsub("%.png$", "")
         local size = TEX_SIZES[base] or TEX_SIZES[tostring(path)]

@@ -202,3 +202,76 @@ Vehicles are not built.
 time survives `storeInByteData` / `loadCorpseFromByteData` on its own; a body
 goes at `age >= HoursForCorpseRemoval` (216 h); at rot stage 3 every tick rolls
 `NextBool(7)` to become a skeleton, and a skeleton lasts one more stage (288 h).
+
+## Fonts and textures, headless (`loadFonts`, `loadTextures`)
+
+UI code reaches Java for two things a headless VM has no renderer for: font
+metrics and textures. Both are the game's own classes, built the way the game
+builds them, minus the GPU.
+
+`PZEngine.loadFonts()` fills `TextManager` from `media/fonts/EN/fonts.txt`
+the way `TextManager.Init` does: real `.fnt` metrics (line height, glyph
+widths), page images left unloaded. `PZEngine.textRecord(on)` /
+`textDraws()` read back every string Java drew.
+
+`PZEngine.loadTextures{ tiles = false, mods = { spec, ... } }` makes the
+game's texture lookup answer: `Texture.getSharedTexture` (the `getTexture`
+global) and `Texture.trygetTexture` (`tryGetTexture`) return real
+`zombie.core.textures.Texture` objects with the right name and size, and for
+a pack sub-texture the pack's rect, offsets and original size. It builds no
+Texture itself; it stands up what the lookup reads and lets the game build
+them on demand:
+
+| step | what | game code it mirrors |
+|---|---|---|
+| asset managers | `TextureIDAssetManager` / `TextureAssetManager` created on `GameWindow.assetManagers` | `GameServer.java:1438-1439` |
+| file map | every `.png` / `.pack` under vanilla `media/` (maps, lua, scripts, sound, anims, models skipped) and under each mod's folders, in mod order, into `ZomboidFileSystem.activeFileMap`; a later mod's file replaces an earlier one | `ZomboidFileSystem.init` / `loadMod` |
+| packs | the real `GameWindow.LoadTexturePack(name, flags, modId)`: `TexturePackDevice` reads each page's sub-texture table and skips the PNG bytes. Vanilla's UI packs (`initShared`'s list), the world packs with `tiles = true`, then each mod's `mod.info` `pack=` lines | `GameWindow.java:186-192, 646-653`; `ZomboidFileSystem.loadModPackFiles` |
+| lookup | `GameWindow.setTexturePackLookup()`, then the mod packs it skips because the game's mod list is empty headless, merged in its own order | `GameWindow.java:866` |
+| prefixes | mod folders join `ZomboidFileSystem`'s allowed prefixes (in game every mod sits under a mod folder, which is on the list) | `ZomboidFileSystem.java:66, 1458` |
+
+Mods = the runner's mod groups in load order (`--lua-mod` mods, the mod's
+`dependencies`, the mod itself), plus `mods` specs (paths relative to the mod
+root, or `workshop:<id>/<folder>`). Returns `{ loose, vanilla, mods, packs,
+lookup, tiles }`: image files mapped, vanilla and mod pack sub-textures,
+packs mounted. Idempotent; a later call with `tiles = true` or more mods
+adds to what is there. Measured: 0.1-0.3 s for the 7 UI packs (7,946 loose
+PNGs, 6,305 sub-textures); `tiles = true` mounts the 8 world packs too
+(46,404 sub-textures in all, 0.35 s).
+
+It also exposes the `Texture` class and installs `getTexture` /
+`tryGetTexture` when the env has none. uiview's stand-in `getTexture` (an
+MP bench client) answers from the engine once it has run: the real texture,
+or nil for a name the game does not know (before it, the stand-in answers
+as it always has). Under `lua_mods` the game's own globals
+(`_pz_game_globals.getTexture`) return the same objects.
+`PZEngine.texture(name)` / `tryTexture(name)` call the lookup directly.
+
+**No pixels, by the engine's own design.** A Texture's data (`TextureID`)
+load is queued on the file system, and `FileSystemImpl.runAsync` only
+appends to a list that `GameWindow`'s loop (`updateAsyncTransactions`) starts.
+Headless nothing starts it: no PNG decoded, nothing reaches GL or the render
+thread. The engine already handles a texture whose data is still loading: a
+pack sub-texture carries its size from the pack table
+(`Texture(AssetPath, ...)`, `Texture.java:116-133`), a loose file's
+`getWidth()` / `getHeight()` read the PNG header (`Texture.syncReadSize`,
+`Texture.java:1614`), and `isReady()` stays false.
+
+**Drawing is safe and draws nothing.** `UIElement.DrawTexture*` (e.g.
+`ObjectTooltip:DrawTextureScaledColor`) reach `SpriteRenderer`, whose state
+drops a texture that is not ready (`SpriteRenderState.render`,
+`if (tex == null || tex.isReady())`): what the game does for one frame while
+a texture loads. No exception, no GL, no queued draw. SauceTooltips' dress
+(`Dress.lua`) resolves all its nine-patches and draws on a real
+`ObjectTooltip` without tripping.
+
+**Limits.** No pixels (`getData`, masks, `isSolid` are not real). A server
+side (`GameServer.server` with no ServerGUI) gets nil, as in game.
+`Texture.getTexture` (the static, not `getSharedTexture`) and `new Texture(path)`
+load synchronously and upload to GL: not supported. Animated textures,
+NinePatchTexture assets and the tile packs' world sprites (`IsoSprite`) are not
+built. Packs a mod ships but does not declare in `mod.info` are not mounted,
+as in game.
+
+Test: `examples/MyMod/tests/test_textures.lua` (a loose PNG, a vanilla pack
+texture, SauceTooltips' `STChrome` pack when the monorepo holds it, Java draws).
