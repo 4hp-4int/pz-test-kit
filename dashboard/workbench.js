@@ -485,6 +485,7 @@ class Bridge {
 
 // SousVide MP (docs/sousvide-mp.md): server + client bridges and the Pass.
 const mp = require("./mp")({ Bridge, luaLit, json, readBody, killTree });
+const live = require("./live");
 
 function bridgeFor(mod, ctx) {
   let b = bridges.get(mod.id);
@@ -1047,6 +1048,8 @@ async function handle(req, res, url, ctx) {
     return true;
   }
   if (p.startsWith("/api/mp/")) return mp.handle(req, res, url, ctx);
+  // SousVide Live: the running dedi through pz-shell (live.js)
+  if (p === "/live" || p === "/live.html" || p.startsWith("/api/live/")) return live.handle(req, res, url);
   if (!p.startsWith("/api/wb/")) return false;
   const parts = p.split("/").filter(Boolean);   // api wb <modId> <action>
 

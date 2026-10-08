@@ -16,6 +16,23 @@ Seven things that collapse the dedi debug loop:
 
 `eval` and `reload` sit on a file-queue protocol between the host CLI (`./pz-shell`) and a tiny server mod (`./mod/`): the mod polls `Zomboid/Lua/pz-shell/queue.lua`, runs whatever lands there through `PZShell.compile()+pcall()`, writes the result to `Zomboid/Lua/pz-shell/result.lua`. `tail` bypasses that — it just `docker exec`s a `tail -F | grep` pipe against the debug log file.
 
+## In the browser: SousVide Live
+
+The dashboard serves a Live page at **http://127.0.0.1:8760/live** (also linked
+from the Workbench header) that drives this same CLI: a Lua console with
+history (Ctrl+Enter runs), every probe in `examples/` as a one-click button,
+puppet buttons, the sync profiler, hot reload, snapshots, arming/disarming the
+gate, and a live log follow (regex-filtered, or one mod's tap stream). Backend:
+`dashboard/live.js` (`/api/live/*`). The MCP server exposes it too:
+`live_status`, `live_eval`, `live_probe`, `live_puppet`.
+
+The page's log follow does NOT use `pz-shell tail`: that command runs `tail -F`
+inside the container through `docker exec`, and killing the client never stops
+it, so every Ctrl+C (or closed page) leaves a tail running in the container.
+The page records the in-container pid and kills exactly that process when the
+stream closes. (Clean up CLI leftovers with
+`docker exec pzserver pkill -f "tail -F /home/steam/Zomboid"`.)
+
 ## Install
 
 ```bash

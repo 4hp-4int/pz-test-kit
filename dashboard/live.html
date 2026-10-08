@@ -1,0 +1,232 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SousVide Live</title>
+<style>
+:root {
+  --bg: #0e1012; --panel: #15181b; --panel2: #1b1f23; --line: #272c31; --line2: #33393f;
+  --text: #d5d8db; --muted: #858c93; --dim: #5d646b;
+  --pass: #5fb36b; --fail: #e0564f; --err: #e0913c; --accent: #d9a441; --link: #7fb2e0;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, "Segoe UI", sans-serif; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); }
+header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 13px; letter-spacing: .14em; margin: 0; color: var(--accent); font-weight: 700; }
+header h1 small { color: var(--muted); letter-spacing: .05em; font-weight: 400; margin-left: 6px; }
+.badge { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border: 1px solid var(--line2); border-radius: 3px; color: var(--muted); white-space: nowrap; }
+.badge.ok { border-color: var(--pass); color: var(--pass); } .badge.bad { border-color: var(--fail); color: var(--fail); } .badge.run { border-color: var(--accent); color: var(--accent); }
+.btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: #17130a; border-color: var(--accent); font-weight: 600; }
+.btn.small { padding: 1px 7px; font-size: 11px; }
+.inp, textarea, select { background: var(--bg); border: 1px solid var(--line2); border-radius: 3px; padding: 3px 7px; }
+.inp:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; padding: 12px; height: calc(100% - 44px); }
+.col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.card h2 { margin: 0; font-size: 11px; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+.card h2 .sp { flex: 1; }
+textarea#code { width: 100%; height: 130px; font-family: var(--mono); font-size: 12px; resize: vertical; }
+.out { background: #0a0d0a; border: 1px solid var(--line); border-radius: 3px; padding: 8px; overflow: auto; font: 12px/1.45 var(--mono); white-space: pre-wrap; min-height: 80px; }
+.entry { border-bottom: 1px dashed var(--line); padding: 4px 0 6px; }
+.entry .q { color: var(--accent); } .entry .e { color: var(--fail); } .entry .t { color: var(--dim); font-size: 10px; }
+#console { flex: 1; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.probes { display: flex; flex-direction: column; gap: 2px; overflow: auto; max-height: 220px; }
+.probe { display: flex; gap: 8px; align-items: baseline; padding: 3px 4px; border-radius: 3px; cursor: pointer; }
+.probe:hover { background: var(--panel2); }
+.probe b { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--link); white-space: nowrap; }
+.probe span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tail { flex: 1; min-height: 160px; }
+#tail .ln { white-space: pre-wrap; }
+#tail .ln.hit { color: var(--accent); }
+.hint { color: var(--dim); font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SOUSVIDE LIVE <small>the running dedi, through pz-shell</small></h1>
+  <span id="dedi" class="badge">dedi ?</span>
+  <span id="gate" class="badge">shell ?</span>
+  <button class="btn small" id="refresh" title="Check the dedi and the shell again">refresh</button>
+  <button class="btn small" id="gateBtn" title="Arm or disarm the pz-shell gate on the server">arm</button>
+  <span style="flex:1"></span>
+  <a class="btn small" href="/workbench" title="The sealed engine VMs">workbench</a>
+  <a class="btn small" href="/">tests dashboard</a>
+</header>
+<main>
+  <div class="col">
+    <div class="card" style="flex: 1">
+      <h2>Lua on the server <span class="sp"></span><span class="hint">Ctrl+Enter runs · return a value to see it</span></h2>
+      <textarea id="code" spellcheck="false">return getNumActivePlayers() .. " online, VPS " .. tostring(VorpallySauced and VorpallySauced.VERSION)</textarea>
+      <div class="row">
+        <button class="btn primary" id="run">run</button>
+        <button class="btn small" id="clear">clear output</button>
+        <span class="hint" id="runState"></span>
+      </div>
+      <div class="out" id="console"></div>
+    </div>
+    <div class="card">
+      <h2>Probes <span class="sp"></span><span class="hint">shell/examples · click to run</span></h2>
+      <div class="probes" id="probes"></div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card">
+      <h2>Puppet a player</h2>
+      <div class="row">
+        <input class="inp mono" id="as" placeholder="player (blank = first online)" style="width: 210px">
+        <button class="btn small" data-p="whoami">whoami</button>
+        <button class="btn small" data-p="inventory">inventory</button>
+        <button class="btn small" data-p="unequip">unequip</button>
+        <button class="btn small" data-p="drop">drop</button>
+        <button class="btn small" data-p="reload">reload gun</button>
+      </div>
+      <div class="row">
+        <input class="inp mono" id="equipType" placeholder="Base.Axe" style="width: 160px"><button class="btn small" data-p="equip" data-arg="equipType">equip</button>
+        <input class="inp mono" id="killsN" placeholder="50" style="width: 60px"><button class="btn small" data-p="credit-kills" data-arg="killsN">credit kills</button>
+        <input class="inp mono" id="dmgN" placeholder="5" style="width: 50px"><button class="btn small" data-p="damage" data-arg="dmgN">damage</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Profile · reload · snapshots</h2>
+      <div class="row">
+        <span class="muted">sync profile</span>
+        <button class="btn small" data-prof="start">start</button>
+        <button class="btn small" data-prof="snap">snap</button>
+        <button class="btn small" data-prof="stop">stop</button>
+      </div>
+      <div class="row">
+        <input class="inp mono" id="module" placeholder="VorpallySauced/FirearmSuffixes" style="width: 260px">
+        <button class="btn small" id="reloadBtn" title="Re-require a module (data/pure logic: listeners would duplicate)">hot reload</button>
+      </div>
+      <div class="row">
+        <input class="inp mono" id="snapName" placeholder="snapshot name" style="width: 160px">
+        <button class="btn small" data-snap="list">list</button>
+        <button class="btn small" data-snap="save">save</button>
+        <button class="btn small" data-snap="show">show</button>
+        <button class="btn small" data-snap="delete">delete</button>
+      </div>
+    </div>
+    <div class="card" style="flex: 1">
+      <h2>Live log
+        <span class="sp"></span>
+        <input class="inp mono" id="tailRe" placeholder="regex, e.g. VorpallySauced|ERROR" style="width: 220px">
+        <input class="inp mono" id="tailMod" placeholder="or a mod tap" style="width: 110px">
+        <button class="btn small" id="tailBtn">follow</button>
+        <button class="btn small" id="tailClear">clear</button>
+      </h2>
+      <div class="out" id="tail"></div>
+    </div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const now = () => new Date().toLocaleTimeString();
+
+async function api(path, body) {
+  const r = await fetch("/api/live/" + path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+
+function show(label, r) {
+  const div = document.createElement("div");
+  div.className = "entry";
+  const out = r.error ? "" : (r.out || "");
+  const err = r.error || ((!r.ok && r.err) ? r.err : "");
+  div.innerHTML = `<div class="t">${esc(now())}</div><div class="q">${esc(label)}</div>` +
+    (out ? `<div>${esc(out)}</div>` : "") + (err ? `<div class="e">${esc(err)}</div>` : "");
+  $("console").prepend(div);
+}
+
+async function status() {
+  $("dedi").textContent = "dedi …"; $("dedi").className = "badge run";
+  try {
+    const s = await api("status");
+    const d = s.dedi.text || "?";
+    $("dedi").textContent = d.split(":")[0] || d;
+    $("dedi").title = d;
+    $("dedi").className = "badge " + (/^READY/.test(d) ? "ok" : /^BOOTING/.test(d) ? "run" : "bad");
+    const g = (s.shell.out + "\n" + s.shell.err);
+    const armed = /enabled|armed|reachable|ok/i.test(g) && !/disabled|not armed|unreachable/i.test(g);
+    $("gate").textContent = armed ? "shell armed" : "shell off";
+    $("gate").title = g.trim();
+    $("gate").className = "badge " + (armed ? "ok" : "bad");
+    $("gateBtn").textContent = armed ? "disarm" : "arm";
+    $("gateBtn").dataset.on = armed ? "0" : "1";
+  } catch (e) { $("dedi").textContent = "dashboard?"; $("dedi").className = "badge bad"; }
+}
+
+async function run() {
+  const code = $("code").value;
+  if (!code.trim()) return;
+  $("runState").textContent = "running…";
+  const r = await api("eval", { code });
+  $("runState").textContent = "";
+  show(code.length > 120 ? code.slice(0, 117) + "…" : code, r);
+}
+
+async function loadProbes() {
+  const list = await api("probes");
+  $("probes").innerHTML = list.map((p) => `<div class="probe" data-name="${esc(p.name)}"><b>${esc(p.name.replace(/\.lua$/, ""))}</b><span>${esc(p.title)}</span></div>`).join("");
+  $("probes").querySelectorAll(".probe").forEach((el) => el.onclick = async () => {
+    el.style.opacity = .5;
+    const r = await api("probe", { name: el.dataset.name });
+    el.style.opacity = 1;
+    show("probe " + el.dataset.name, r);
+  });
+}
+
+document.querySelectorAll("[data-p]").forEach((b) => b.onclick = async () => {
+  const args = b.dataset.arg ? [$(b.dataset.arg).value || $(b.dataset.arg).placeholder] : [];
+  const r = await api("puppet", { action: b.dataset.p, as: $("as").value || undefined, args });
+  show("puppet " + b.dataset.p + (args.length ? " " + args.join(" ") : ""), r);
+});
+document.querySelectorAll("[data-prof]").forEach((b) => b.onclick = async () => show("profile " + b.dataset.prof, await api("profile", { cmd: b.dataset.prof })));
+document.querySelectorAll("[data-snap]").forEach((b) => b.onclick = async () => {
+  const name = $("snapName").value || undefined;
+  show("snapshot " + b.dataset.snap + (name ? " " + name : ""), await api("snapshot", { cmd: b.dataset.snap, name }));
+});
+$("reloadBtn").onclick = async () => { const m = $("module").value || $("module").placeholder; show("reload " + m, await api("reload", { module: m })); };
+$("gateBtn").onclick = async () => { show($("gateBtn").dataset.on === "1" ? "arm the shell" : "disarm the shell", await api("gate", { on: $("gateBtn").dataset.on === "1" })); status(); };
+$("refresh").onclick = status;
+$("run").onclick = run;
+$("clear").onclick = () => { $("console").innerHTML = ""; };
+$("code").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
+
+let es = null;
+function stopTail() { if (es) { es.close(); es = null; } $("tailBtn").textContent = "follow"; }
+$("tailBtn").onclick = () => {
+  if (es) return stopTail();
+  const q = new URLSearchParams();
+  if ($("tailMod").value) q.set("mod", $("tailMod").value); else if ($("tailRe").value) q.set("re", $("tailRe").value);
+  es = new EventSource("/api/live/tail?" + q);
+  $("tailBtn").textContent = "stop";
+  const re = $("tailRe").value ? (() => { try { return new RegExp($("tailRe").value, "i"); } catch (_) { return null; } })() : null;
+  es.onmessage = (m) => {
+    const line = JSON.parse(m.data);
+    const box = $("tail");
+    const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+    const d = document.createElement("div");
+    d.className = "ln" + (/ERROR|STACK TRACE|Exception/.test(line) ? " hit" : "");
+    d.textContent = line;
+    box.appendChild(d);
+    while (box.childNodes.length > 2000) box.removeChild(box.firstChild);
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  };
+  es.onerror = () => stopTail();
+};
+$("tailClear").onclick = () => { $("tail").innerHTML = ""; };
+
+status();
+loadProbes();
+</script>
+</body>
+</html>

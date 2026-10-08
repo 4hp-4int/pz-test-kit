@@ -110,9 +110,48 @@ function runTests(modRoot, only) {
   });
 }
 
+// SousVide Live (live.js): the RUNNING dedi through pz-shell, called directly
+// (no dashboard needed)
+const live = require("./live");
+function liveResult(r) { return r && r.ok === false && r.err ? { ok: false, out: r.out, error: r.err } : { ok: true, out: r.out }; }
+
 // ── tools ───────────────────────────────────────────────────────────────────
 const MOD = { type: "string", description: "Mod id as the dashboard lists it (the `mods` tool), e.g. VorpallySauced, SauceTweaks" };
 const TOOLS = [
+  {
+    name: "live_status",
+    description: "SousVide Live: is the local dedicated server (Docker 'pzserver') up, and is pz-shell armed and its VM responsive? Use before the other live_* tools.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => { const g = await live.shell(["status"]); return { dedi: live.dediStatus().text, shell: g.out || g.err }; },
+  },
+  {
+    name: "live_eval",
+    description: "SousVide Live: run Lua in the RUNNING dedicated server's VM through pz-shell (not a sealed VM). `return` a value to see it; print() output comes back too. Dev-only: real server state, real players.",
+    inputSchema: { type: "object", properties: { lua: { type: "string" } }, required: ["lua"] },
+    run: async (a) => liveResult(await live.shell(["eval", "-"], a.lua)),
+  },
+  {
+    name: "live_probe",
+    description: "SousVide Live: run a canned probe from pz-test-kit/shell/examples on the running dedi (omit `name` to list them with their titles).",
+    inputSchema: { type: "object", properties: { name: { type: "string", description: "e.g. probe-stir-stages.lua" } } },
+    run: async (a) => {
+      const list = live.probes();
+      if (!a.name) return list;
+      if (!list.some((p) => p.name === a.name)) throw new Error("no such probe: " + a.name);
+      return liveResult(await live.shell(["eval", "-f", path.join(__dirname, "..", "shell", "examples", a.name)]));
+    },
+  },
+  {
+    name: "live_puppet",
+    description: "SousVide Live: a server-side player action on the running dedi: equip <FullType>, unequip, inventory, drop, reload, damage <n>, credit-kills <n>, whoami. Acts on the first connected player unless `as` names one.",
+    inputSchema: { type: "object", properties: { action: { type: "string" }, as: { type: "string" }, args: { type: "array", items: { type: "string" } } }, required: ["action"] },
+    run: async (a) => {
+      const args = ["puppet", a.action];
+      if (a.as) args.push("--as", a.as);
+      for (const x of a.args || []) args.push(String(x));
+      return liveResult(await live.shell(args));
+    },
+  },
   {
     name: "mods",
     description: "List the mods SousVide knows (pz-mods monorepo), whether each runs on the real engine, and its VM state.",
