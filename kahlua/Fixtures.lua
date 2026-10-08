@@ -29,7 +29,7 @@ local Fixtures = PZTestKit.Fixtures
 --- Verified against zombie/inventory/types/HandWeapon.java method names.
 ---
 ---@param opts table|nil Overrides: id, isRanged, name, maxDamage, minDamage,
----                      conditionMax, clipSize, maxAmmo, magazineType,
+---                      conditionMax, conditionLowerChance, clipSize, maxAmmo, magazineType,
 ---                      containsClip, sharpness, hasSharpness
 ---@return table mock HandWeapon
 function Fixtures.weapon(opts)
@@ -42,6 +42,7 @@ function Fixtures.weapon(opts)
         minDamage     = opts.minDamage   or 0.5,
         conditionMax  = opts.conditionMax or 10,
         condition     = opts.condition   or (opts.conditionMax or 10),
+        conditionLowerChance = opts.conditionLowerChance or 10,
         clipSize      = opts.clipSize    or 0,
         maxAmmo       = opts.maxAmmo     or 0,
         magazineType  = opts.magazineType or "",
@@ -85,6 +86,8 @@ function Fixtures.weapon(opts)
     w.getCondition    = function(self) return priv.condition end
     w.setCondition    = function(self, v) priv.condition = math.min(v, priv.conditionMax) end
     w.getConditionMax = function(self) return priv.conditionMax end
+    w.getConditionLowerChance = function(self) return priv.conditionLowerChance end
+    w.setConditionLowerChance = function(self, v) priv.conditionLowerChance = v end
     w.setConditionMax = function(self, v)
         priv.conditionMax = v
         if priv.condition > v then priv.condition = v end
