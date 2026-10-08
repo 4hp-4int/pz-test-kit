@@ -103,7 +103,7 @@ async function runScenario(file) {
                     if (m) vars[k] = m[1];
                 }
             }
-            console.log(`  [${ok ? "PASS" : "FAIL"}] ${s.side.padEnd(6)} ${s.name}\n         -> ${text.slice(0, 400)}`);
+            console.log(`  [${ok ? "PASS" : "FAIL"}] ${s.side.padEnd(6)} ${s.name}\n         -> ${process.env.MPCHECK_FULL ? text : text.slice(0, 400)}`);
             if (ok) passed++; else failed++;
         }
     } finally {
