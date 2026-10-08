@@ -725,6 +725,11 @@ end
 function Arena:closeIn()
     local p, w = self.player, self.weapon
     local reach = try(function() return w:getMaxRange(p) end) or try(function() return w:getMaxRange() end) or 1
+    -- stand them where this weapon reaches: a tile away, or closer for a short
+    -- blade (a kitchen knife reaches 0.9; real zombies walk right up to you)
+    local minR = try(function() return w:getMinRange() end) or 0
+    local d = math.max(minR, math.min(1, reach - 0.05))
+    local px, py = p:getX(), p:getY()
     local moved = 0
     asServer(self, function()
         for _, z in ipairs(self:alive()) do
@@ -739,7 +744,7 @@ function Arena:closeIn()
                     if not taken then
                         local sq = self.cell:getGridSquare(x, y, self.at.z)
                         if sq then
-                            pcall(function() z:setX(x + 0.5); z:setY(y + 0.5); z:setCurrent(sq) end)
+                            pcall(function() z:setX(px + o[1] * d); z:setY(py + o[2] * d); z:setCurrent(sq) end)
                             moved = moved + 1
                             break
                         end
