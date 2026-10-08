@@ -95,6 +95,11 @@ local function discoveries()
             ["VorpallySauced.CompendiumLegendsOfBlade"] = true,
         },
         weaponBonds = BONDS,
+        -- the Stir (STIR_JOURNAL.md): a few effects seen in offers, a few carried,
+        -- across all four families, so every state shows on THE STIR's spread
+        stirStudied = { calm = true, stagger = true, decoy = true, nextcrit = true, rangebuff = true },
+        stirWitnessed = { dmgbuff = { hour = 120 }, breath = { hour = 300 }, ignite = { hour = 410 },
+                          unseen = { hour = 512 }, critbuff = { hour = 600 } },
     }
 end
 
@@ -180,6 +185,11 @@ end
 
 function Scene.build()
     installFixtures()
+    -- the Stir on in this world, the zombie-chance family switched off (the page marks it)
+    SandboxVars.VorpallySauced = SandboxVars.VorpallySauced or {}
+    SandboxVars.VorpallySauced.EnableGenome = true
+    SandboxVars.VorpallySauced.StirZombieChance = false
+    require "VorpallySauced/Genome/Families"
     measurePanel()
 
     local host = Host:new(W, H)
@@ -214,6 +224,7 @@ function Scene.build()
         -- exactly why it needs looking at: nothing in a fixture can make it
         -- wrong, and nothing in play will make anyone notice if it is.
         function(p) p.activeTab = 3; p:refresh() end,        -- character
+        function(p) p.openStir = true; p:refresh() end,       -- THE STIR (STIR_JOURNAL.md 4.1)
     }
 
     -- Two across: a spread is too wide for one row.
