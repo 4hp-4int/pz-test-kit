@@ -65,6 +65,14 @@
                0.9 x damageSplit), Fitness +1 while endurance > 0.5, Strength
                +1, Maintenance 2.0 (20 / CLC above CLC 10) half the time,
                through the engine's XP.AddXP (its boosts and level thresholds)
+      strain   per swing, addCombatMuscleStrain's melee formula (mirrored: its
+               melee path needs a live attack animation) handed to the
+               engine's addArmMuscleStrain (both arms when two-handed); arm
+               pain over 10 divides the hit's damage by pain / 10 (max 30,
+               CombatManager:988); stiffness eases 0.002 x 48 a real second.
+               strain = false turns it off. Food: the Hungry / Well Fed
+               moodles are read by nothing in melee; long hunger acts through
+               getRecoveryMod (weight traits, nutrition debt), already in regen
     Arena:life{...} runs encounter after encounter, resting between them,
     until the weapon breaks; it reports kills, swings, time, the skills grown
     and the time spent tired.
@@ -335,9 +343,62 @@ local function regen(self, seconds)
     end)
 end
 
+-- MUSCLE STRAIN (IsoGameCharacter.addCombatMuscleStrain :17126, melee branch).
+-- Its melee path needs isActuallyAttackingWithMeleeWeapon (a live attack
+-- animation), false headless, so the per-swing amount is mirrored here and
+-- handed to the engine's own addArmMuscleStrain / addLeftArmMuscleStrain
+-- (x2.5 x the MuscleStrainFactor sandbox, stiffness on hand, forearm, upper arm).
+local ARM_PARTS = { "Hand_L", "Hand_R", "ForeArm_L", "ForeArm_R", "UpperArm_L", "UpperArm_R" }
+
+local function muscleStrain(self, hitCount)
+    local p, w = self.player, self.weapon
+    if w:isRanged() or not (try(function() return w:isUseEndurance() end) ~= false) then return 0 end
+    if hitCount <= 0 then hitCount = 1 end
+    local both = try(function() return p:isItemInBothHands(w) end) or false
+    local twoHanded = w:isTwoHandWeapon()
+    local oneHandMod = 0
+    if twoHanded and not both then oneHandMod = w:getWeight() / 1.5 / 10; twoHanded = false end
+    local val = (w:getWeight() * 0.15 * (try(function() return w:getEnduranceMod() end) or 1) * 0.3 + oneHandMod) * 4
+    val = val * (hitCount + 1)
+    val = val * (15 - (try(function() return p:getPerkLevel(Perks.Strength) end) or 0)) / 10
+    val = val * (try(function() return w:muscleStrainMod(p) end) or 1)
+    if twoHanded then val = val * 0.5 end
+    val = val * 0.65
+    pcall(function() p:addArmMuscleStrain(val) end)
+    if twoHanded then pcall(function() p:addLeftArmMuscleStrain(val) end) end
+    return val
+end
+
+--- Summed pain of both arms, as the damage chain reads it (CombatManager:990).
+function Arena:armPain()
+    local bd = try(function() return self.player:getBodyDamage() end)
+    if not bd then return 0 end
+    local sum = 0
+    for _, name in ipairs(ARM_PARTS) do
+        sum = sum + (try(function() return bd:getBodyPart(BodyPartType[name]):getPain() end) or 0)
+    end
+    return sum
+end
+
+-- stiffness eases 0.002 x the multiplier per tick (BodyPart.java:471): 48
+-- multiplier units a real second at 1x speed
+local function easeStiffness(self, seconds)
+    local bd = try(function() return self.player:getBodyDamage() end)
+    if not bd then return end
+    local ease = 0.002 * 48 * seconds
+    for _, name in ipairs(ARM_PARTS) do
+        pcall(function()
+            local part = bd:getBodyPart(BodyPartType[name])
+            local s = part:getStiffness()
+            if s > 0 then part:setStiffness(math.max(0, s - ease)) end
+        end)
+    end
+end
+
 --- The combat mode's share of a clock step: regen, the moodles, time spent tired.
 function Arena:_combatTick(seconds)
     regen(self, seconds)
+    easeStiffness(self, seconds)
     refreshMoodles(self.player)
     if moodle(self.player, "ENDURANCE") >= 1 then
         self.ledger.tiredSeconds = (self.ledger.tiredSeconds or 0) + seconds
@@ -397,6 +458,12 @@ function Arena:swing(opts)
         end
         table.sort(cand, function(a, b) return a.d < b.d end)
         local maxHit = try(function() return w:getMaxHitCount() end) or 1
+        -- strain comes with the swing, after its endurance cost (CombatManager:714-715)
+        if combat and self.opts.strain ~= false then
+            L.strain = (L.strain or 0) + muscleStrain(self, math.min(maxHit, #cand))
+            rec.armPain = self:armPain()
+            if rec.armPain > 10 then L.painedSwings = (L.painedSwings or 0) + 1 end
+        end
         if #cand == 0 then L.misses = L.misses + 1; return end
         -- crit: one roll for the swing against the first target
         local chance = try(function() return p:calculateCritChance(cand[1].z) end) or 0
@@ -416,6 +483,8 @@ function Arena:swing(opts)
             damage = damage * (try(function() return w:getDamageMod(p) end) or 1) * (try(function() return p:getHittingMod() end) or 1)
             local twoHanded = not w:isTwoHandWeapon() or (try(function() return p:isItemInBothHands(w) end) or false)
             if not twoHanded and maxD > minD then damage = damage - minD end
+            -- sore arms (CombatManager:988-1000): over 10 pain, damage / (pain / 10)
+            if rec.armPain and rec.armPain > 10 then damage = damage / math.max(1, math.min(30, rec.armPain / 10)) end
             damage = damage * (try(function() return p:getCharacterTraits():getTraitDamageDealtReductionModifier() end) or 1)
             local dmgSplit = damage / (split * 0.5)
             split = split + 1
@@ -766,6 +835,7 @@ function Arena:life(opts)
     local out = self:summary()
     out.encounters, out.seconds, out.repairsUsed, out.skills = encounters, self.realSeconds, used, skills
     out.tiredSeconds, out.backOffs, out.backOffSeconds = L.tiredSeconds or 0, L.backOffs or 0, L.backOffSeconds or 0
+    out.strain, out.painedSwings = L.strain or 0, L.painedSwings or 0
     return out
 end
 

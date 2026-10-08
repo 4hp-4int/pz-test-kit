@@ -93,6 +93,30 @@ target hit. A full-damage hit therefore costs about 0.0094 total.
 `muscleStrainMod = (1 - weaponSkill*0.075) * StrainModifier` (`HandWeapon.java:819-824`). This is stiffness, not endurance. Listed so a
 sim knows where Strength enters.
 
+Where it lands and what it does (verified 2026-10-08, modelled in the Arena):
+
+- `addArmMuscleStrain(val)` (`:17239`) multiplies by 2.5 and the sandbox factor and adds that much **stiffness** to Hand_R,
+  ForeArm_R and UpperArm_R; a two-handed weapon also calls `addLeftArmMuscleStrain` (the same on the left). Stiffness is
+  clamped to 0..100 (`BodyPart.addStiffness :1942`). The melee branch requires `isActuallyAttackingWithMeleeWeapon()`
+  (a live attack animation), so headless callers must mirror it.
+- A body part's pain includes `stiffness / 3.5` (`BodyPart.getAdditionalPain(true) :1110`, read by `getPain :1052`).
+- Damage chain, right after the two-handed rule: if the summed `getPain()` of Hand_L..UpperArm_R exceeds 10,
+  `damage /= clamp(pain / 10, 1, 30)` (`CombatManager.java:988-1000`; a shove reads the legs instead).
+- Stiffness eases by `0.002 * GameTime.getMultiplier()` per tick (`BodyPart.java:471`), about 0.1 per real second at 1x,
+  except while a Fitness exercise's stiffness is pending.
+- Scale: a Sledgehammer (Weight 6, EnduranceMod 4, two-handed, MaxHitCount 3) adds about 7 stiffness to each of six arm
+  parts per swing at Strength 5 and skill 0, past the pain-10 line in a swing or two. In the Arena a level-0 sledgehammer
+  swings with sore arms 99% of the time and kills ~70% fewer zombies per life; a golf club, bat or axe stays under 1%
+  (the axe 9-34% when underweight or emaciated, because the fighter rests less well).
+
+### Hunger and food
+
+The Hungry and Well Fed moodles are read by nothing in melee (damage, speed, endurance cost or regen). Hungry lowers carry
+weight (`BodyDamage.UpdateStrength :2020`); Well Fed clears poison faster (`:2272`). Long hunger acts through
+`getRecoveryMod` (endurance regen, `IsoGameCharacter.java:5294`): Very Underweight and Overweight x0.7, Emaciated x0.3,
+Obese x0.4, and lipids or proteins under -1000 x0.5 (under -1500 x0.2). `Nutrition`'s setters are not exposed to Lua;
+use the weight traits to model it.
+
 ---
 
 ## 2. Endurance recovery
