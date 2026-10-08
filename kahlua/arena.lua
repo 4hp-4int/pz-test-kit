@@ -43,6 +43,31 @@
     fires OnTick and OnPlayerUpdate to mod Lua and runs timers that fell due
     (A:at(delay, fn)). So "for 20 seconds", cooldowns and night/day gates run
     on a clock that really moves.
+    COMBAT (combat = true; docs/melee-combat-rules.md): a fight as a real
+    character has it, from the engine's own rules where it exposes them.
+      cost     CombatManager.processWeaponEndurance every swing (hit or miss,
+               :1267) on top of applyMeleeEnduranceLoss per target hit (:3900)
+      moodles  Moodles:Update() before each swing and on every clock step, so
+               the Endurance / Tired moodles really rise and their damage
+               (x0.5 / 0.2 / 0.1 / 0.05) and speed penalties bite. (Headless,
+               nothing else updates them: without this a drained fighter hit
+               at full strength.)
+      time     a swing takes clip / calculateCombatSpeed() (the engine's own,
+               IsoGameCharacter.java:10362: weapon, skill, Fitness, moodles,
+               its random factor) plus the melee delay (12, or 8 for knives
+               and spears, draining at 30/s). Clip: 1.0 s, 2.5 s for Heavy.
+      regen    each clock step, standing still: +0.000031 x EndRegen x
+               getRecoveryMod (Fitness) x (1 - 0.85 x fatigue) x 48 per real
+               second (IsoPlayer.updateEndurance :3350, at 1x speed)
+      xp       per target hit, as XpUpdate.lua's OnWeaponHitXp handler and
+               processMaintenanceCheck do (that one needs a live attack
+               animation, so it is mirrored): each weapon category min(3,
+               0.9 x damageSplit), Fitness +1 while endurance > 0.5, Strength
+               +1, Maintenance 2.0 (20 / CLC above CLC 10) half the time,
+               through the engine's XP.AddXP (its boosts and level thresholds)
+    Arena:life{...} runs encounter after encounter, resting between them,
+    until the weapon breaks; it reports kills, swings, time, the skills grown
+    and the time spent tired.
     KNOWN GAP: a corpse is not created (IsoDeadBody wants an animation model
     headless); the death, OnZombieDead and every effect before it are real.
 
@@ -208,6 +233,7 @@ end
 function Arena:advance(seconds)
     seconds = seconds or 1
     self.realSeconds = self.realSeconds + seconds
+    if self.opts.combat then self:_combatTick(seconds) end   -- defined with the combat helpers, below
     local g = PZEngine.gameTime and PZEngine.gameTime()
     if g then setWorldAge(g:getWorldAgeHours() + seconds * gameSecondsPerReal() / 3600) end
     if triggerEvent then
@@ -262,6 +288,87 @@ local function moodle(p, kind)
 end
 local MOODLE_MULT = { [0] = 1, 0.5, 0.2, 0.1, 0.05 }
 
+-- ---------------------------------------------------------------------------
+-- combat mode helpers (docs/melee-combat-rules.md)
+-- ---------------------------------------------------------------------------
+-- the weapon's categories as SKILL names. getWeaponCategories() holds ids
+-- ("base:blunt"); getCategories is not exposed, and WeaponCategory is not a Lua
+-- global, so the ids are mapped here.
+local CATEGORY_PERK = { ["base:blunt"] = "Blunt", ["base:smallblunt"] = "SmallBlunt", ["base:axe"] = "Axe",
+                        ["base:longblade"] = "LongBlade", ["base:smallblade"] = "SmallBlade", ["base:spear"] = "Spear" }
+local function categories(w)
+    local out = {}
+    pcall(function()
+        local it = w:getScriptItem():getWeaponCategories():iterator()
+        while it:hasNext() do
+            local perk = CATEGORY_PERK[tostring(it:next())]
+            if perk then out[#out + 1] = perk end
+        end
+    end)
+    return out
+end
+Arena._categories = categories
+
+local function refreshMoodles(p) pcall(function() p:getMoodles():Update() end) end
+
+--- Seconds one melee swing takes for this fighter, weapon and state.
+function Arena:swingSeconds()
+    local p, w = self.player, self.weapon
+    local clip = 1.0
+    pcall(function() if tostring(w:getSwingAnim()) == "Heavy" then clip = 2.5 end end)
+    local cs = try(function() return p:calculateCombatSpeed() end) or 1
+    if not cs or cs <= 0 then cs = 1 end
+    local delay = 12
+    for _, c in ipairs(categories(w)) do if c == "SmallBlade" or c == "Spear" then delay = 8 end end
+    return clip / cs + delay / 30
+end
+
+local function regen(self, seconds)
+    local p = self.player
+    pcall(function()
+        local st = p:getStats()
+        local endRegen = try(function() return getSandboxOptions():getEnduranceRegenMultiplier() end) or 1.0
+        local rec = try(function() return p:getRecoveryMod() end) or 1.0
+        local fatigue = try(function() return st:get(CharacterStat.FATIGUE) end) or 0
+        local add = 0.000031 * endRegen * rec * (1 - 0.85 * fatigue) * 48 * seconds
+        st:set(CharacterStat.ENDURANCE, math.min(1, (st:get(CharacterStat.ENDURANCE) or 0) + add))
+    end)
+end
+
+--- The combat mode's share of a clock step: regen, the moodles, time spent tired.
+function Arena:_combatTick(seconds)
+    regen(self, seconds)
+    refreshMoodles(self.player)
+    if moodle(self.player, "ENDURANCE") >= 1 then
+        self.ledger.tiredSeconds = (self.ledger.tiredSeconds or 0) + seconds
+    end
+end
+
+local function addXp(p, perkName, amount)
+    if not (amount and amount > 0) then return end
+    local perk = Perks and Perks[perkName]
+    -- the 5-argument form: AddXP(perk, amount) only acts for the LOCAL player
+    -- (IsoGameCharacter.java:18222), which a headless player is not; doXPBoost
+    -- keeps the engine's multipliers (x0.25 without a profession boost)
+    if perk then pcall(function() p:getXp():AddXP(perk, amount, false, true, false) end) end
+end
+
+local function hitXp(self, dmgSplit)
+    local p, w = self.player, self.weapon
+    local exp = math.min(3, (dmgSplit or 0) * 0.9)
+    for _, c in ipairs(categories(w)) do addXp(p, c, exp) end
+    local endurance = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end) or 0
+    if endurance > 0.5 then addXp(p, "Fitness", 1) end
+    addXp(p, "Strength", 1)
+    if ZombRand(2) == 0 then
+        local twoInOne = w:isTwoHandWeapon() and not (try(function() return p:isItemInBothHands(w) end) or false)
+        if not (twoInOne and ZombRand(3) == 0) then
+            local clc = w:getConditionLowerChance()
+            addXp(p, "Maintenance", (clc > 10) and (2.0 * 10 / clc) or 2.0)
+        end
+    end
+end
+
 -- one melee swing, the attackCollisionCheck way
 function Arena:swing(opts)
     opts = opts or {}
@@ -271,7 +378,15 @@ function Arena:swing(opts)
     local mark = soundMark()
     asServer(self, function()
         L.swings = L.swings + 1
-        if not self.opts.fatigue then pcall(function() p:getStats():set(CharacterStat.ENDURANCE, 1.0) end) end
+        local combat = self.opts.combat
+        if not (self.opts.fatigue or combat) then pcall(function() p:getStats():set(CharacterStat.ENDURANCE, 1.0) end) end
+        if combat then
+            refreshMoodles(p)
+            local e0 = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end)
+            pcall(function() CombatManager.getInstance():processWeaponEndurance(p, w) end)
+            local e1 = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end)
+            if e0 and e1 and e1 < e0 then L.staminaSpent = L.staminaSpent + (e0 - e1) end
+        end
         if triggerEvent then triggerEvent("OnWeaponSwing", p, w) end
         rec.events[#rec.events + 1] = "OnWeaponSwing"
         local maxRange = try(function() return w:getMaxRange(p) end) or w:getMaxRange()
@@ -333,6 +448,7 @@ function Arena:swing(opts)
             dealt = dealt or 0
             pcall(function() CombatManager.getInstance():applyMeleeEnduranceLoss(p, z, w, dealt) end)
             if triggerEvent then triggerEvent("OnWeaponHitXp", p, w, z, dmgSplit, 1) end
+            if self.opts.combat then hitXp(self, dmgSplit) end
             -- the wear roll, once per target
             local cBefore = w:getCondition()
             pcall(function() w:damageCheck(0, 1.0, true, true, p) end)
@@ -523,12 +639,134 @@ function Arena:fight(opts)
             if a < keep then self:spawn(keep - a, opts.spawn) end
         end
         if #self:alive() == 0 and not keep then break end
+        local secs = opts.secondsPerSwing or self.opts.secondsPerSwing
+        if not secs and self.opts.combat and not self.weapon:isRanged() then secs = self:swingSeconds() end
         if self.weapon:isRanged() then self:shoot(opts) else self:swing(opts) end
-        self:advance(opts.secondsPerSwing or self.opts.secondsPerSwing or 1)
+        self:advance(secs or 1)
         if opts.kills and self.ledger.kills >= opts.kills then break end
         if self.ledger.broke then break end
     end
     return self:summary()
+end
+
+--- Zombies step back in: any live zombie out of the weapon's reach (a stagger
+--- or knockdown moves it, and in this one-way arena it never walks back) is put
+--- on a free tile beside the fighter, as it would close in during a real fight.
+--- Returns how many were moved.
+function Arena:closeIn()
+    local p, w = self.player, self.weapon
+    local reach = try(function() return w:getMaxRange(p) end) or try(function() return w:getMaxRange() end) or 1
+    local moved = 0
+    asServer(self, function()
+        for _, z in ipairs(self:alive()) do
+            if dist(p, z) > reach + 0.0001 then
+                for i = 1, 4 do
+                    local o = OFFSETS[i]
+                    local x, y = self.at.x + o[1], self.at.y + o[2]
+                    local taken = false
+                    for _, other in ipairs(self:alive()) do
+                        if other ~= z and math.floor(other:getX()) == x and math.floor(other:getY()) == y then taken = true end
+                    end
+                    if not taken then
+                        local sq = self.cell:getGridSquare(x, y, self.at.z)
+                        if sq then
+                            pcall(function() z:setX(x + 0.5); z:setY(y + 0.5); z:setCurrent(sq) end)
+                            moved = moved + 1
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    self.ledger.closedIn = (self.ledger.closedIn or 0) + moved
+    return moved
+end
+
+--- A WEAPON'S LIFE (combat = true): encounter after encounter until it breaks.
+--- opts: group = { min, max } zombies per encounter (default 1..3), rest =
+--- seconds of rest between encounters (default 60), repairs = how many times
+--- it is repaired when it breaks (each restores 50% / (n + 1) of its max,
+--- FixingManager.getCondRepaired), maxKills (default 3000), perks to report.
+--- Returns the summary plus { encounters, seconds, repairsUsed, skills = {
+--- name = { from, to } } }.
+function Arena:life(opts)
+    opts = opts or {}
+    local p, w, L = self.player, self.weapon, self.ledger
+    local gmin, gmax = (opts.group or {})[1] or 1, (opts.group or {})[2] or 3
+    local rest, repairs, maxKills = opts.rest or 60, opts.repairs or 0, opts.maxKills or 3000
+    local watch = opts.perks or { "Blunt", "SmallBlunt", "Axe", "LongBlade", "SmallBlade", "Spear", "Maintenance", "Fitness", "Strength" }
+    -- zombie toughness: the ENGINE's option (new zombies read it for their
+    -- health; the Lua SandboxVars table does not reach them), restored after
+    -- (getSandboxOptions does not exist headless; PZEngine.sandboxSet does)
+    if opts.toughness then pcall(PZEngine.sandboxSet, "ZombieLore.Toughness", opts.toughness) end
+    -- BACK OFF: a player stops swinging when exhausted and recovers (the one-way
+    -- arena's zombies wait); without it a drained fighter flails at x0.05 damage
+    local backOff = opts.backOff or 2
+    local skills = {}
+    for _, name in ipairs(watch) do
+        local perk = Perks and Perks[name]
+        if perk then skills[name] = { from = try(function() return p:getPerkLevel(perk) end) or 0 } end
+    end
+    -- zombie health by toughness, as IsoZombie does at creation (:4477-4490);
+    -- headless, the engine's SandboxOptions do not follow the sandbox here
+    local HEALTH = { [1] = { 3.5, 0.3 }, [2] = { 1.8, 0.3 }, [3] = { 0.5, 0.3 } }
+    local setup = opts.toughness and HEALTH[opts.toughness] and function(z)
+        local h = HEALTH[opts.toughness]
+        local hp = h[1] + ZombRandFloat(0, h[2])
+        z:setHealth(hp)
+        L.hpMin = math.min(L.hpMin or hp, hp)
+        L.hpMax = math.max(L.hpMax or hp, hp)
+    end or nil
+    local encounters, used = 0, 0
+    while L.kills < maxKills do
+        encounters = encounters + 1
+        -- an encounter of N, at most four at a time: the four tiles beside the
+        -- fighter are the ones in reach (a diagonal is 1.41 tiles, past a bat's
+        -- reach, and in this one-way arena zombies never step in)
+        local toSpawn = gmin + ZombRand(gmax - gmin + 1)
+        local guard = 0
+        while (toSpawn > 0 or #self:alive() > 0) and not L.broke and guard < 400 do
+            local a = #self:alive()
+            if a < 4 and toSpawn > 0 then
+                local n = math.min(4 - a, toSpawn)
+                self:spawn(n, { setup = setup })
+                toSpawn = toSpawn - n
+            end
+            guard = guard + 1
+            self:closeIn()
+            if backOff and moodle(p, "ENDURANCE") >= backOff then
+                local waited = 0
+                while waited < 900 and (try(function() return p:getStats():get(CharacterStat.ENDURANCE) end) or 1) < 0.75 do
+                    self:advance(5); waited = waited + 5
+                end
+                L.backOffSeconds = (L.backOffSeconds or 0) + waited
+                L.backOffs = (L.backOffs or 0) + 1
+            end
+            local secs = self:swingSeconds()
+            self:swing(opts)
+            self:advance(secs)
+        end
+        if L.broke then
+            if used >= repairs then break end
+            used = used + 1
+            L.broke = false
+            w:setCondition(math.max(1, math.floor(w:getConditionMax() * 0.5 / used + 0.5)))
+        end
+        -- clear any survivor (the fighter walked away), then rest
+        for _, z in ipairs(self:alive()) do pcall(function() z:setHealth(0) end) end
+        local left = rest
+        while left > 0 do local step = math.min(5, left); self:advance(step); left = left - step end
+    end
+    for name, sk in pairs(skills) do
+        sk.to = try(function() return p:getPerkLevel(Perks[name]) end) or sk.from
+        sk.xp = try(function() return p:getXp():getXP(Perks[name]) end) or 0
+    end
+    if opts.toughness then pcall(PZEngine.sandboxSet, "ZombieLore.Toughness", opts.restoreToughness or 2) end
+    local out = self:summary()
+    out.encounters, out.seconds, out.repairsUsed, out.skills = encounters, self.realSeconds, used, skills
+    out.tiredSeconds, out.backOffs, out.backOffSeconds = L.tiredSeconds or 0, L.backOffs or 0, L.backOffSeconds or 0
+    return out
 end
 
 function Arena:summary()
