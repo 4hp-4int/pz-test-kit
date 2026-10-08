@@ -190,6 +190,22 @@ function Scene.build()
     SandboxVars.VorpallySauced.EnableGenome = true
     SandboxVars.VorpallySauced.StirZombieChance = false
     require "VorpallySauced/Genome/Families"
+    require "VorpallySauced/Genome/Program"
+    require "VorpallySauced/Genome/Words"
+    -- the first weapon has stirred: two effects (its copy, packed as the game
+    -- packs it), Seasoned, and a timeline that shows every kind of row
+    local Program = VorpallySauced.Genome.Program
+    BONDS[1].stir = Program.packClient({
+        { ev = "kill", act = { id = "breath", amt = 6 } },
+        { ev = "hit", act = { id = "stagger", amt = 20 } },
+    }, 1.3, 3)
+    BONDS[1].stirStage = "Seasoned"
+    BONDS[1].stirLog = {
+        { k = "born", a = "breath", kills = 214, place = { street = "Cortman Drive", band = "on" }, hour = 120 },
+        { k = "kept", kills = 388, hour = 300 },
+        { k = "new", a = "stagger", kills = 506, place = { street = "Main Street", band = "near" }, hour = 410 },
+        { k = "stronger", a = "breath", kills = 731, hour = 600 },
+    }
     measurePanel()
 
     local host = Host:new(W, H)
