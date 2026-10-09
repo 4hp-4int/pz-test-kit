@@ -457,6 +457,27 @@ function Arena:swing(opts)
             if d <= maxRange + 0.0001 then cand[#cand + 1] = { z = z, d = d } end
         end
         table.sort(cand, function(a, b) return a.d < b.d end)
+        -- COMBAT: the swing's arc (CombatManager.removeUnhittableMeleeTargets
+        -- :1629): facing the nearest target, a target is hit only if the dot of
+        -- the facing and the direction to it lies in [MinAngle, MaxAngle]
+        if combat and #cand > 1 then
+            local fx, fy = cand[1].z:getX() - p:getX(), cand[1].z:getY() - p:getY()
+            local fl = math.sqrt(fx * fx + fy * fy)
+            if fl > 0 then
+                fx, fy = fx / fl, fy / fl
+                local minA = try(function() return w:getMinAngle() end) or 0.8
+                local maxA = try(function() return w:getMaxAngle() end) or 1
+                local kept = { cand[1] }
+                for i = 2, #cand do
+                    local zx, zy = cand[i].z:getX() - p:getX(), cand[i].z:getY() - p:getY()
+                    local zl = math.sqrt(zx * zx + zy * zy)
+                    local dot = zl > 0 and (fx * zx + fy * zy) / zl or 1
+                    if dot >= minA - 1e-6 and dot <= maxA + 1e-6 then kept[#kept + 1] = cand[i] end
+                end
+                L.outOfArc = (L.outOfArc or 0) + (#cand - #kept)
+                cand = kept
+            end
+        end
         local maxHit = try(function() return w:getMaxHitCount() end) or 1
         -- strain comes with the swing, after its endurance cost (CombatManager:714-715)
         if combat and self.opts.strain ~= false then
@@ -722,6 +743,9 @@ end
 --- or knockdown moves it, and in this one-way arena it never walks back) is put
 --- on a free tile beside the fighter, as it would close in during a real fight.
 --- Returns how many were moved.
+local FAN_DEGREES = { 0, 35, -35, 70, -70 }
+Arena.FAN_DEGREES = FAN_DEGREES
+
 function Arena:closeIn()
     local p, w = self.player, self.weapon
     local reach = try(function() return w:getMaxRange(p) end) or try(function() return w:getMaxRange() end) or 1
@@ -731,6 +755,25 @@ function Arena:closeIn()
     local d = math.max(minR, math.min(1, reach - 0.05))
     local px, py = p:getX(), p:getY()
     local moved = 0
+    if self.opts.combat then
+        -- COMBAT: the group bunches in FRONT of the fighter (facing +x), nearest
+        -- first: dead ahead, then flanking at +-35 degrees (cos 0.82: inside a
+        -- MinAngle 0.8 swing arc, outside a 0.9 one), then +-70 (outside every
+        -- arc). The swing's arc decides who is hit (Arena:swing, combat mode).
+        local alive = self:alive()
+        table.sort(alive, function(a, b) return dist(p, a) < dist(p, b) end)
+        asServer(self, function()
+            for i, z in ipairs(alive) do
+                local deg = FAN_DEGREES[i] or FAN_DEGREES[#FAN_DEGREES]
+                local rad = math.rad(deg)
+                local zx, zy = px + d * math.cos(rad), py + d * math.sin(rad)
+                local sq = self.cell:getGridSquare(math.floor(zx), math.floor(zy), self.at.z)
+                if sq then pcall(function() z:setX(zx); z:setY(zy); z:setCurrent(sq) end); moved = moved + 1 end
+            end
+        end)
+        self.ledger.closedIn = (self.ledger.closedIn or 0) + moved
+        return moved
+    end
     asServer(self, function()
         for _, z in ipairs(self:alive()) do
             if dist(p, z) > reach + 0.0001 then

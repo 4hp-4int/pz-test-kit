@@ -75,7 +75,8 @@ All 26 gas stations of the map (VorpallySauced
 `tools/analysis/arena_clear_place_tests.lua`, Normal zombies, Strength and
 Fitness 5): 0-69 zombies within 40 tiles (median 20); a level-0 baseball bat
 clears 19 of the 25 occupied ones and fails at every one over 25 zombies; a
-level-0 golf club clears 8; a level-5 axe 23.
+level-0 golf club clears 6; a level-5 axe 24 (after the swing-arc fix,
+2026-10-09).
 
 **The world seed shapes towns.** The zombie voronoi (seeded from the world
 seed) blanks whole patches: with SousVide's seed 0, Muldraugh's density is a
@@ -88,4 +89,4 @@ Another save's Muldraugh differs. Seed control is open.
   days (cell numbers identical day to day); likely something else the library
   waits on.
 - The radar reports 0.
-- Arena hook (`Arena:clear{x, y}`), the metagrid visualiser.
+- World seed control (the voronoi seed), the metagrid visualiser.

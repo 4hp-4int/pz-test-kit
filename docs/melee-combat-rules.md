@@ -377,3 +377,24 @@ multiplier, zombie toughness; game speed (48 multiplier-units per real second at
 6. After the clip: meleeDelay = 12 (8 for knife/spear), draining 30/s → next swing allowed.
 7. Every tick (including during the swing, if standing still): endurance += 0.000031 * EndRegen * RecoveryMod(Fitness)
    * (1 - 0.85*fatigue) * getMultiplier(), clamped to [0, 1].
+
+## Swing arc and wear, verified in the Arena (2026-10-09)
+
+- **Who a swing can hit** (`CombatManager.calcValidTargets :1440`,
+  `removeUnhittableMeleeTargets :1629`): a target in range is hit only if the
+  dot of the fighter's facing and the direction to it (nearest bone) lies in
+  `[MinAngle, MaxAngle]`; prone targets use `MinAngle / 1.5`. Up to
+  `MaxHitcount` of those, nearest first. The golf club's MinAngle 0.8 is a
+  wide arc (about 37 degrees either side): a bunched group of three in front
+  is all hit.
+- **Wear**: one `damageCheck(0, 1)` per target hit (`processMaintenanceCheck
+  :519`), rolling 1 in `CLC + maintenance mod`, where the mod is the
+  Maintenance level + weapon level / 2, and 0 unless the weapon is equipped
+  (`InventoryItem.getMaintenanceMod :4971`). `LOWER_CONDITION` on the swing
+  state only cues music when a weapon breaks (`SwipeStatePlayer :117`): there
+  is no second roll per swing. A hit on a world object (`objHit`, :1228) or a
+  tree rolls too; the Arena has neither.
+- Measured: the Arena's golf club loses a point 1 in 15.2 rolls (engine 1 in
+  15), the bat 1 in 18.4 (1 in 20). Against groups of three at skill 0 a golf
+  club hits 2.65 zombies a swing, 7.4 hits a kill, and lives about 10 kills;
+  a bat 1.6, 12.5 and about 22.
