@@ -354,6 +354,26 @@ const server = http.createServer(async (req, res) => {
   const parts = url.pathname.split("/").filter(Boolean);
   try {
     if (await workbench.handle(req, res, url, { mods, modById, KIT, bashPath })) return;
+    // FLOW (.flyke): a mod's traced data paths as a flow chart (tools/flyke)
+    if (url.pathname === "/flow") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return fs.createReadStream(path.join(HERE, "flow.html")).pipe(res);
+    }
+    if (url.pathname === "/api/flyke") {
+      const list = [];
+      for (const m of mods()) {
+        const dir = path.join(m.root, "flow");
+        if (!fs.existsSync(dir)) continue;
+        for (const f of fs.readdirSync(dir)) if (f.endsWith(".flyke")) list.push({ mod: m.id, name: f.replace(/\.flyke$/, "") });
+      }
+      const mod = url.searchParams.get("mod"), name = url.searchParams.get("name");
+      if (!mod || !name) return json(res, 200, list);
+      const m = modById(mod);
+      const file = m && path.join(m.root, "flow", path.basename(name) + ".flyke");
+      if (!file || !fs.existsSync(file)) return json(res, 404, { error: "no such .flyke" });
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      return fs.createReadStream(file).pipe(res);
+    }
     if (url.pathname === "/" || url.pathname === "/index.html") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return fs.createReadStream(path.join(HERE, "index.html")).pipe(res);

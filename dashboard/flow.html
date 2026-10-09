@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SousVide Flow</title>
+<style>
+:root {
+  --bg: #0e1012; --panel: #15181b; --panel2: #1b1f23; --line: #272c31; --line2: #33393f;
+  --text: #d5d8db; --muted: #858c93; --dim: #5d646b; --accent: #d9a441; --link: #7fb2e0;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 14px; margin: 0; color: var(--accent); letter-spacing: .5px; }
+header select, header label, header button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line2); border-radius: 4px; padding: 3px 8px; }
+header .meta { color: var(--muted); margin-left: auto; font-size: 12px; }
+header a { color: var(--link); text-decoration: none; }
+main { display: grid; grid-template-columns: 250px 1fr 420px; height: calc(100% - 41px); }
+#timeline { border-right: 1px solid var(--line); overflow: auto; background: var(--panel); }
+#timeline h2, #side h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 12px 12px 6px; }
+.tl { padding: 5px 12px; border-left: 3px solid transparent; cursor: pointer; }
+.tl:hover { background: var(--panel2); }
+.tl.on { border-left-color: var(--accent); background: var(--panel2); }
+.tl .s { color: var(--dim); font-size: 11px; }
+.tl .e { font-family: var(--mono); font-size: 12px; }
+.tl .n { color: var(--muted); font-size: 11px; }
+#canvas { position: relative; overflow: hidden; cursor: grab; }
+#canvas.drag { cursor: grabbing; }
+svg { width: 100%; height: 100%; display: block; }
+.node rect { rx: 6; stroke-width: 1.2; }
+.node text { font-family: var(--mono); font-size: 11px; fill: var(--text); pointer-events: none; }
+.node .mod { font-size: 9.5px; fill: var(--muted); }
+.node .cnt { font-size: 9.5px; fill: var(--dim); }
+.node { cursor: pointer; }
+.node.dim { opacity: .14; }
+.node.sel rect { stroke: var(--accent) !important; stroke-width: 2.4; }
+.edge { fill: none; stroke: #4a525a; }
+.edge.dim { opacity: .06; }
+.edge.hot { stroke: var(--accent); opacity: .95; }
+#side { border-left: 1px solid var(--line); overflow: auto; background: var(--panel); }
+#side .empty { color: var(--dim); margin: 16px 12px; }
+.det { padding: 0 12px 16px; }
+.det .id { font-family: var(--mono); font-size: 14px; color: var(--accent); word-break: break-all; margin-top: 12px; }
+.det .modl { color: var(--muted); font-size: 12px; }
+.det .ai { margin: 10px 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--panel2); }
+.det .ai b { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; display: block; }
+.det .doc { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.det table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin: 4px 0 8px; }
+.det td { padding: 2px 4px; border-bottom: 1px solid var(--line); font-family: var(--mono); vertical-align: top; word-break: break-all; }
+.det td.c { color: var(--dim); width: 34px; text-align: right; }
+.det .links a { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--link); margin: 1px 6px 1px 0; cursor: pointer; }
+pre.code { font-family: var(--mono); font-size: 11px; background: #0b0d0f; border: 1px solid var(--line); padding: 8px; overflow: auto; max-height: 420px; margin: 4px 0; }
+pre.code .ln { color: var(--dim); user-select: none; display: inline-block; width: 38px; }
+.legend { position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: var(--muted); background: rgba(21,24,27,.9); padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⟿ SousVide Flow</h1>
+  <select id="pick"></select>
+  <label><input type="checkbox" id="leaves"> hide leaf helpers</label>
+  <button id="fit">fit</button>
+  <span class="meta" id="meta"></span>
+  <a href="/workbench">workbench</a>
+</header>
+<main>
+  <div id="timeline"><h2>Entry points, in order</h2><div id="tl"></div></div>
+  <div id="canvas"><svg id="svg"><g id="vp"><g id="edges"></g><g id="nodes"></g></g></svg>
+    <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
+  </div>
+  <div id="side"><h2>Block</h2><div id="det"><div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div></div></div>
+</main>
+<script>
+const W = 230, H = 50, GX = 110, GY = 16;
+let doc = null, pos = {}, view = { x: 20, y: 20, k: 0.8 }, selected = null, hotIds = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+function colorOf(n) { if (n.kind === "entry") return "hsl(38 70% 52%)"; return `hsl(${hue(n.module || "")} 45% 55%)`; }
+
+async function load() {
+  const list = await (await fetch("/api/flyke")).json();
+  $("pick").innerHTML = list.map((f) => `<option value="${esc(f.mod)}|${esc(f.name)}">${esc(f.mod)} / ${esc(f.name)}</option>`).join("");
+  const want = new URLSearchParams(location.search).get("f");
+  if (want) $("pick").value = want;
+  if (list.length) open($("pick").value);
+}
+async function open(v) {
+  const [mod, name] = v.split("|");
+  doc = await (await fetch(`/api/flyke?mod=${encodeURIComponent(mod)}&name=${encodeURIComponent(name)}`)).json();
+  doc.mod = mod;
+  doc.byId = Object.fromEntries(doc.nodes.map((n) => [n.id, n]));
+  doc.out = {}; doc.inn = {};
+  for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
+  const m = doc.meta || {};
+  $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks · ${m.calls || "?"} calls traced · ${m.weapon || ""}`;
+  selected = null; hotIds = null;
+  renderTimeline(); layout(); draw(); fit();
+  $("det").innerHTML = `<div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div>`;
+}
+function visible(n) {
+  if (!$("leaves").checked) return true;
+  return n.kind === "entry" || (doc.out[n.id] || []).length > 0;
+}
+function layout() {
+  pos = {};
+  const cols = {};
+  for (const n of doc.nodes) if (visible(n)) (cols[n.column] ||= []).push(n);
+  for (const [c, list] of Object.entries(cols)) {
+    list.sort((a, b) => (a.module || "").localeCompare(b.module || "") || b.calls - a.calls);
+    list.forEach((n, i) => { pos[n.id] = { x: c * (W + GX), y: i * (H + GY) }; });
+  }
+}
+function draw() {
+  const eg = $("edges"), ng = $("nodes");
+  eg.innerHTML = ""; ng.innerHTML = "";
+  const maxC = Math.max(1, ...doc.edges.map((e) => e.count));
+  for (const e of doc.edges) {
+    const a = pos[e.from], b = pos[e.to];
+    if (!a || !b) continue;
+    const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2;
+    let d;
+    if (x2 > x1) { const mx = (x1 + x2) / 2; d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; }
+    else { d = `M${x1},${y1} C${x1 + 80},${y1 - 60} ${x2 - 80},${y2 - 60} ${x2},${y2}`; }
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", d); p.setAttribute("class", "edge");
+    p.setAttribute("stroke-width", (0.8 + 3 * Math.log1p(e.count) / Math.log1p(maxC)).toFixed(2));
+    p.dataset.from = e.from; p.dataset.to = e.to;
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "title"); t.textContent = `${e.from} → ${e.to} ×${e.count}\n${e.data}`;
+    p.appendChild(t); eg.appendChild(p);
+  }
+  for (const n of doc.nodes) {
+    const q = pos[n.id]; if (!q) continue;
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("class", "node"); g.setAttribute("transform", `translate(${q.x},${q.y})`); g.dataset.id = n.id;
+    const c = colorOf(n);
+    const label = n.kind === "entry" ? n.id : n.id.split(".").slice(-1)[0];
+    g.innerHTML = `<rect width="${W}" height="${H}" fill="#181c20" stroke="${c}"></rect>
+      <rect width="5" height="${H}" fill="${c}" stroke="none"></rect>
+      <text x="12" y="20">${esc(label.length > 28 ? label.slice(0, 27) + "…" : label)}</text>
+      <text class="mod" x="12" y="37">${esc(n.kind === "entry" ? "entry point" : n.module)}</text>
+      <text class="cnt" x="${W - 8}" y="37" text-anchor="end">×${n.calls}</text>`;
+    g.onclick = (ev) => { ev.stopPropagation(); select(n.id); };
+    ng.appendChild(g);
+  }
+  applyHighlight();
+}
+function applyHighlight() {
+  const on = hotIds || (selected ? new Set([selected, ...(doc.out[selected] || []).map((e) => e.to), ...(doc.inn[selected] || []).map((e) => e.from)]) : null);
+  for (const g of document.querySelectorAll(".node")) {
+    g.classList.toggle("dim", !!on && !on.has(g.dataset.id));
+    g.classList.toggle("sel", g.dataset.id === selected);
+  }
+  for (const p of document.querySelectorAll(".edge")) {
+    const hot = on && on.has(p.dataset.from) && on.has(p.dataset.to) && (hotIds || p.dataset.from === selected || p.dataset.to === selected);
+    p.classList.toggle("hot", !!hot); p.classList.toggle("dim", !!on && !hot);
+  }
+}
+function renderTimeline() {
+  $("tl").innerHTML = doc.timeline.map((t, i) => `<div class="tl" data-i="${i}"><div class="s">${esc(t.step)}</div>
+    <div class="e">${esc(t.entry)}</div><div class="n">${t.calls.length - 1} call${t.calls.length === 2 ? "" : "s"} inside</div></div>`).join("");
+  for (const el of document.querySelectorAll(".tl")) el.onclick = () => {
+    const t = doc.timeline[+el.dataset.i];
+    const was = el.classList.contains("on");
+    document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
+    if (was) { hotIds = null; } else { el.classList.add("on"); hotIds = new Set(t.calls.map((c) => c.id)); selected = t.entry; showTrace(t); }
+    applyHighlight();
+  };
+}
+function showTrace(t) {
+  const rows = t.calls.map((c) => `<div style="padding-left:${c.d * 14}px;font-family:var(--mono);font-size:11px">
+    <a onclick="select('${esc(c.id)}')" style="color:var(--link);cursor:pointer">${esc(c.id)}</a>
+    <span style="color:var(--dim)">(${esc(c.args)})${c.ret ? " → " + esc(c.ret) : ""}</span></div>`).join("");
+  $("det").innerHTML = `<div class="det"><div class="id">${esc(t.entry)}</div><div class="modl">${esc(t.step)} · the path the data took, in call order</div>
+    <div style="margin-top:10px">${rows}</div>${t.calls.length >= 60 ? `<div class="modl">…truncated</div>` : ""}</div>`;
+}
+async function select(id) {
+  selected = id; hotIds = null;
+  document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
+  applyHighlight();
+  const n = doc.byId[id]; if (!n) return;
+  const rows = (list) => `<table>${list.map(([s, c]) => `<tr><td class="c">×${c}</td><td>${esc(s || "(nothing)")}</td></tr>`).join("")}</table>`;
+  const link = (ids) => ids.map((x) => `<a onclick="select('${esc(x)}')">${esc(x)}</a>`).join("");
+  const callers = (doc.inn[id] || []).map((e) => e.from), callees = (doc.out[id] || []).map((e) => e.to);
+  $("det").innerHTML = `<div class="det">
+    <div class="id">${esc(n.id)}</div>
+    <div class="modl">${esc(n.kind === "entry" ? "entry point" : n.module)} · called ${n.calls}× · ${esc(Object.keys(n.steps || {}).join(", "))}</div>
+    ${n.ai ? `<div class="ai"><b>AI summary</b>${esc(n.ai)}</div>` : ""}
+    ${n.summary ? `<div class="doc">${n.ai ? "Doc comment: " : ""}${esc(n.summary)}</div>` : (n.ai ? "" : `<div class="doc">(no summary)</div>`)}
+    <h2 style="margin:10px 0 2px">Data in</h2>${rows(n.in || [])}
+    <h2 style="margin:6px 0 2px">Data out</h2>${rows(n.out || [])}
+    ${callers.length ? `<h2 style="margin:6px 0 2px">Called by</h2><div class="links">${link(callers)}</div>` : ""}
+    ${callees.length ? `<h2 style="margin:6px 0 2px">Calls</h2><div class="links">${link(callees)}</div>` : ""}
+    ${n.file ? `<h2 style="margin:10px 0 2px">Code · ${esc(n.file.split("/").slice(-2).join("/"))}:${n.line}</h2><pre class="code" id="code">loading…</pre>` : ""}
+  </div>`;
+  if (n.file) {
+    try {
+      const src = await (await fetch(`/api/source?path=${encodeURIComponent(n.file)}`)).text();
+      const lines = src.split("\n").slice(n.line - 1, Math.min(n.endLine || n.line + 40, n.line + 120));
+      $("code").innerHTML = lines.map((l, i) => `<span class="ln">${n.line + i}</span>${esc(l)}`).join("\n");
+    } catch (_) { $("code").textContent = "(source not available)"; }
+  }
+}
+// pan / zoom
+function apply() { $("vp").setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`); }
+function fit() {
+  const xs = Object.values(pos); if (!xs.length) return;
+  const maxX = Math.max(...xs.map((p) => p.x)) + W, maxY = Math.max(...xs.map((p) => p.y)) + H;
+  const r = $("canvas").getBoundingClientRect();
+  view.k = Math.min(1.2, (r.width - 40) / maxX, (r.height - 40) / maxY); view.x = 20; view.y = 20; apply();
+}
+const cv = $("canvas"); let drag = null;
+cv.onmousedown = (e) => { drag = { x: e.clientX - view.x, y: e.clientY - view.y }; cv.classList.add("drag"); };
+window.onmouseup = () => { drag = null; cv.classList.remove("drag"); };
+window.onmousemove = (e) => { if (drag) { view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; apply(); } };
+cv.onwheel = (e) => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const k = Math.max(0.15, Math.min(3, view.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+  view.x = mx - (mx - view.x) * (k / view.k); view.y = my - (my - view.y) * (k / view.k); view.k = k; apply();
+};
+cv.onclick = () => { selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); };
+$("pick").onchange = () => open($("pick").value);
+$("leaves").onchange = () => { layout(); draw(); fit(); };
+$("fit").onclick = fit;
+load();
+</script>
+</body>
+</html>
