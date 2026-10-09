@@ -576,6 +576,10 @@ function Arena:swing(opts)
             end
         end
         local maxHit = try(function() return w:getMaxHitCount() end) or 1
+        -- the MultiHitZombies sandbox option, OFF by default: one target a melee
+        -- swing whatever MaxHitcount says (CombatManager:2341). combat mode only:
+        -- multiHit = true is a multi-hit server.
+        if combat and not (opts.multiHit or self.opts.multiHit) then maxHit = 1 end
         if stomp then
             if #cand == 0 then L.misses = L.misses + 1; return end
             self:_stomp(cand[1].z, rec)
@@ -1056,6 +1060,14 @@ function Arena:fightGroup(n, opts)
         if opts.recover ~= false then self:_recover(opts) end
         worst = math.max(worst, moodle(p, "ENDURANCE"))
         local secs = self:swingSeconds()
+        -- EXPOSURE: standing zombies within reach of the fighter, times the
+        -- swing's seconds (zombie-seconds of danger; downed ones and rests
+        -- do not count). Multi-hit and knockdowns shrink it.
+        local near = 0
+        for _, z in ipairs(self:alive()) do
+            if not (self.down and self.down[z]) and dist(p, z) <= 1.6 then near = near + 1 end
+        end
+        L.exposure = (L.exposure or 0) + near * secs
         self:swing(opts)
         self:advance(secs)
         worst = math.max(worst, moodle(p, "ENDURANCE"))
