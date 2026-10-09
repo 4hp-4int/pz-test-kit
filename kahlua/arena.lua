@@ -962,14 +962,7 @@ function Arena:life(opts)
             end
             guard = guard + 1
             self:closeIn()
-            if backOff and moodle(p, "ENDURANCE") >= backOff then
-                local waited = 0
-                while waited < 900 and (try(function() return p:getStats():get(CharacterStat.ENDURANCE) end) or 1) < 0.75 do
-                    self:advance(5); waited = waited + 5
-                end
-                L.backOffSeconds = (L.backOffSeconds or 0) + waited
-                L.backOffs = (L.backOffs or 0) + 1
-            end
+            self:_recover({ backOff = backOff, restPain = opts.restPain })
             local secs = self:swingSeconds()
             self:swing(opts)
             self:advance(secs)
@@ -1004,16 +997,52 @@ end
 local TOUGHNESS_HEALTH = { [1] = { 3.5, 0.3 }, [2] = { 1.8, 0.3 }, [3] = { 0.5, 0.3 } }
 Arena.TOUGHNESS_HEALTH = TOUGHNESS_HEALTH
 
---- One group of n zombies, at most four in reach at a time (the four tiles
---- beside the fighter), no backing off: the fight goes on until the group is
---- down, the weapon breaks or `maxSwings`. Returns { n, kills, swings,
---- seconds, worstTired, broke, left }.
+--- RECOVERY (combat = true): a fighter does not swing on with sore arms or
+--- spent. Before a swing: arm pain over `restPain` (default 10, where the
+--- damage divide starts, CombatManager:988) -> rest until it is back to
+--- `restPain`; Endurance moodle at `backOff` (default 2) or worse -> rest until
+--- endurance is 0.75. Stiffness eases 0.096 a real second (BodyPart:471, 48
+--- multiplier units a second), so a strained fighter waits minutes. The arena's
+--- zombies wait too: read rest time as stepping back, not as safe.
+--- restPain = false / backOff = false turn either off. Returns seconds rested.
+function Arena:_recover(opts)
+    local p, L = self.player, self.ledger
+    local rested = 0
+    local backOff = opts.backOff
+    if backOff == nil then backOff = 2 end
+    if backOff and moodle(p, "ENDURANCE") >= backOff then
+        local waited = 0
+        while waited < 1800 and (try(function() return p:getStats():get(CharacterStat.ENDURANCE) end) or 1) < 0.75 do
+            self:advance(5); waited = waited + 5
+        end
+        L.backOffs = (L.backOffs or 0) + 1
+        L.backOffSeconds = (L.backOffSeconds or 0) + waited
+        rested = rested + waited
+    end
+    local restPain = opts.restPain
+    if restPain == nil then restPain = 10 end
+    if restPain and self.opts.strain ~= false and self:armPain() > restPain then
+        local waited = 0
+        while waited < 3600 and self:armPain() > restPain do self:advance(5); waited = waited + 5 end
+        L.strainRests = (L.strainRests or 0) + 1
+        L.strainRestSeconds = (L.strainRestSeconds or 0) + waited
+        rested = rested + waited
+    end
+    return rested
+end
+
+--- One group of n zombies, at most four in reach at a time, the fighter
+--- resting when strained or spent (Arena:_recover; recover = false: never).
+--- The fight goes on until the group is down, the weapon breaks or
+--- `maxSwings`. Returns { n, kills, swings, seconds (all, rest included),
+--- rested, worstTired, broke, left }.
 function Arena:fightGroup(n, opts)
     opts = opts or {}
     local p, L = self.player, self.ledger
     local h = TOUGHNESS_HEALTH[opts.toughness or 2]
     local setup = function(z) z:setHealth(h[1] + ZombRandFloat(0, h[2])) end
     local t0, k0, s0 = self.realSeconds, L.kills, L.swings
+    local r0 = (L.strainRestSeconds or 0) + (L.backOffSeconds or 0)
     local toSpawn, guard, worst = n, 0, 0
     while (toSpawn > 0 or #self:alive() > 0) and not L.broke and guard < (opts.maxSwings or 400) do
         local a = #self:alive()
@@ -1024,6 +1053,8 @@ function Arena:fightGroup(n, opts)
         end
         guard = guard + 1
         self:closeIn()
+        if opts.recover ~= false then self:_recover(opts) end
+        worst = math.max(worst, moodle(p, "ENDURANCE"))
         local secs = self:swingSeconds()
         self:swing(opts)
         self:advance(secs)
@@ -1033,6 +1064,7 @@ function Arena:fightGroup(n, opts)
     -- survivors walk off with the fighter gone (the arena's own are cleared)
     for _, z in ipairs(self:alive()) do pcall(function() z:setHealth(0) end) end
     return { n = n, kills = L.kills - k0, swings = L.swings - s0, seconds = self.realSeconds - t0,
+        rested = (L.strainRestSeconds or 0) + (L.backOffSeconds or 0) - r0,
         worstTired = worst, broke = L.broke and true or false, left = left }
 end
 
