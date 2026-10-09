@@ -35,6 +35,14 @@ svg { width: 100%; height: 100%; display: block; }
 .node { cursor: pointer; }
 .node.dim { opacity: .14; }
 .node.sel rect { stroke: var(--accent) !important; stroke-width: 2.4; }
+.node.picked rect:first-child { stroke: #ffffff !important; stroke-width: 2.6; stroke-dasharray: 5 3; }
+.node .sum { font-size: 10px; fill: #5fb36b; }
+.node .sum.stale { fill: #e0913c; }
+#lasso { position: absolute; border: 1px dashed #ffffff; background: rgba(255,255,255,.06); pointer-events: none; display: none; }
+.badge { display: inline-block; font-size: 10px; padding: 0 5px; border-radius: 3px; margin-left: 6px; }
+.badge.stale { background: #4a3218; color: #e0913c; }
+.badge.ok { background: #1d3320; color: #5fb36b; }
+#selinfo { color: var(--muted); font-size: 12px; }
 .edge { fill: none; stroke: #4a525a; }
 .edge.k-http { stroke: #7fb2e0; stroke-dasharray: 7 4; }
 .edge.k-sql { stroke: #5fb36b; }
@@ -66,12 +74,16 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
   <label><input type="checkbox" id="leaves"> hide leaf helpers</label>
   <label id="xlangWrap" style="display:none"><input type="checkbox" id="xlang" checked> cross-language only</label>
   <button id="fit">fit</button>
+  <span id="selinfo">shift-click or shift-drag to select</span>
+  <button id="ask" disabled title="Hand the selected blocks to your agent: it reads them with flow_selection and writes summaries with flow_summarize">summarize selection</button>
+  <button id="clearSel" disabled>clear</button>
   <span class="meta" id="meta"></span>
   <a href="/workbench">workbench</a>
 </header>
 <main>
   <div id="timeline"><h2>Entry points, in order</h2><div id="tl"></div></div>
   <div id="canvas"><svg id="svg"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b747d"></path></marker></defs><g id="vp"><g id="edges"></g><g id="nodes"></g></g></svg>
+    <div id="lasso"></div>
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
   </div>
   <div id="side"><h2>Block</h2><div id="det"><div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div></div></div>
@@ -79,6 +91,7 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 <script>
 const W = 230, H = 50, GX = 110, GY = 16;
 let doc = null, pos = {}, view = { x: 20, y: 20, k: 0.8 }, selected = null, hotIds = null;
+let picked = new Set(), lastVersion = 0, current = null;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
@@ -96,8 +109,9 @@ async function load() {
   if (want) $("pick").value = want;
   if (list.length) open($("pick").value);
 }
-async function open(v) {
+async function open(v, keep) {
   const [mod, name] = v.split("|");
+  current = { mod, name };
   doc = await (await fetch(`/api/flyke?mod=${encodeURIComponent(mod)}&name=${encodeURIComponent(name)}`)).json();
   doc.mod = mod;
   doc.byId = Object.fromEntries(doc.nodes.map((n) => [n.id, n]));
@@ -105,13 +119,16 @@ async function open(v) {
   for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
   const m = doc.meta || {};
   $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks · ${m.calls || "?"} calls traced · ${m.weapon || ""}`;
-  selected = null; hotIds = null;
+  if (!keep) { selected = null; hotIds = null; picked = new Set(); }
   $("xlangWrap").style.display = doc.static ? "" : "none";
   document.querySelector(".legend").innerHTML = doc.static
     ? `Languages: ${Object.entries(LANG).map(([l, c]) => `<span style="color:${c}">&#9632;</span> ${l}`).join(" ")}<br>
        Edges: <span style="color:#7fb2e0">- - http</span> / <span style="color:#5fb36b">&#8212; sql</span> / <span style="color:#b8c0c8">&middot;&middot;&middot; file</span> / <span style="color:#d9a441">&middot;&middot;&middot; mirror (same check ids)</span> / grey = call`
     : "Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.";
-  renderTimeline(); layout(); draw(); fit();
+  renderTimeline(); layout(); draw();
+  if (!keep) fit(); else apply();
+  updateSel();
+  if (keep) { if (selected) select(selected); return; }
   $("det").innerHTML = `<div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div>`;
 }
 function visible(n) {
@@ -167,8 +184,13 @@ function draw() {
       <rect width="5" height="${H}" fill="${c}" stroke="none"></rect>
       <text x="12" y="20">${esc(label.length > 28 ? label.slice(0, 27) + "…" : label)}</text>
       <text class="mod" x="12" y="37">${esc(n.kind === "entry" ? "entry point" : (n.lang ? n.lang + " / " : "") + String(n.module || "").split("/").slice(-1)[0])}</text>
-      <text class="cnt" x="${W - 8}" y="37" text-anchor="end">×${n.calls}</text>`;
-    g.onclick = (ev) => { ev.stopPropagation(); select(n.id); };
+      <text class="cnt" x="${W - 8}" y="37" text-anchor="end">×${n.calls}</text>
+      ${n.ai ? `<text class="sum${n.aiStale ? " stale" : ""}" x="${W - 8}" y="16" text-anchor="end">${n.aiStale ? "stale" : "summary"}</text>` : ""}`;
+    g.onclick = (ev) => {
+      ev.stopPropagation();
+      if (ev.shiftKey) { picked.has(n.id) ? picked.delete(n.id) : picked.add(n.id); updateSel(); return; }
+      select(n.id);
+    };
     ng.appendChild(g);
   }
   applyHighlight();
@@ -178,6 +200,7 @@ function applyHighlight() {
   for (const g of document.querySelectorAll(".node")) {
     g.classList.toggle("dim", !!on && !on.has(g.dataset.id));
     g.classList.toggle("sel", g.dataset.id === selected);
+    g.classList.toggle("picked", picked.has(g.dataset.id));
   }
   for (const p of document.querySelectorAll(".edge")) {
     const hot = on && on.has(p.dataset.from) && on.has(p.dataset.to) && (hotIds || p.dataset.from === selected || p.dataset.to === selected);
@@ -213,7 +236,7 @@ async function select(id) {
   $("det").innerHTML = `<div class="det">
     <div class="id">${esc(n.id)}</div>
     <div class="modl">${esc(n.kind === "entry" ? "entry point" : n.module)} · called ${n.calls}× · ${esc(Object.keys(n.steps || {}).join(", "))}</div>
-    ${n.ai ? `<div class="ai"><b>AI summary</b>${esc(n.ai)}</div>` : ""}
+    ${n.ai ? `<div class="ai"><b>AI summary${n.aiStale ? `<span class="badge stale">stale: the code changed</span>` : (n.aiBy ? `<span class="badge ok">${esc(n.aiBy)}${n.aiAt ? " " + esc(n.aiAt) : ""}</span>` : "")}</b>${esc(n.ai)}</div>` : ""}
     ${n.summary ? `<div class="doc">${n.ai ? "Doc comment: " : ""}${esc(n.summary)}</div>` : (n.ai ? "" : `<div class="doc">(no summary)</div>`)}
     ${(n.in || []).length ? `<h2 style="margin:10px 0 2px">Data in</h2>${rows(n.in)}` : ""}
     ${(n.out || []).length ? `<h2 style="margin:6px 0 2px">Data out</h2>${rows(n.out)}` : ""}
@@ -243,17 +266,75 @@ function fit() {
   view.k = Math.min(1.2, (r.width - 40) / maxX, (r.height - 40) / maxY); view.x = 20; view.y = 20; apply();
 }
 const cv = $("canvas"); let drag = null;
-cv.onmousedown = (e) => { drag = { x: e.clientX - view.x, y: e.clientY - view.y }; cv.classList.add("drag"); };
-window.onmouseup = () => { drag = null; cv.classList.remove("drag"); };
-window.onmousemove = (e) => { if (drag) { view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; apply(); } };
+let lasso = null;
+cv.onmousedown = (e) => {
+  if (e.shiftKey) {
+    const r = cv.getBoundingClientRect();
+    lasso = { x0: e.clientX - r.left, y0: e.clientY - r.top, x1: e.clientX - r.left, y1: e.clientY - r.top, moved: false };
+    return;
+  }
+  drag = { x: e.clientX - view.x, y: e.clientY - view.y }; cv.classList.add("drag");
+};
+window.onmouseup = () => {
+  if (lasso) {
+    const L = $("lasso"); L.style.display = "none";
+    if (lasso.moved) {
+      // screen -> chart coordinates through the view transform
+      const toChart = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
+      const a = toChart(Math.min(lasso.x0, lasso.x1), Math.min(lasso.y0, lasso.y1));
+      const b = toChart(Math.max(lasso.x0, lasso.x1), Math.max(lasso.y0, lasso.y1));
+      for (const [id, q] of Object.entries(pos)) {
+        if (q.x + W >= a.x && q.x <= b.x && q.y + H >= a.y && q.y <= b.y) picked.add(id);
+      }
+      updateSel();
+    }
+    lasso = null; suppressClick = true;
+  }
+  drag = null; cv.classList.remove("drag");
+};
+window.onmousemove = (e) => {
+  if (lasso) {
+    const r = cv.getBoundingClientRect();
+    lasso.x1 = e.clientX - r.left; lasso.y1 = e.clientY - r.top; lasso.moved = true;
+    const L = $("lasso");
+    L.style.display = "block";
+    L.style.left = Math.min(lasso.x0, lasso.x1) + "px"; L.style.top = Math.min(lasso.y0, lasso.y1) + "px";
+    L.style.width = Math.abs(lasso.x1 - lasso.x0) + "px"; L.style.height = Math.abs(lasso.y1 - lasso.y0) + "px";
+    return;
+  }
+  if (drag) { view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; apply(); }
+};
+let suppressClick = false;
 cv.onwheel = (e) => {
   e.preventDefault();
   const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   const k = Math.max(0.15, Math.min(3, view.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
   view.x = mx - (mx - view.x) * (k / view.k); view.y = my - (my - view.y) * (k / view.k); view.k = k; apply();
 };
-cv.onclick = () => { selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); };
-$("pick").onchange = () => open($("pick").value);
+cv.onclick = () => { if (suppressClick) { suppressClick = false; return; } selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); };
+function updateSel() {
+  const n = picked.size;
+  $("selinfo").textContent = n ? `${n} selected` : "shift-click or shift-drag to select";
+  $("ask").disabled = !n; $("clearSel").disabled = !n;
+  applyHighlight();
+}
+$("clearSel").onclick = () => { picked = new Set(); updateSel(); };
+$("ask").onclick = async () => {
+  if (!picked.size || !current) return;
+  await fetch("/api/flow/selection", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mod: current.mod, name: current.name, ids: [...picked], request: "summarize" }) });
+  $("selinfo").textContent = `${picked.size} handed to the agent: ask it to summarize the selection`;
+};
+// live refresh: the agent writes summaries; reload when the file changes
+setInterval(async () => {
+  if (!current) return;
+  try {
+    const v = await (await fetch(`/api/flow/version?mod=${encodeURIComponent(current.mod)}&name=${encodeURIComponent(current.name)}`)).json();
+    if (lastVersion && v.summaries && v.summaries !== lastVersion) open(current.mod + "|" + current.name, true);
+    lastVersion = v.summaries || lastVersion || 1;
+  } catch (_) {}
+}, 2500);
+$("pick").onchange = () => { lastVersion = 0; open($("pick").value); };
 $("leaves").onchange = () => { layout(); draw(); fit(); };
 $("xlang").onchange = () => { layout(); draw(); fit(); };
 $("fit").onclick = fit;

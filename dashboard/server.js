@@ -319,6 +319,64 @@ function allowedSource(p) {
   return roots.some((r) => n.startsWith(r));
 }
 
+// ── Flow (.flyke) helpers ───────────────────────────────────────────────────
+let flowSelection = null;
+function flykeRoots() {
+  const roots = mods().map((m) => ({ id: m.id, root: m.root }));
+  for (const d of fs.readdirSync(BASE, { withFileTypes: true })) {
+    if (d.isDirectory() && !roots.some((r) => path.resolve(r.root) === path.resolve(BASE, d.name))) roots.push({ id: d.name, root: path.join(BASE, d.name) });
+  }
+  return roots;
+}
+function flykeLocation(mod, name) {
+  if (!mod || !name) return null;
+  const r = flykeRoots().find((x) => x.id === mod);
+  if (!r) return null;
+  const file = path.join(r.root, "flow", path.basename(name) + ".flyke");
+  if (!fs.existsSync(file)) return null;
+  return { root: norm(r.root), file, summaries: path.join(r.root, "flow", path.basename(name) + ".summaries.json") };
+}
+function readSummaries(loc) {
+  try { return JSON.parse(fs.readFileSync(loc.summaries, "utf8")); } catch (_) { return {}; }
+}
+function sortKeys(o) { return Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]])); }
+function codeSlice(root, n) {
+  if (!n.file || n.external) return null;
+  const abs = /^([A-Za-z]:|\/)/.test(n.file) ? n.file : root + "/" + n.file;
+  try {
+    const lines = fs.readFileSync(abs, "utf8").replace(/\r/g, "").split("\n");
+    const a = Math.max(1, n.line || 1), b = Math.min(lines.length, n.endLine || a + 40, a + 200);
+    return lines.slice(a - 1, b).join("\n");
+  } catch (_) { return null; }
+}
+function codeHash(root, n) {
+  const code = codeSlice(root, n);
+  return code == null ? null : require("crypto").createHash("sha1").update(code).digest("hex").slice(0, 12);
+}
+// the context pack: the selected blocks with their code, the edges among
+// them, and the BOUNDARY (edges crossing in or out: the region's interface)
+function flowPack(sel) {
+  const loc = flykeLocation(sel.mod, sel.name);
+  if (!loc) return { error: "the selected .flyke is gone", selection: sel };
+  const doc = JSON.parse(fs.readFileSync(loc.file, "utf8"));
+  const store = readSummaries(loc);
+  const ids = new Set(sel.ids);
+  const byId = Object.fromEntries(doc.nodes.map((n) => [n.id, n]));
+  const blocks = sel.ids.filter((id) => byId[id]).map((id) => {
+    const n = byId[id];
+    return { id, lang: n.lang, kind: n.kind, file: n.file, line: n.line, endLine: n.endLine,
+             doc: n.summary || "", summary: store[id] ? store[id].text : null, code: codeSlice(loc.root, n) };
+  });
+  const inside = [], incoming = [], outgoing = [];
+  for (const e of doc.edges) {
+    const a = ids.has(e.from), b = ids.has(e.to);
+    const row = { from: e.from, to: e.to, kind: e.kind || "call", data: e.data || "" };
+    if (a && b) inside.push(row); else if (b) incoming.push(row); else if (a) outgoing.push(row);
+  }
+  return { mod: sel.mod, name: sel.name, request: sel.request, note: sel.note, at: sel.at,
+           blocks, edges: { inside, incoming, outgoing } };
+}
+
 // ── HTTP ────────────────────────────────────────────────────────────────────
 function json(res, code, body) {
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -359,6 +417,44 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return fs.createReadStream(path.join(HERE, "flow.html")).pipe(res);
     }
+    // FLOW SELECTION + SUMMARIES: the programmer selects blocks in the viewer;
+    // an agent reads the selection (with its code and its boundary) over MCP
+    // and writes summaries back. Summaries live beside the map in
+    // flow/<name>.summaries.json, each keyed to a hash of the code it
+    // describes: the map stays a pure function of the code, and a summary
+    // whose code changed is shown as stale.
+    if (url.pathname === "/api/flow/selection") {
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        flowSelection = { mod: body.mod, name: body.name, ids: Array.isArray(body.ids) ? body.ids : [], request: body.request || "", note: body.note || "", at: Date.now() };
+        return json(res, 200, { ok: true, count: flowSelection.ids.length });
+      }
+      if (!flowSelection) return json(res, 200, { empty: true });
+      return json(res, 200, flowPack(flowSelection));
+    }
+    if (url.pathname === "/api/flow/summaries" && req.method === "POST") {
+      const body = await readBody(req);
+      const loc = flykeLocation(body.mod, body.name);
+      if (!loc) return json(res, 404, { error: "no such .flyke" });
+      const doc = JSON.parse(fs.readFileSync(loc.file, "utf8"));
+      const byId = Object.fromEntries(doc.nodes.map((n) => [n.id, n]));
+      const store = readSummaries(loc);
+      let wrote = 0;
+      const unknown = [];
+      for (const [id, text] of Object.entries(body.summaries || {})) {
+        const n = byId[id];
+        if (!n || typeof text !== "string" || !text.trim()) { unknown.push(id); continue; }
+        store[id] = { text: text.trim(), hash: codeHash(loc.root, n), by: body.by || "agent", at: new Date().toISOString().slice(0, 10) };
+        wrote++;
+      }
+      fs.writeFileSync(loc.summaries, JSON.stringify(sortKeys(store), null, 1) + "\n");
+      return json(res, 200, { wrote, unknown });
+    }
+    if (url.pathname === "/api/flow/version") {
+      const loc = flykeLocation(url.searchParams.get("mod"), url.searchParams.get("name"));
+      const st = loc && fs.existsSync(loc.summaries) ? fs.statSync(loc.summaries).mtimeMs : 0;
+      return json(res, 200, { summaries: st, selection: flowSelection ? flowSelection.at : 0 });
+    }
     if (url.pathname === "/api/flyke") {
       // every PZ mod's flow/ folder, and any monorepo folder's (vps-leaderboard...)
       const roots = mods().map((m) => ({ id: m.id, root: m.root }));
@@ -380,6 +476,14 @@ const server = http.createServer(async (req, res) => {
       // .flyke files): hand the viewer that root to resolve them against
       const doc = JSON.parse(fs.readFileSync(file, "utf8"));
       doc.root = norm(r.root);
+      const loc = flykeLocation(mod, name);
+      const store = loc ? readSummaries(loc) : {};
+      for (const n of doc.nodes) {
+        const sm = store[n.id];
+        if (!sm) continue;
+        n.ai = sm.text; n.aiBy = sm.by; n.aiAt = sm.at;
+        if (sm.hash && sm.hash !== codeHash(doc.root, n)) n.aiStale = true;
+      }
       return json(res, 200, doc);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {

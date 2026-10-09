@@ -119,6 +119,23 @@ function liveResult(r) { return r && r.ok === false && r.err ? { ok: false, out:
 const MOD = { type: "string", description: "Mod id as the dashboard lists it (the `mods` tool), e.g. VorpallySauced, SauceTweaks" };
 const TOOLS = [
   {
+    name: "flow_selection",
+    description: "SousVide Flow: what the programmer selected in the flow chart (http://127.0.0.1:8760/flow) and what they asked for (e.g. \"summarize\"). Returns the map (mod + name), each selected block with its code slice, doc comment and current summary, the edges among them, and the BOUNDARY: edges crossing in (what the region depends on) and out (what relies on it). Use it as the context for the request.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => { await ensureDashboard(); return request("GET", "/api/flow/selection"); },
+  },
+  {
+    name: "flow_summarize",
+    description: "SousVide Flow: write summaries onto blocks of a flow chart (one plain sentence each: what data comes in, what the block does with it, what goes out). Stored beside the map in flow/<name>.summaries.json, keyed to a hash of each block's code, so a summary goes stale when its code changes. The viewer shows them live.",
+    inputSchema: { type: "object", properties: {
+      mod: { type: "string", description: "the map's folder, as flow_selection returns it (e.g. vps-leaderboard)" },
+      name: { type: "string", description: "the map's name (e.g. system)" },
+      summaries: { type: "object", description: "{ blockId: sentence }", additionalProperties: { type: "string" } },
+      by: { type: "string", description: "who wrote them (default: agent)" },
+    }, required: ["mod", "name", "summaries"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/summaries", { mod: a.mod, name: a.name, summaries: a.summaries, by: a.by || "agent" }); },
+  },
+  {
     name: "live_status",
     description: "SousVide Live: is the local dedicated server (Docker 'pzserver') up, and is pz-shell armed and its VM responsive? Use before the other live_* tools.",
     inputSchema: { type: "object", properties: {} },
