@@ -430,6 +430,85 @@ local function hitXp(self, dmgSplit)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- DOWNED ZOMBIES (combat = true). The engine knocks a zombie down on a crit,
+-- or when it is already on the floor (IsoZombie.hitConsequences :4278:
+-- setKnockedDown(isCriticalHit || isOnFloor || isAlwaysKnockedDown)); 1 in 30
+-- hits make it a crawler (:4336). Down, it is no longer a standing target:
+-- only a floor attack reaches it (CombatManager:1877), and it gets up when its
+-- reanimate timer runs out, 30-90 ticks at 30 a second after it lands
+-- (ZombieOnGroundState.startReanimateTimer :166), each hit while down adding
+-- up to 10 more (CombatManager:957). Headless no state machine runs, so the
+-- arena keeps that clock itself: self.down[zombie] = when it is up again.
+-- ---------------------------------------------------------------------------
+local FALL_SECONDS = 1.0   -- the fall animation before the timer starts (approximate)
+
+function Arena:_noteDown(z, t, rec)
+    self.down = self.down or {}
+    local L = self.ledger
+    if t.dead then self.down[z] = nil; return end
+    if self.down[z] then
+        if self.down[z] ~= math.huge then self.down[z] = self.down[z] + ZombRand(10) / 30 end
+        return
+    end
+    local crawler = (try(function() return z:isBecomeCrawler() end) or false) or (try(function() return z:isCrawling() end) or false)
+    if crawler then
+        self.down[z] = math.huge
+        L.crawlers = (L.crawlers or 0) + 1
+    elseif rec.crit or t.knockdown then
+        self.down[z] = self.realSeconds + FALL_SECONDS + (30 + ZombRand(61)) / 30
+        L.knockedDown = (L.knockedDown or 0) + 1
+    end
+end
+
+function Arena:_standUp()
+    if not self.down then return end
+    for z, upAt in pairs(self.down) do
+        if z:isDead() then self.down[z] = nil
+        elseif self.realSeconds >= upAt then
+            self.down[z] = nil
+            pcall(function() z:setKnockedDown(false) end)
+            pcall(function() z:setOnFloor(false) end)
+            self.ledger.gotUp = (self.ledger.gotUp or 0) + 1
+        end
+    end
+end
+
+function Arena:_bareHands()
+    if self._bare == nil then self._bare = try(function() return PZEngine.instanceItem("Base.BareHands") end) or false end
+    return self._bare or nil
+end
+
+--- A stomp on a downed zombie (CombatManager:1045-1052: 0.7-1.0 + Strength x
+--- 0.2, times the shoes' StompPower, opts.stompPower, default 1; barefoot
+--- 0.5): bare hands, aiming at the floor, shoving. No weapon wear, no weapon XP.
+function Arena:_stomp(z, rec)
+    local p, L = self.player, self.ledger
+    local bare = self:_bareHands()
+    local str = try(function() return p:getPerkLevel(Perks.Strength) end) or 0
+    local dmg = ZombRandFloat(0.7, 1.0) + str * 0.2
+    dmg = dmg * (self.opts.stompPower or 1.0)
+    dmg = dmg * (MOODLE_MULT[moodle(p, "ENDURANCE")] or 1) * (MOODLE_MULT[moodle(p, "TIRED")] or 1)
+    local t = { hp0 = z:getHealth(), stomp = true }
+    pcall(function() p:setCriticalHit(false) end)
+    if self.mode == "sp" then PZEngine.setServer(false) end
+    pcall(function() p:setDoShove(true); p:setAimAtFloor(true) end)
+    local dealt, err = PZEngine.hit(z, bare or self.weapon, p, dmg, false, 1)
+    pcall(function() p:setDoShove(false); p:setAimAtFloor(false) end)
+    if self.mode == "sp" then PZEngine.setServer(true) end
+    if err then L.errors[#L.errors + 1] = "stomp: " .. tostring(err) end
+    t.hp1, t.dead = z:getHealth(), z:isDead()
+    t.dealt = t.hp0 - t.hp1
+    if t.dead and t.hp0 > 0 then
+        L.deaths = L.deaths + 1
+        L.killBy = L.killBy or {}
+        L.killBy.stomp = (L.killBy.stomp or 0) + 1
+    end
+    L.stomps = (L.stomps or 0) + 1
+    self:_noteDown(z, t, rec)
+    rec.targets[#rec.targets + 1] = t
+end
+
 -- one melee swing, the attackCollisionCheck way
 function Arena:swing(opts)
     opts = opts or {}
@@ -441,22 +520,39 @@ function Arena:swing(opts)
         L.swings = L.swings + 1
         local combat = self.opts.combat
         if not (self.opts.fatigue or combat) then pcall(function() p:getStats():set(CharacterStat.ENDURANCE, 1.0) end) end
-        if combat then
-            refreshMoodles(p)
-            local e0 = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end)
-            pcall(function() CombatManager.getInstance():processWeaponEndurance(p, w) end)
-            local e1 = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end)
-            if e0 and e1 and e1 < e0 then L.staminaSpent = L.staminaSpent + (e0 - e1) end
-        end
-        if triggerEvent then triggerEvent("OnWeaponSwing", p, w) end
-        rec.events[#rec.events + 1] = "OnWeaponSwing"
         local maxRange = try(function() return w:getMaxRange(p) end) or w:getMaxRange()
         local cand = {}
+        if combat then self:_standUp() end
         for _, z in ipairs(self:alive()) do
             local d = dist(p, z)
             if d <= maxRange + 0.0001 then cand[#cand + 1] = { z = z, d = d } end
         end
         table.sort(cand, function(a, b) return a.d < b.d end)
+        -- COMBAT: standing targets first; only with none in reach does the
+        -- attack go to the floor (CombatManager.calcValidTargets :1440 and the
+        -- auto prone attack, :1369-1399): the weapon swung at the floor (x5,
+        -- IsoGameCharacter.processHitDamage) or, finisher = "stomp", a stomp
+        local floor, stomp, actor = false, false, w
+        if combat then
+            local standing, prone = {}, {}
+            for _, c in ipairs(cand) do
+                if self.down and self.down[c.z] then prone[#prone + 1] = c else standing[#standing + 1] = c end
+            end
+            if #standing > 0 then cand = standing
+            elseif #prone > 0 then
+                cand, floor = prone, true
+                stomp = (opts.finisher or self.opts.finisher) == "stomp"
+                if stomp then actor = self:_bareHands() or w end
+            end
+            rec.floor, rec.stomp = floor, stomp
+            refreshMoodles(p)
+            local e0 = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end)
+            pcall(function() CombatManager.getInstance():processWeaponEndurance(p, actor) end)
+            local e1 = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end)
+            if e0 and e1 and e1 < e0 then L.staminaSpent = L.staminaSpent + (e0 - e1) end
+        end
+        if triggerEvent then triggerEvent("OnWeaponSwing", p, w) end
+        rec.events[#rec.events + 1] = "OnWeaponSwing"
         -- COMBAT: the swing's arc (CombatManager.removeUnhittableMeleeTargets
         -- :1629): facing the nearest target, a target is hit only if the dot of
         -- the facing and the direction to it lies in [MinAngle, MaxAngle]
@@ -466,6 +562,7 @@ function Arena:swing(opts)
             if fl > 0 then
                 fx, fy = fx / fl, fy / fl
                 local minA = try(function() return w:getMinAngle() end) or 0.8
+                if floor then minA = minA / 1.5 end
                 local maxA = try(function() return w:getMaxAngle() end) or 1
                 local kept = { cand[1] }
                 for i = 2, #cand do
@@ -479,6 +576,11 @@ function Arena:swing(opts)
             end
         end
         local maxHit = try(function() return w:getMaxHitCount() end) or 1
+        if stomp then
+            if #cand == 0 then L.misses = L.misses + 1; return end
+            self:_stomp(cand[1].z, rec)
+            return
+        end
         -- strain comes with the swing, after its endurance cost (CombatManager:714-715)
         if combat and self.opts.strain ~= false then
             L.strain = (L.strain or 0) + muscleStrain(self, math.min(maxHit, #cand))
@@ -529,7 +631,9 @@ function Arena:swing(opts)
                 end
             end)
             if self.mode == "sp" then PZEngine.setServer(false) end
+            if floor then pcall(function() p:setAimAtFloor(true) end) end
             local dealt, hitErr = PZEngine.hit(z, w, p, dmgSplit, false, rangeDel)
+            if floor then pcall(function() p:setAimAtFloor(false) end); L.floorHits = (L.floorHits or 0) + 1 end
             if self.mode == "sp" then PZEngine.setServer(true) end
             if hitErr then
                 if tostring(hitErr):find("IsoDeadBody", 1, true) then L.corpsesSkipped = L.corpsesSkipped + 1
@@ -549,9 +653,15 @@ function Arena:swing(opts)
             -- what the hit did
             t.hp1, t.dead = z:getHealth(), z:isDead()
             t.dealt = t.hp0 - t.hp1
-            if t.dead and t.hp0 > 0 then L.deaths = L.deaths + 1 end
+            if t.dead and t.hp0 > 0 then
+                L.deaths = L.deaths + 1
+                local how = floor and "floor" or (rec.crit and "crit" or "standing")
+                L.killBy = L.killBy or {}
+                L.killBy[how] = (L.killBy[how] or 0) + 1
+            end
             t.stagger = try(function() return z:isStaggerBack() end) or false
             t.knockdown = try(function() return z:isKnockedDown() end) or false
+            if combat then self:_noteDown(z, t, rec) end
             t.fire = try(function() return z:isOnFire() end) or false
             t.stam1 = try(function() return p:getStats():get(CharacterStat.ENDURANCE) end)
             if t.stam0 and t.stam1 and t.stam1 < t.stam0 then L.staminaSpent = L.staminaSpent + (t.stam0 - t.stam1) end

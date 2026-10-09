@@ -398,3 +398,34 @@ multiplier, zombie toughness; game speed (48 multiplier-units per real second at
   15), the bat 1 in 18.4 (1 in 20). Against groups of three at skill 0 a golf
   club hits 2.65 zombies a swing, 7.4 hits a kill, and lives about 10 kills;
   a bat 1.6, 12.5 and about 22.
+
+## How zombies die: knockdowns, floor blows, stomps (2026-10-09)
+
+- **Death is health <= 0, standing or not** (`IsoGameCharacter.hitConsequences
+  :6928` -> `Kill`). No floor blow is required.
+- **From a zombie's 4th hit on, damage x (hits - 2) x 1.5**
+  (`IsoGameCharacter.Hit :6792`).
+- **A crit knocks down** every zombie it hits; a zombie already on the floor
+  stays down (`IsoZombie.hitConsequences :4278`). 1 in 30 hits make a crawler
+  (`shouldBecomeCrawler :4336`).
+- **Downed zombies are not standing targets.** Standing ones in reach always
+  come first; only with none does the attack go to the floor (auto prone
+  attack, `CombatManager:1369-1399`; prone targets use MinAngle / 1.5).
+- **A weapon swung at the floor does x max(5, crit multiplier)**
+  (`processHitDamage`, aimAtFloor and not shoving) and rolls wear as any hit.
+  **A stomp** does 0.7-1.0 + Strength x 0.2, times the shoes' StompPower
+  (0.5 barefoot) (`CombatManager:1045`), with bare hands: no weapon wear.
+- **A downed zombie gets up** when its reanimate timer runs out: 30-90 ticks at
+  30 a second after it lands (`ZombieOnGroundState :166`), each hit while down
+  adding up to 10 (`CombatManager:957`).
+
+The Arena (combat mode) models all of it: `self.down` keeps each downed
+zombie's get-up time on the arena clock; `finisher = "weapon"` (default, the
+auto prone attack) or `"stomp"`; the ledger counts `knockedDown`, `gotUp`,
+`floorHits`, `stomps`, `crawlers` and `killBy` (standing, crit, floor, stomp).
+
+Measured (groups of three, 30 s between, skill 0, until the weapon breaks):
+golf club 12 kills a life, 2.4 swings and 5.5 wear rolls a kill, 53% of
+kills on the floor; bat 59, 3.3, 5.0, 38%; axe 41, 6.1, 9.4, 29%. Stomping
+the downed ones instead barely lengthens a life (golf club 12 -> 12, bat
+59 -> 67): most of the wear is spent before the knockdown.
