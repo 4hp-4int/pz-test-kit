@@ -71,15 +71,16 @@ def index_file(path, root):
         starts.append(i)
         out.append({"id": (mod + "." if mod else "") + m.group(2), "module": mod, "fn": m.group(2),
                     "file": path.replace("\\", "/"), "line": i + 1, "doc": " ".join(d for d in doc if d)})
-    # a function ends where the next one starts (or at a top-level `end` before it)
-    for k, f in enumerate(out):
-        nxt = starts[k + 1] if k + 1 < len(starts) else len(lines)
-        end = nxt
-        for i in range(nxt - 1, f["line"] - 1, -1):
-            if lines[i].startswith("end"):
+    # a function ends at the first unindented `end` after it starts (top-level
+    # definitions close at column 0); scanning BACK from the next indexed one
+    # swallowed every local helper in between (isValidAnyWeapon read 752-1038)
+    for f in out:
+        end = None
+        for i in range(f["line"], len(lines)):
+            if re.match(r"^end(\s|$)", lines[i]):
                 end = i + 1
                 break
-        f["endLine"] = end
+        f["endLine"] = end or f["line"]
     return out
 
 
