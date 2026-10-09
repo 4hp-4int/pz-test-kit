@@ -398,8 +398,7 @@ def main():
     also = [tuple(args[i + 1].rsplit(":", 1)) for i, a in enumerate(args) if a == "--also"]
     doc = build(root, includes, excludes, name, also)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    json.dump(doc, open(out, "w", encoding="utf8", newline="
-"), indent=1, sort_keys=True)   # LF: the same bytes on every OS
+    json.dump(doc, open(out, "w", encoding="utf8", newline="\n"), indent=1, sort_keys=True)   # LF: the same bytes on every OS
     kinds = collections.Counter(e["kind"] for e in doc["edges"])
     langs = collections.Counter(n["lang"] for n in doc["nodes"])
     print(f"{out}: {len(doc['nodes'])} blocks {dict(langs)}, edges {dict(kinds)}, {len(doc['timeline'])} entry points")
