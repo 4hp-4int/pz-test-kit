@@ -330,7 +330,15 @@ class Bridge {
     const pztest = path.join(this.ctx.KIT, "pztest");
     const flags = workbenchConfig(this.mod).engine ? ["--bridge", "--engine"] : ["--bridge"];
     if (this.role) flags.push("--role", this.role, ...(this.role === "client" ? ["--client-index", String(this.index)] : []));
-    for (const m of this.luaMods) flags.push("--lua-mod", m);
+    // a long list goes through a file: Windows caps a command line at 32K
+    // characters, and a reporter's whole stack (300+ absolute paths) passes it
+    if (this.luaMods.join("").length > 8000) {
+      const listFile = path.join(require("os").tmpdir(), `pztest-luamods-${process.pid}-${this.role || "vm"}${this.index || ""}.txt`);
+      fs.writeFileSync(listFile, this.luaMods.join("\n") + "\n");
+      flags.push("--lua-mods-file", listFile);
+    } else {
+      for (const m of this.luaMods) flags.push("--lua-mod", m);
+    }
     this.proc = spawn(this.ctx.bashPath(), [pztest, ...flags], { cwd: this.mod.root });
     let buf = "";
     this.proc.stdout.on("data", (chunk) => {

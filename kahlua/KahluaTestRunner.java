@@ -169,6 +169,19 @@ public class KahluaTestRunner {
                     if (!args[++i].isBlank()) luaModSpecs.add(args[i].trim());
                     engineOn = true; continue;
                 }
+                // --lua-mods-file <path>: the same specs, one per line (a long
+                // list overflows the Windows command line)
+                if (a.equals("--lua-mods-file") && i + 1 < args.length) {
+                    try {
+                        for (String line : java.nio.file.Files.readAllLines(java.nio.file.Path.of(args[++i]))) {
+                            if (!line.isBlank()) luaModSpecs.add(line.trim());
+                        }
+                    } catch (java.io.IOException e) {
+                        System.err.println("--lua-mods-file: " + e);
+                        System.exit(2);
+                    }
+                    engineOn = true; continue;
+                }
                 if (a.equals("--help") || a.equals("-h")) {
                     printUsage(); System.exit(0);
                 }
