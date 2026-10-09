@@ -1667,6 +1667,14 @@ public final class EngineBridge {
         pzEngine.rawset("popCells", (JavaFunction) (frame, n) -> {
             frame.push(luaOf(platform, PopSim.cells(n > 0 && frame.get(0) instanceof Double d ? d.intValue() : 20))); return 1;
         });
+        pzEngine.rawset("popRooms", (JavaFunction) (frame, n) -> {
+            String name = n > 0 && frame.get(0) instanceof String s0 ? s0 : null;
+            int[] c = new int[] { 0, 0, 0, 0 };
+            for (int i = 0; i < 4; i++) if (n > i + 1 && frame.get(i + 1) instanceof Double d) c[i] = d.intValue();
+            int max = n > 5 && frame.get(5) instanceof Double m ? m.intValue() : 500;
+            Object[] r = PopSim.rooms(name, c[0], c[1], c[2], c[3], max);
+            frame.push(r[0] == null ? null : luaOf(platform, r[0])); frame.push(r[1]); return 2;
+        });
         pzEngine.rawset("popStatus", (JavaFunction) (frame, n) -> { frame.push(luaOf(platform, PopSim.status())); return 1; });
         // Set a sandbox option through the engine's typed option and return
         // what the engine kept: an out-of-range value is refused and the old

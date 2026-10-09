@@ -528,6 +528,35 @@ public final class PopSim {
         } catch (Throwable t) { return new Object[] { null, describe(t) }; }
     }
 
+    /** Rooms of the loaded metagrid whose name matches (null = any), over map
+     *  cells cx0..cx1, cy0..cy1: { name, x, y, w, h } (squares). */
+    public static Object[] rooms(String name, int cx0, int cy0, int cx1, int cy1, int max) {
+        try {
+            Class<?> worldC = cls("zombie.iso.IsoWorld");
+            Object grid = worldC.getMethod("getMetaGrid").invoke(worldC.getField("instance").get(null));
+            Method cellData = grid.getClass().getMethod("getCellData", int.class, int.class);
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (int cy = cy0; cy <= cy1; cy++) for (int cx = cx0; cx <= cx1; cx++) {
+                Object mc = cellData.invoke(grid, cx, cy);
+                if (mc == null) continue;
+                List<Object> list = new ArrayList<>();
+                mc.getClass().getMethod("getRoomsIntersecting", int.class, int.class, int.class, int.class, ArrayList.class)
+                    .invoke(mc, cx * 256, cy * 256, 256, 256, list);
+                for (Object r : list) {
+                    String n = (String) r.getClass().getMethod("getName").invoke(r);
+                    if (name != null && !name.equals(n)) continue;
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("name", n);
+                    for (String f : new String[] { "X", "Y", "W", "H" })
+                        m.put(f.toLowerCase(), ((Number) r.getClass().getMethod("get" + f).invoke(r)).doubleValue());
+                    out.add(m);
+                    if (out.size() >= max) return new Object[] { out, null };
+                }
+            }
+            return new Object[] { out, null };
+        } catch (Throwable t) { return new Object[] { null, describe(t) }; }
+    }
+
     public static synchronized Map<String, Object> status() {
         Map<String, Object> s = new HashMap<>();
         s.put("ready", ready);

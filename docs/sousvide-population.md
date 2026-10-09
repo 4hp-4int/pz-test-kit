@@ -26,6 +26,7 @@ save directory and `Core.noSave`.
 | `popCells()` | the library's loaded cells (256-square map cells): `cx, cy, current, desired, lastRepop` |
 | `popDensity(x0, y0, x1, y1)` | the map's zombie intensity per chunk (no library needed) |
 | `popStatus()` | ready, clock, hour, real, made, killed, area... |
+| `popRooms(name, cx0, cy0, cx1, cy1 [, max])` | rooms of the loaded map by name (`gasstore`...) over map cells: `name, x, y, w, h` |
 | `popRadar()` | the library's radar; answers but reports 0 (open) |
 
 ## Things learned (each cost a debugging session)
@@ -60,6 +61,26 @@ save directory and `Core.noSave`.
 - An alarm (radius 200, ten minutes) draws 34-41 moving zombies in most
   runs; in some runs (1 in 4 to 2 in 4) the library loads no neighbour cells
   and none come. Not a per-sound roll: ten repeats change nothing. Open.
+
+## The Arena at real places
+
+`Arena:clearAt{ x, y, radius = 40, link = 6, walkSpeed = 2.0, toughness }`
+asks the population who stands within `radius` of the spot, groups them
+(`link` tiles), walks a greedy nearest-first route between groups on the arena
+clock and fights each (`Arena:fightGroup`: four in reach at a time, no backing
+off), reporting deaths back (`popKill`). `zeds = {...}` fights a given draw
+instead (the same draw for several weapons: a cleared place stays cleared).
+
+All 26 gas stations of the map (VorpallySauced
+`tools/analysis/arena_clear_place_tests.lua`, Normal zombies, Strength and
+Fitness 5): 0-69 zombies within 40 tiles (median 20); a level-0 baseball bat
+clears 19 of the 25 occupied ones and fails at every one over 25 zombies; a
+level-0 golf club clears 8; a level-5 axe 23.
+
+**The world seed shapes towns.** The zombie voronoi (seeded from the world
+seed) blanks whole patches: with SousVide's seed 0, Muldraugh's density is a
+strip along the main road south of y 9800 and its gas station has nobody near.
+Another save's Muldraugh differs. Seed control is open.
 
 ## Open
 

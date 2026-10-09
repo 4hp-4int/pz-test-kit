@@ -844,6 +844,137 @@ function Arena:life(opts)
     return out
 end
 
+-- ---------------------------------------------------------------------------
+-- FIGHTING A GROUP and CLEARING A REAL PLACE (combat = true)
+-- ---------------------------------------------------------------------------
+-- zombie health by toughness, as IsoZombie does at creation (:4477-4490)
+local TOUGHNESS_HEALTH = { [1] = { 3.5, 0.3 }, [2] = { 1.8, 0.3 }, [3] = { 0.5, 0.3 } }
+Arena.TOUGHNESS_HEALTH = TOUGHNESS_HEALTH
+
+--- One group of n zombies, at most four in reach at a time (the four tiles
+--- beside the fighter), no backing off: the fight goes on until the group is
+--- down, the weapon breaks or `maxSwings`. Returns { n, kills, swings,
+--- seconds, worstTired, broke, left }.
+function Arena:fightGroup(n, opts)
+    opts = opts or {}
+    local p, L = self.player, self.ledger
+    local h = TOUGHNESS_HEALTH[opts.toughness or 2]
+    local setup = function(z) z:setHealth(h[1] + ZombRandFloat(0, h[2])) end
+    local t0, k0, s0 = self.realSeconds, L.kills, L.swings
+    local toSpawn, guard, worst = n, 0, 0
+    while (toSpawn > 0 or #self:alive() > 0) and not L.broke and guard < (opts.maxSwings or 400) do
+        local a = #self:alive()
+        if a < 4 and toSpawn > 0 then
+            local m = math.min(4 - a, toSpawn)
+            self:spawn(m, { setup = setup })
+            toSpawn = toSpawn - m
+        end
+        guard = guard + 1
+        self:closeIn()
+        local secs = self:swingSeconds()
+        self:swing(opts)
+        self:advance(secs)
+        worst = math.max(worst, moodle(p, "ENDURANCE"))
+    end
+    local left = toSpawn + #self:alive()
+    -- survivors walk off with the fighter gone (the arena's own are cleared)
+    for _, z in ipairs(self:alive()) do pcall(function() z:setHealth(0) end) end
+    return { n = n, kills = L.kills - k0, swings = L.swings - s0, seconds = self.realSeconds - t0,
+        worstTired = worst, broke = L.broke and true or false, left = left }
+end
+
+-- single-link clusters: zombies within `link` tiles of one another
+local function clusters(zeds, link)
+    local out, seen = {}, {}
+    for i = 1, #zeds do
+        if not seen[i] then
+            local g, queue = {}, { i }
+            seen[i] = true
+            while #queue > 0 do
+                local j = table.remove(queue)
+                g[#g + 1] = zeds[j]
+                for k, o in ipairs(zeds) do
+                    if not seen[k] and math.abs(o.x - zeds[j].x) <= link and math.abs(o.y - zeds[j].y) <= link then
+                        seen[k] = true
+                        queue[#queue + 1] = k
+                    end
+                end
+            end
+            local cx, cy = 0, 0
+            for _, z in ipairs(g) do cx, cy = cx + z.x, cy + z.y end
+            out[#out + 1] = { zeds = g, n = #g, x = cx / #g, y = cy / #g }
+        end
+    end
+    return out
+end
+Arena._clusters = clusters
+
+--- CLEARING A REAL PLACE. The game's own population (SousVide PopSim,
+--- docs/sousvide-population.md) decides who stands within `radius` of (x, y)
+--- when the fighter arrives; they are grouped (`link` tiles) and met in a
+--- greedy nearest-first walk from (x, y), walking at `walkSpeed` tiles a
+--- second (time passes on the arena clock: endurance comes back on the way).
+--- Each death is reported to the population (popKill); a fighter whose weapon
+--- breaks leaves the rest. opts: x, y, radius (40), link (6), walkSpeed (2.0),
+--- toughness (2), zeds (use these instead of asking the population).
+--- Returns { zombies, groups = { per group: n, at, walk, kills, seconds,
+--- worstTired, broke }, cleared, kills, left, seconds, summary }.
+function Arena:clearAt(opts)
+    opts = opts or {}
+    local x, y = opts.x, opts.y
+    local radius, link, walkSpeed = opts.radius or 40, opts.link or 6, opts.walkSpeed or 2.0
+    local zeds = opts.zeds
+    if not zeds then
+        if not (PZEngine and PZEngine.popInit) then return nil, "no population (PZEngine.popInit)" end
+        local ok, err = PZEngine.loadWorld()
+        if not ok and err then return nil, err end
+        ok, err = PZEngine.popInit()
+        if not ok then return nil, err end
+        PZEngine.popTake()
+        PZEngine.popArea(math.floor(x) - 68, math.floor(y) - 68, 136, 136)
+        PZEngine.popStep(1)
+        zeds = {}
+        for _, z in ipairs(PZEngine.popTake(x, y)) do
+            if math.sqrt((z.x - x) ^ 2 + (z.y - y) ^ 2) <= radius then zeds[#zeds + 1] = z end
+        end
+    end
+    local groups = clusters(zeds, link)
+    local out = { zombies = #zeds, groups = {}, kills = 0, left = 0 }
+    local t0 = self.realSeconds
+    local px, py = x, y
+    local todo = {}
+    for i, g in ipairs(groups) do todo[i] = g end
+    while #todo > 0 do
+        local best, bd = 1, math.huge
+        for i, g in ipairs(todo) do
+            local d = math.sqrt((g.x - px) ^ 2 + (g.y - py) ^ 2)
+            if d < bd then best, bd = i, d end
+        end
+        local g = table.remove(todo, best)
+        local walk = bd / walkSpeed
+        local left = walk
+        while left > 0 do local s = math.min(5, left); self:advance(s); left = left - s end
+        px, py = g.x, g.y
+        local r = self:fightGroup(g.n, opts)
+        r.at = { x = g.x, y = g.y }
+        r.walk = walk
+        out.groups[#out.groups + 1] = r
+        out.kills = out.kills + r.kills
+        if PZEngine and PZEngine.popKill and not opts.zeds then
+            for i = 1, math.min(r.kills, #g.zeds) do PZEngine.popKill(g.zeds[i].id) end
+        end
+        if r.broke or r.left > 0 then
+            out.left = r.left
+            for _, rest in ipairs(todo) do out.left = out.left + rest.n end
+            break
+        end
+    end
+    out.cleared = out.left == 0
+    out.seconds = self.realSeconds - t0
+    out.summary = self:summary()
+    return out
+end
+
 function Arena:summary()
     local L = self.ledger
     local s = {}
