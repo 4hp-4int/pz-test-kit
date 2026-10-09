@@ -360,19 +360,27 @@ const server = http.createServer(async (req, res) => {
       return fs.createReadStream(path.join(HERE, "flow.html")).pipe(res);
     }
     if (url.pathname === "/api/flyke") {
+      // every PZ mod's flow/ folder, and any monorepo folder's (vps-leaderboard...)
+      const roots = mods().map((m) => ({ id: m.id, root: m.root }));
+      for (const d of fs.readdirSync(BASE, { withFileTypes: true })) {
+        if (d.isDirectory() && !roots.some((r) => path.resolve(r.root) === path.resolve(BASE, d.name))) roots.push({ id: d.name, root: path.join(BASE, d.name) });
+      }
       const list = [];
-      for (const m of mods()) {
-        const dir = path.join(m.root, "flow");
+      for (const r of roots) {
+        const dir = path.join(r.root, "flow");
         if (!fs.existsSync(dir)) continue;
-        for (const f of fs.readdirSync(dir)) if (f.endsWith(".flyke")) list.push({ mod: m.id, name: f.replace(/\.flyke$/, "") });
+        for (const f of fs.readdirSync(dir)) if (f.endsWith(".flyke")) list.push({ mod: r.id, name: f.replace(/\.flyke$/, "") });
       }
       const mod = url.searchParams.get("mod"), name = url.searchParams.get("name");
       if (!mod || !name) return json(res, 200, list);
-      const m = modById(mod);
-      const file = m && path.join(m.root, "flow", path.basename(name) + ".flyke");
+      const r = roots.find((x) => x.id === mod);
+      const file = r && path.join(r.root, "flow", path.basename(name) + ".flyke");
       if (!file || !fs.existsSync(file)) return json(res, 404, { error: "no such .flyke" });
-      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-      return fs.createReadStream(file).pipe(res);
+      // block paths may be relative to the folder holding flow/ (deterministic
+      // .flyke files): hand the viewer that root to resolve them against
+      const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+      doc.root = norm(r.root);
+      return json(res, 200, doc);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
