@@ -418,7 +418,7 @@ jobs:
           javac -cp kahlua-runtime.jar \
             TestPlatform.java KahluaTestRunner.java DualVMSim.java \
             StubbingClassLoader.java PZTestKitLauncher.java \
-            ScriptCheck.java EngineBridge.java PzLocator.java
+            ScriptCheck.java EngineBridge.java PzLocator.java PopSim.java
       - run: |
           chmod +x "$RUNNER_TEMP/pz-test-kit/pztest"
           "$RUNNER_TEMP/pz-test-kit/pztest" "$GITHUB_WORKSPACE" \

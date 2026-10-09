@@ -37,7 +37,7 @@ if (-not (Test-Path $jar)) {
     exit 1
 }
 
-$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck', 'EngineBridge', 'PzLocator')
+$sources = @('TestPlatform', 'KahluaTestRunner', 'DualVMSim', 'StubbingClassLoader', 'PZTestKitLauncher', 'ScriptCheck', 'EngineBridge', 'PzLocator', 'PopSim')
 
 # Compile into a build directory named for the sources' content, never in
 # place (same scheme and same hash as the bash pztest): a long-lived

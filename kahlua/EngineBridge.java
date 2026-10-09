@@ -1604,6 +1604,70 @@ public final class EngineBridge {
             Object[] r = loadCell(a[0], a[1], a[2], a[3], a[4], a[5]);
             frame.push(r[0]); frame.push(r[1]); return 2;
         });
+        // ZOMBIE POPULATION (PopSim.java): the game's native population over
+        // the loaded world. popInit() -> true | nil, err; the rest answer
+        // nil, err before it.
+        pzEngine.rawset("popInit", (JavaFunction) (frame, n) -> {
+            String err = PopSim.init(pzInstallDir);
+            frame.push(err == null ? Boolean.TRUE : null); frame.push(err); return 2;
+        });
+        pzEngine.rawset("popArea", (JavaFunction) (frame, n) -> {
+            int[] a = new int[4];
+            for (int i = 0; i < 4; i++) a[i] = frame.get(i) instanceof Double d ? d.intValue() : 0;
+            String err = PopSim.setArea(a[0], a[1], a[2], a[3]);
+            frame.push(err == null ? Boolean.TRUE : null); frame.push(err); return 2;
+        });
+        pzEngine.rawset("popStep", (JavaFunction) (frame, n) -> {
+            Object[] r = PopSim.step(n > 0 && frame.get(0) instanceof Double d ? d : 1.0,
+                n > 1 && frame.get(1) instanceof Double w ? w.intValue() : 0,
+                n > 2 && frame.get(2) instanceof Double ss ? ss.intValue() : PopSim.SUB_STEPS);
+            frame.push(r[0] instanceof Integer i ? (Object) i.doubleValue() : null); frame.push(r[1]); return 2;
+        });
+        pzEngine.rawset("popTake", (JavaFunction) (frame, n) -> {
+            Double nx = n > 0 && frame.get(0) instanceof Double d0 ? d0 : null;
+            Double ny = n > 1 && frame.get(1) instanceof Double d1 ? d1 : null;
+            frame.push(luaOf(platform, PopSim.take(nx, ny))); return 1;
+        });
+        pzEngine.rawset("popKill", (JavaFunction) (frame, n) -> {
+            frame.push(frame.get(0) instanceof Double d && PopSim.kill(d.intValue())); return 1;
+        });
+        pzEngine.rawset("popVirtualize", (JavaFunction) (frame, n) -> {
+            frame.push(frame.get(0) instanceof Double d && PopSim.virtualize(d.intValue())); return 1;
+        });
+        pzEngine.rawset("popMove", (JavaFunction) (frame, n) -> {
+            frame.push(PopSim.move(((Double) frame.get(0)).intValue(), (Double) frame.get(1), (Double) frame.get(2))); return 1;
+        });
+        pzEngine.rawset("popSound", (JavaFunction) (frame, n) -> {
+            int[] a = new int[] { 0, 0, 50, 50 };
+            for (int i = 0; i < Math.min(n, 4); i++) if (frame.get(i) instanceof Double d) a[i] = d.intValue();
+            String err = PopSim.sound(a[0], a[1], a[2], a[3]);
+            frame.push(err == null ? Boolean.TRUE : null); frame.push(err); return 2;
+        });
+        pzEngine.rawset("popRadar", (JavaFunction) (frame, n) -> {
+            float[] r = PopSim.radar(n > 0 && frame.get(0) instanceof Double d ? d.intValue() : 20);
+            if (r == null) { frame.push(null); return 1; }
+            KahluaTable t = platform.newTable();
+            for (int i = 0; i < r.length; i++) t.rawset((double) (i + 1), (double) r[i]);
+            frame.push(t); return 1;
+        });
+        pzEngine.rawset("popDensity", (JavaFunction) (frame, n) -> {
+            int[] a = new int[4];
+            for (int i = 0; i < 4; i++) a[i] = frame.get(i) instanceof Double d ? d.intValue() : 0;
+            Object[] r = PopSim.density(a[0], a[1], a[2], a[3]);
+            if (r[0] == null) { frame.push(null); frame.push(r[1]); return 2; }
+            int[] box = (int[]) r[0], v = (int[]) r[1];
+            KahluaTable t = platform.newTable();
+            t.rawset("wx", (double) box[0]); t.rawset("wy", (double) box[1]);
+            t.rawset("w", (double) box[2]); t.rawset("h", (double) box[3]);
+            KahluaTable vals = platform.newTable();
+            for (int i = 0; i < v.length; i++) vals.rawset((double) (i + 1), (double) v[i]);
+            t.rawset("values", vals);
+            frame.push(t); return 1;
+        });
+        pzEngine.rawset("popCells", (JavaFunction) (frame, n) -> {
+            frame.push(luaOf(platform, PopSim.cells(n > 0 && frame.get(0) instanceof Double d ? d.intValue() : 20))); return 1;
+        });
+        pzEngine.rawset("popStatus", (JavaFunction) (frame, n) -> { frame.push(luaOf(platform, PopSim.status())); return 1; });
         // Set a sandbox option through the engine's typed option and return
         // what the engine kept: an out-of-range value is refused and the old
         // one stays (IntegerConfigOption.setValue). nil if no such option.
@@ -2736,6 +2800,7 @@ public final class EngineBridge {
             t.append("tiledefs=").append(t1 - t0).append("ms");
 
             Object grid = worldC.getMethod("getMetaGrid").invoke(world);
+            installZombieVoronois(world);
             createMetaGrid(grid, zfs, map);
             long t2 = System.currentTimeMillis();
             t.append(" metagrid=").append(t2 - t1).append("ms");
@@ -2763,6 +2828,56 @@ public final class EngineBridge {
         } finally {
             if (server != null) try { server.setBoolean(null, prev); } catch (Throwable ignored) { }
         }
+    }
+
+    /**
+     * The zombie voronois IsoMetaGrid.CreateStep1 sets (:1471) before any
+     * lotheader loads. Left null, every MetaGridLoaderThread NPE'd at the
+     * intensity step (IsoMetaGrid.java:2324, after rooms and buildings had
+     * loaded) and every chunk's zombie intensity stayed 0. The game builds them
+     * from the Lua table zombie_voronoi (media/lua/server/Zombies/
+     * VoronoiNoise.lua); the harness has not run server Lua yet, so that
+     * file's values are mirrored when the table is absent.
+     */
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private static void installZombieVoronois(Object world) {
+        try {
+            Class<?> zv = cls("zombie.iso.worldgen.zombie.ZombieVoronoi");
+            Object wgp = cls("zombie.iso.worldgen.WorldGenParams").getField("INSTANCE").get(null);
+            long seed = (long) wgp.getClass().getMethod("getSeed").invoke(wgp);
+            java.util.List<Object> list;
+            try {
+                list = (java.util.List<Object>) zv.getMethod("getVoronois", long.class).invoke(null, seed);
+            } catch (Throwable fromLua) {
+                java.lang.reflect.Constructor<?> k = null;
+                for (java.lang.reflect.Constructor<?> c : zv.getConstructors()) if (c.getParameterCount() == 5) k = c;
+                Object second = Enum.valueOf((Class) cls("zombie.iso.worldgen.zombie.ClosestSelectionType"), "SECOND_MINUS_FIRST");
+                list = new java.util.ArrayList<>();
+                list.add(k.newInstance(seed, 1, second, 12.0, 0.15));
+                list.add(k.newInstance(seed + 1, 1, second, 55.0, 0.08));
+            }
+            world.getClass().getMethod("setZombieVoronois", java.util.List.class).invoke(world, list);
+        } catch (Throwable t) {
+            System.err.println("[engine] zombie voronois not set (zombie intensity will read 0): " + describe(t));
+        }
+    }
+
+    static Path pzInstall() { return pzInstallDir; }
+
+    /** Plain Java data (Map, List, Number, String, Boolean) as Lua tables. */
+    static Object luaOf(Platform platform, Object o) {
+        if (o instanceof java.util.Map<?, ?> m) {
+            KahluaTable t = platform.newTable();
+            for (java.util.Map.Entry<?, ?> e : m.entrySet()) t.rawset(e.getKey(), luaOf(platform, e.getValue()));
+            return t;
+        }
+        if (o instanceof java.util.List<?> l) {
+            KahluaTable t = platform.newTable();
+            for (int i = 0; i < l.size(); i++) t.rawset((double) (i + 1), luaOf(platform, l.get(i)));
+            return t;
+        }
+        if (o instanceof Number num && !(o instanceof Double)) return num.doubleValue();
+        return o;
     }
 
     /**

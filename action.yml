@@ -83,7 +83,8 @@ runs:
           PZTestKitLauncher.java \
           ScriptCheck.java \
           EngineBridge.java \
-          PzLocator.java
+          PzLocator.java \
+          PopSim.java
 
     # Before the Lua suite: a broken .txt makes every item in the file vanish
     # with no error the tests could observe, so failing here gives a far

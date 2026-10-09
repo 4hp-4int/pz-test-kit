@@ -52,7 +52,7 @@ case "${OSTYPE:-}" in
         ;;
 esac
 
-SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck EngineBridge PzLocator)
+SOURCES=(TestPlatform KahluaTestRunner DualVMSim StubbingClassLoader PZTestKitLauncher ScriptCheck EngineBridge PzLocator PopSim)
 
 # Compile into a build directory named for the sources' content, never in
 # place. A dashboard VM is a long-lived JVM that loads classes lazily; a run
