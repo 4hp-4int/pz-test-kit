@@ -77,6 +77,8 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 .trailbar select, .trailbar button { font: inherit; font-size: 11.5px; color: var(--text); background: var(--panel2); border: 1px solid var(--line2); border-radius: 4px; padding: 1px 5px; max-width: 150px; }
 .trailbar input[type=range] { flex: 1; min-width: 40px; }
 #trailN { width: 60px; flex: none; }
+#follow.on { background: #2a2416; border-color: var(--accent); color: var(--accent); }
+#follow.paused { border-color: #e0913c; color: #e0913c; }
 #scrubAt { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space: nowrap; }
 .tpath { fill: none; stroke: #f0e6c8; stroke-linecap: round; }
 .tstep circle { stroke: #0e1012; stroke-width: 1.5; }
@@ -133,6 +135,7 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
   <div id="timeline">
     <div id="live"><h2>Agent, live <span id="liveState" style="text-transform:none;letter-spacing:0"></span></h2>
       <div class="trailbar">
+        <button id="follow" title="snap to the agent's work as it happens (F)">follow</button>
         <select id="sess" title="whose trail to show"></select>
         <label title="leave a fading trail of the blocks the agent touched"><input type="checkbox" id="trailOn" checked> trail</label>
         <label title="how many steps the trail remembers">steps <input type="range" id="trailN" min="3" max="60" value="15"></label>
@@ -183,6 +186,8 @@ async function load() {
   if (list.length) await open($("pick").value);
   // ?open=<group>,<group>: open groups as a double-click would (d:<folder>, f:<file>)
   for (const k of (qp.get("open") || "").split(",").filter(Boolean)) { opened.add(k); layout(); draw(true); }
+  // ?follow: start in follow mode, on the agent's last step
+  if (qp.has("follow")) { setFollow(true); const last = [...feed].reverse().find((r) => TOUCH.has(r.kind) && r.ids.length); if (last) followTo(last.ids); }
 }
 async function open(v, keep) {
   const [mod, name] = v.split("|");
@@ -555,7 +560,7 @@ window.addEventListener("mousemove", (e) => {
   }
   if (press) {
     const dx = e.clientX - press.x, dy = e.clientY - press.y;
-    if (!press.moved && Math.hypot(dx, dy) > 4) { press.moved = true; cv.classList.add("drag"); hideTip(); }
+    if (!press.moved && Math.hypot(dx, dy) > 4) { press.moved = true; cv.classList.add("drag"); hideTip(); stopGlide(); pauseFollow(); }
     if (press.moved) { view.x = press.vx + dx; view.y = press.vy + dy; apply(); }
     return;
   }
@@ -594,6 +599,7 @@ cv.ondblclick = (e) => {
 };
 cv.addEventListener("wheel", (e) => {
   e.preventDefault();
+  stopGlide(); pauseFollow();
   const p = local(e);
   const k = Math.max(0.08, Math.min(3, view.k * Math.exp(-e.deltaY * 0.0015)));
   view.x = p.x - (p.x - view.x) * (k / view.k); view.y = p.y - (p.y - view.y) * (k / view.k); view.k = k; apply();
@@ -632,6 +638,65 @@ $("ask").onclick = async () => {
     body: JSON.stringify({ mod: current.mod, name: current.name, ids: [...picked], request: "summarize" }) });
   $("selinfo").textContent = `${picked.size} handed to the agent: ask it to summarize the selection`;
 };
+// ── follow mode: the camera goes where the agent works ────────────────────
+// On each read/edit the camera opens what it must (folder, file), glides to the
+// block, zooms to reading size and shows its code. Groups it opened close again
+// when the agent moves to another file. Panning or zooming by hand pauses it.
+const follow = { on: false, paused: false, auto: new Set(), timer: null, pending: null, cam: null };
+function setFollow(on, paused = false) {
+  follow.on = on; follow.paused = on && paused;
+  const b = $("follow");
+  b.textContent = !on ? "follow" : paused ? "follow: paused" : "following";
+  b.classList.toggle("on", on && !paused); b.classList.toggle("paused", on && paused);
+  b.title = !on ? "snap to the agent's work as it happens (F)" : paused ? "you moved the view: click (or F) to follow again" : "following the agent: click (or F) to stop";
+}
+function pauseFollow() { if (follow.on && !follow.paused) setFollow(true, true); }
+$("follow").onclick = () => {
+  if (follow.on && follow.paused) { setFollow(true); const last = [...feed].reverse().find((r) => TOUCH.has(r.kind) && r.ids.length); if (last) followTo(last.ids); }
+  else setFollow(!follow.on);
+};
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "f" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+  $("follow").click();
+});
+// parallel reads arrive in bursts: follow the latest of a burst, and dwell a
+// moment on each place so the camera does not thrash
+function queueFollow(ids) {
+  if (!follow.on || follow.paused || !ids.length) return;
+  follow.pending = ids;
+  if (follow.timer) return;
+  follow.timer = setTimeout(() => { follow.timer = null; const p = follow.pending; follow.pending = null; if (p) followTo(p); }, 180);
+}
+function followTo(ids) {
+  const id = ids.find((x) => doc.byId[x] && visible(doc.byId[x])); if (!id) return;
+  const n = doc.byId[id], chain = chainOf(n);
+  let changed = false;
+  // close what follow opened that this block does not need
+  for (const k of [...follow.auto]) if (!chain.includes(k)) { opened.delete(k); follow.auto.delete(k); changed = true; }
+  for (const k of chain) if (!opened.has(k)) { opened.add(k); follow.auto.add(k); changed = true; }
+  if (changed) { layout(); draw(true); }
+  select(id);
+  const q = pos[unitOf(id)]; if (!q) return;
+  const r = $("canvas").getBoundingClientRect();
+  const k = Math.min(1.15, Math.max(view.k, 0.95));
+  glideTo(r.width / 2 - (q.x + W / 2) * k, r.height / 2 - (q.y + H / 2) * k, k);
+}
+// a camera move, eased; manual input cancels it
+function glideTo(x, y, k, ms = 450) {
+  const from = { ...view }, t0 = performance.now();
+  const cam = follow.cam = {};
+  const step = (now) => {
+    if (follow.cam !== cam) return;
+    const t = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - t, 3);
+    view.x = from.x + (x - from.x) * e; view.y = from.y + (y - from.y) * e; view.k = from.k + (k - from.k) * e;
+    apply();
+    if (t < 1) requestAnimationFrame(step); else follow.cam = null;
+  };
+  requestAnimationFrame(step);
+}
+function stopGlide() { follow.cam = null; }
+
 // ── live: the agent's activity, the operator's notes, locks and plan ───────
 const qs = () => `mod=${encodeURIComponent(current.mod)}&name=${encodeURIComponent(current.name)}`;
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
@@ -772,6 +837,7 @@ function onActivity(e) {
     else if (e.kind === "edited") glow[id] = { kind: "editing", until: Date.now() + 6000 };
   }
   feed.push(row); renderSessions(); renderFeed();
+  if (life || e.kind === "edited") queueFollow(row.ids);
   if (e.kind === "edited") loadCollab().then(() => { draw(); if (selected && row.ids.includes(selected)) select(selected); });
   else { applyHighlight(); drawTrail(); }
 }
@@ -825,7 +891,12 @@ function connect() {
     const e = JSON.parse(m.data);
     if (!current || !doc) return;
     const here = e.mod === current.mod && e.name === current.name;
-    if (e.type === "activity") onActivity(e);
+    if (e.type === "activity") {
+      const mine = (e.hits || []).some((h) => h.mod === current.mod && h.name === current.name);
+      const other = !mine && follow.on && !follow.paused && (e.hits || []).find((h) => [...$("pick").options].some((o) => o.value === h.mod + "|" + h.name));
+      if (other) { $("pick").value = other.mod + "|" + other.name; await open($("pick").value); follow.auto = new Set(); }
+      onActivity(e);
+    }
     else if (e.type === "collab") {
       const typing = document.activeElement && document.activeElement.id === "noteText" ? $("noteText").value : null;
       await loadCollab(); draw();
@@ -845,7 +916,7 @@ function connect() {
 }
 // ?nolive: no event stream (headless screenshots never settle with one open)
 if (!new URLSearchParams(location.search).has("nolive")) connect();
-$("pick").onchange = () => open($("pick").value);
+$("pick").onchange = () => { follow.auto = new Set(); open($("pick").value); };
 $("leaves").onchange = () => { layout(); draw(); fit(); };
 $("level").onchange = () => { opened = new Set(); layout(); draw(); fit(); };
 $("xlang").onchange = () => { layout(); draw(); fit(); };
