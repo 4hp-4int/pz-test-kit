@@ -20,6 +20,20 @@ code, never inferred by a model:
 
 Same code in, same chart out: the output is sorted and carries no timestamps,
 so it can be regenerated and diffed like a lockfile.
+
+ROLES. Every block is source unless something says otherwise; the map stores
+`role` only for the rest (test, check, tool, generated, vendored). In order:
+  1. a REGISTRAR: a function literal passed to a registering call is named
+     `callee("first string argument")` (it("parses"), TestRunner.registerSync
+     ("mend_cap"), app.get("/v1/board")); if the callee matches a registrar
+     pattern the block takes that registrar's role
+  2. the repo's own globs (flow/flyke.json "roles"), first match wins
+  3. conventions every ecosystem shares: test/ tests/ Tests/ __tests__/ spec/
+     folders, test_*.x *_test.x *_tests.x *.test.x *.spec.x files
+flow/flyke.json (all optional): {"roles": {"test": [globs], "check": [...],
+"tool": [...]}, "registrars": {"test": ["TestRunner.registerSync", ...]},
+"exclude": [dir names]}. Globs are matched case-sensitively on paths relative
+to the repo root, with * crossing folders.
 """
 import collections
 import fnmatch
@@ -43,6 +57,28 @@ FILE_NAME = re.compile(r"^[\w-]+\.(jsonl|json|csv|txt|log|png|sql|ini|dat)$", re
 FILE_PREFIX = re.compile(r"^[a-z][\w]+-$")
 MIRROR = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+){1,6}$")
 SQL_REF = re.compile(r"\b(?:FROM|INTO|UPDATE|JOIN|TABLE(?:\s+IF\s+NOT\s+EXISTS)?)\s+([A-Za-z_][A-Za-z0-9_]*)", re.I)
+
+
+# conventions shared across ecosystems (step 3 of ROLES); repos add their own in flow/flyke.json
+DEFAULT_ROLE_GLOBS = {"test": ["test/*", "tests/*", "Tests/*", "__tests__/*", "spec/*",
+                               "*/test/*", "*/tests/*", "*/Tests/*", "*/__tests__/*", "*/spec/*",
+                               "test_*", "*/test_*", "*_test.*", "*_tests.*", "*.test.*", "*.spec.*"]}
+DEFAULT_REGISTRARS = {"test": ["describe", "it", "test", "Deno.test"]}
+CONFIG = {"roles": {}, "registrars": {}}   # the repo's flow/flyke.json, set by build()
+
+
+def registrar_role(callee):
+    for role, pats in list(CONFIG.get("registrars", {}).items()) + list(DEFAULT_REGISTRARS.items()):
+        if any(fnmatch.fnmatchcase(callee, pat) for pat in pats):
+            return role
+    return None
+
+
+def path_role(rel):
+    for role, pats in list(CONFIG.get("roles", {}).items()) + list(DEFAULT_ROLE_GLOBS.items()):
+        if any(fnmatch.fnmatchcase(rel, pat) for pat in pats):
+            return role
+    return None
 
 
 def text(node, src):
@@ -70,6 +106,19 @@ def fn_name(node, src, lang):
             return text(p.child_by_field_name("key"), src).strip("'\"")
         if p.type == "assignment_expression" and p.child_by_field_name("left") is not None:
             return text(p.child_by_field_name("left"), src).split(".")[-1]
+    # a function passed to a call: callee("first string argument"), or the
+    # callee alone when it is a registrar (Events.OnTick.Add(function ...))
+    if p is not None and p.type in ("arguments", "argument_list") and p.parent is not None and p.parent.type in CALL_TYPES.get(lang, ()):
+        call = p.parent
+        callee_node = call.child_by_field_name("function") or call.child_by_field_name("name")
+        callee = text(callee_node, src) if callee_node is not None else ""
+        first = next((c for c in p.named_children if c.type in ("string", "template_string")), None)
+        if first is not None and callee:
+            label = re.sub(r"\s+", " ", string_value(first, src))[:60]
+            return f'{callee}("{label}")'
+        if callee and registrar_role(callee):
+            return callee
+        return None
     if lang == "lua" and p is not None:
         # x = function / local x = function / R.x = function: the name is the
         # variable at the same position (a forward-declared `local exec` then
@@ -136,6 +185,10 @@ class Repo:
         self.fns[fid] = {"id": fid, "kind": "fn", "lang": lang, "module": rel, "fn": name,
                          "file": rel, "line": start, "endLine": end,
                          "summary": doc_of(node, src, lang)}
+        m = re.match(r'^(.+?)\("', name) or re.match(r"^([\w.:]+)$", name)
+        role = (registrar_role(m.group(1)) if m and node.parent is not None and node.parent.type in ("arguments", "argument_list") else None) or path_role(rel)
+        if role and role != "source":
+            self.fns[fid]["role"] = role
         self.by_name[(lang, name)].append(fid)
         return fid
 
@@ -225,7 +278,12 @@ class Repo:
             self.parse_code(rel, lang, src)
 
 
-def build(root, includes, excludes, name, also=()):
+def build(root, includes, excludes, name, also=(), config=None):
+    cfg_path = config or os.path.join(root, "flow", "flyke.json")
+    CONFIG.clear(); CONFIG.update({"roles": {}, "registrars": {}})
+    if os.path.exists(cfg_path):
+        CONFIG.update(json.load(open(cfg_path, encoding="utf8")))
+    excludes = set(excludes) | set(CONFIG.get("exclude", []))
     repo = Repo(root)
     files = []
     for extra, label in also:
@@ -409,12 +467,14 @@ def main():
     includes = [args[i + 1] for i, a in enumerate(args) if a == "--include"]
     excludes = {args[i + 1] for i, a in enumerate(args) if a == "--exclude"}
     also = [tuple(args[i + 1].rsplit(":", 1)) for i, a in enumerate(args) if a == "--also"]
-    doc = build(root, includes, excludes, name, also)
+    config = args[args.index("--config") + 1] if "--config" in args else None
+    doc = build(root, includes, excludes, name, also, config)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     json.dump(doc, open(out, "w", encoding="utf8", newline="\n"), indent=1, sort_keys=True)   # LF: the same bytes on every OS
     kinds = collections.Counter(e["kind"] for e in doc["edges"])
     langs = collections.Counter(n["lang"] for n in doc["nodes"])
-    print(f"{out}: {len(doc['nodes'])} blocks {dict(langs)}, edges {dict(kinds)}, {len(doc['timeline'])} entry points")
+    roles = collections.Counter(n.get("role", "source") for n in doc["nodes"] if n["kind"] == "fn")
+    print(f"{out}: {len(doc['nodes'])} blocks {dict(langs)}, roles {dict(roles)}, edges {dict(kinds)}, {len(doc['timeline'])} entry points")
 
 
 if __name__ == "__main__":
