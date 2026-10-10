@@ -53,6 +53,13 @@ The operator, from the block panel:
   (which become locked) or rejects, and the answer reaches the agent on its
   next step
 
+**Waking an idle agent.** Hooks only fire while the agent is working. An
+idle agent listens instead: it runs `node dashboard/flow-wait.js` as a
+background command, which blocks on `/api/flow/wait` until the operator sends
+a note or answers a plan, prints it and exits. The exit wakes the agent
+(about 0.3 s after the click), it acts on the note, and it starts the listener
+again. The viewer shows "agent listening" while one is waiting.
+
 Notes, locks and the plan persist in `dashboard/.cache/flow-collab.json`;
 activity and diffs are in memory. Edits made through Bash (sed, scripts) are
 invisible to the hooks.

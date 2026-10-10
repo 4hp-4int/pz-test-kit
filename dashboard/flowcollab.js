@@ -40,6 +40,21 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     for (const res of clients) { try { res.write(line); } catch (_) { clients.delete(res); } }
   }
 
+  // An idle agent listens with flow-wait.js (a background command that blocks
+  // on /api/flow/wait). The moment the operator sends a note or answers a plan,
+  // the oldest listener gets it and exits, which wakes the agent. A busy agent
+  // gets the same notes from its hooks instead; whichever comes first takes them.
+  const waiters = [];
+  const listening = () => broadcast({ type: "listening", n: waiters.length });
+  function flushWaiters() {
+    if (!waiters.length) return;
+    const ctx = pendingContext();
+    if (!ctx) return;
+    const res = waiters.shift();
+    json(res, 200, { context: ctx });
+    listening();
+  }
+
   // ── file -> blocks ────────────────────────────────────────────────────────
   const indexCache = new Map();     // flyke file -> { mtime, byFile: Map(absLower -> [node]) }
   function maps() {
@@ -248,6 +263,15 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       json(res, 200, out ? { output: out } : {});
       return true;
     }
+    if (p === "/api/flow/wait") {
+      const ctx = pendingContext();
+      if (ctx) { json(res, 200, { context: ctx }); return true; }
+      waiters.push(res);
+      req.on("close", () => { const i = waiters.indexOf(res); if (i >= 0) { waiters.splice(i, 1); listening(); } });
+      listening();
+      return true;
+    }
+    if (p === "/api/flow/listening") { json(res, 200, { n: waiters.length }); return true; }
     if (p === "/api/flow/events") {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
       res.write(": connected\n\n");
@@ -277,6 +301,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       if (!b.mod || !b.name || !b.node || !String(b.text || "").trim()) { json(res, 400, { error: "mod, name, node, text" }); return true; }
       const n = { id: state.nextNote++, mod: b.mod, name: b.name, node: b.node, text: String(b.text).trim().slice(0, 2000), at: Date.now(), delivered: false, done: false, reply: "" };
       state.notes.push(n); save(); broadcast({ type: "collab" });
+      flushWaiters();
       json(res, 200, n);
       return true;
     }
@@ -319,6 +344,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
                        status: "proposed", removed: [], answer: "", at: Date.now(), delivered: false };
       }
       save(); broadcast({ type: "collab" });
+      if (b.answer) flushWaiters();
       json(res, 200, state.plan);
       return true;
     }

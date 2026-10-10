@@ -573,7 +573,7 @@ function collabPanel(id) {
     ${ed.length ? `<h2 style="margin:10px 0 2px">Agent edits (${ed.length})</h2>${ed.slice().reverse().map((e) => `<div class="modl">${new Date(e.at).toLocaleTimeString()}</div>${diff(e)}`).join("")}` : ""}
     <h2 style="margin:10px 0 2px">Notes to the agent</h2>
     ${notes.map((x) => `<div class="noteitem ${x.done ? "done" : ""}">${esc(x.text)}
-      <div class="st">#${x.id} · ${x.done ? "done" : x.delivered ? "delivered" : "waiting for the agent's next step"}</div>
+      <div class="st">#${x.id} · ${x.done ? "done" : x.delivered ? "delivered: the agent has it" : "waiting for the agent's next step"}</div>
       ${x.reply ? `<div class="r">agent: ${esc(x.reply)}</div>` : ""}</div>`).join("")}
     <textarea id="noteText" placeholder="Ask for a change, or tell the agent something about this block. It arrives on the agent's next step."></textarea>
     <button onclick="sendNote('${esc(id)}')">send to agent</button>`;
@@ -583,9 +583,14 @@ async function sendNote(id) {
   const t = $("noteText").value.trim(); if (!t) return;
   await post("/api/flow/note", { mod: current.mod, name: current.name, node: id, text: t });
 }
+let agentListening = 0;
+function setListening(n) {
+  agentListening = n;
+  $("liveState").textContent = n ? "· agent listening: notes wake it now" : "· connected";
+}
 function connect() {
   const es = new EventSource("/api/flow/events");
-  es.onopen = () => { $("liveState").textContent = "· connected"; };
+  es.onopen = () => { fetch("/api/flow/listening").then((r) => r.json()).then((x) => setListening(x.n)).catch(() => setListening(0)); };
   es.onerror = () => { $("liveState").textContent = "· reconnecting"; };
   es.onmessage = async (m) => {
     const e = JSON.parse(m.data);
@@ -596,7 +601,8 @@ function connect() {
       const typing = document.activeElement && document.activeElement.id === "noteText" ? $("noteText").value : null;
       await loadCollab(); draw();
       if (selected) { await select(selected); if (typing != null && $("noteText")) $("noteText").value = typing; }
-    } else if (e.type === "summaries" && here) open(current.mod + "|" + current.name, true);
+    } else if (e.type === "listening") setListening(e.n);
+    else if (e.type === "summaries" && here) open(current.mod + "|" + current.name, true);
     else if (e.type === "regen" && here) $("liveState").textContent = "· rebuilding the map";
     else if (e.type === "reload" && here) {
       $("liveState").textContent = e.ok ? "· map rebuilt" : "· map rebuild FAILED";
