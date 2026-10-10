@@ -320,6 +320,15 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     if (t.error) return null;
     return `SousVide Flow: no journal step was open, so the board opened one from your last action ("${label.slice(0, 80)}"). Say what you are doing and why: flow_step op open (it takes this step over). The operator follows the session through the journal.`;
   }
+  // what an edit changed, for the session's diff fold (bounded)
+  function editDiff(tool, ti) {
+    const cut = (v, n) => String(v == null ? "" : v).slice(0, n);
+    if (tool === "Edit") return [{ old: cut(ti.old_string, 3000), new: cut(ti.new_string, 3000) }];
+    if (tool === "MultiEdit") return (ti.edits || []).slice(0, 6).map((e) => ({ old: cut(e.old_string, 1500), new: cut(e.new_string, 1500) }));
+    if (tool === "Write") return [{ old: "", new: cut(ti.content, 4000), whole: true }];
+    if (tool === "NotebookEdit") return [{ old: "", new: cut(ti.new_source, 3000) }];
+    return null;
+  }
   // the session event for one tool call (PostToolUse), with lanes and the step
   function sessionEvent(p, agent) {
     const r = sessionEvent1(p, agent);
@@ -359,6 +368,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     const ev = { type: "activity", kind: d.kind, agent, at: Date.now(), tool, text: d.label, task: state.activeTask };
     if (d.detail) ev.detail = d.detail;
     if (d.file) ev.file = d.file;
+    if (d.kind === "edited") { const df = editDiff(tool, ti); if (df) ev.diff = df; }
     if (sub) ev.sub = sub;
     if (tool === "TaskStop") for (const l of state.lanes) if (l.bgId && l.bgId === ti.task_id) laneEnd(l, "stopped", "stopped");
     return { ev, label: d.label };
@@ -471,7 +481,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
           }
           scheduleRegen(h);
         }
-        note({ type: "activity", kind: "edited", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask, text: describe(tool, ti, p).label, ...(sub ? { sub } : {}) });
+        note({ type: "activity", kind: "edited", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask, text: describe(tool, ti, p).label, diff: editDiff(tool, ti), ...(sub ? { sub } : {}) });
         taskTouch(hits, "edited");
       }
       let nudge = null;

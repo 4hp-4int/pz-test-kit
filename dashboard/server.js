@@ -457,8 +457,11 @@ const server = http.createServer(async (req, res) => {
     }
     // the viewer's GPU renderer and its vendored PixiJS (MIT, vendor/pixi.LICENSE)
     const FLOW_FILES = { "/flow/gpu.js": "flow-gpu.js", "/flow/vendor/pixi.min.js": "vendor/pixi.min.js" };
+    // highlight.js (vendored, BSD-3): the session's code folds
+    const hl = /^\/flow\/vendor\/hljs\/([\w.-]+\.(?:js|css))$/.exec(url.pathname);
+    if (hl) FLOW_FILES[url.pathname] = "vendor/hljs/" + hl[1];
     if (FLOW_FILES[url.pathname]) {
-      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": url.pathname.includes("vendor") ? "max-age=86400" : "no-store" });
+      res.writeHead(200, { "Content-Type": url.pathname.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "Cache-Control": url.pathname.includes("vendor") ? "max-age=86400" : "no-store" });
       return fs.createReadStream(path.join(HERE, FLOW_FILES[url.pathname])).pipe(res);
     }
     // FLOW SELECTION + SUMMARIES: the programmer selects blocks in the viewer;

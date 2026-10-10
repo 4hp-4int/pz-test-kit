@@ -228,6 +228,12 @@ body.lay-session #canvas { display: none; }
 .sx-ev .r { font-family: var(--mono); font-size: 11.5px; color: var(--dim); white-space: nowrap; }
 .sx-ev .r .pass { color: #5fb36b; } .sx-ev .r .fail { color: #e05050; }
 .sx-ev pre { grid-column: 2 / 4; display: none; }
+.sx-ev pre.hljs { background: #0b0d0f; padding: 7px 9px; }
+.sx-ev .dd { white-space: pre-wrap; border-left: 3px solid transparent; padding-left: 8px; margin: 2px 0; }
+.sx-ev .dd.old { border-left-color: #e05050; background: rgba(224,80,80,.07); opacity: .6; text-decoration: line-through; text-decoration-color: rgba(224,80,80,.45); }
+.sx-ev .dd.new { border-left-color: #5fb36b; background: rgba(95,179,107,.06); }
+.sx-ev .dd.new.whole { border-left-color: #7fb2e0; background: none; }
+.sx-ev .dsep { color: var(--dim); text-align: center; font-size: 11px; }
 .sx-ev.open pre { display: block; }
 .sx-ev.fold { cursor: pointer; } .sx-ev.fold:hover .x { color: #fff; }
 .sx-ev .more { color: var(--dim); font-size: 12px; } .sx-ev.open .more { color: var(--accent); }
@@ -318,6 +324,13 @@ body.lay-session #canvas { display: none; }
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
   </div>
 </main>
+<link rel="stylesheet" href="/flow/vendor/hljs/github-dark.min.css">
+<script src="/flow/vendor/hljs/highlight.min.js"></script>
+<script src="/flow/vendor/hljs/lua.min.js"></script>
+<script src="/flow/vendor/hljs/python.min.js"></script>
+<script src="/flow/vendor/hljs/bash.min.js"></script>
+<script src="/flow/vendor/hljs/powershell.min.js"></script>
+<script src="/flow/vendor/hljs/typescript.min.js"></script>
 <script src="/flow/vendor/pixi.min.js"></script>
 <script src="/flow/gpu.js"></script>
 <script>
@@ -1745,10 +1758,24 @@ function sxAsk() {
     const inp = el.querySelector("input"); inp.onkeydown = (e) => { if (e.key === "Enter") send(inp.value.trim()); };
   }
 }
+// code in the session, highlighted (highlight.js, vendored)
+const EXT_LANG = { lua: "lua", js: "javascript", mjs: "javascript", cjs: "javascript", ts: "typescript", tsx: "typescript", py: "python", json: "json",
+  sh: "bash", ps1: "powershell", html: "xml", css: "css", md: "markdown", sql: "sql", yml: "yaml", yaml: "yaml", java: "java", txt: "plaintext" };
+const langOf = (file) => EXT_LANG[String(file || "").split(".").pop().toLowerCase()] || null;
+function hl(code, lang) {
+  try { if (window.hljs && lang && hljs.getLanguage(lang)) return hljs.highlight(String(code), { language: lang, ignoreIllegals: true }).value; } catch (_) {}
+  return esc(code);
+}
+// an edit's change: the old text struck and dimmed, the new text highlighted
+function diffHtml(diff, file) {
+  const lang = langOf(file);
+  return diff.map((d) => (d.old ? `<div class="dd old">${hl(d.old, lang)}</div>` : "")
+    + `<div class="dd new${d.whole ? " whole" : ""}">${hl(d.new, lang)}</div>`).join(`<div class="dsep">⋯</div>`);
+}
 // one event in words: what, the detail folded under it, the result at the right
 function sxEvent(e) {
   const k = KIND_WORD[e.kind] || e.kind;
-  let main = "", fold = "", right = "";
+  let main = "", fold = "", right = "", foldHtml = "";
   if (e.kind === "command" || e.kind === "test") {
     main = esc(e.desc || e.text);
     if (e.desc) fold = e.full || e.text;
@@ -1756,12 +1783,17 @@ function sxEvent(e) {
   } else {
     main = esc(e.text || (e.file ? base(e.file) : e.kind));
     if (e.detail) fold = e.detail;
+    if (e.diff && e.diff.length) foldHtml = diffHtml(e.diff, e.file);
+    else if (e.kind === "probe" && e.detail) foldHtml = hl(e.detail, "lua");
   }
+  if (!foldHtml && fold) foldHtml = (e.kind === "command" || e.kind === "test") ? hl(fold, e.tool === "PowerShell" ? "powershell" : "bash") : esc(fold);
   const ids = [...new Set((e.hits || []).flatMap((h) => h.mod === (current && current.mod) && h.name === (current && current.name) ? h.ids : []))].slice(0, 4);
   if (ids.length) main += ` <span class="p">→</span> ` + ids.map((id) => `<a onclick="select('${esc(id)}')">${esc(short(id))}</a>`).join("");
   if (e.ms != null && e.ms > 1500) right += ` ${dur(e.ms)}`;
   right += ` <span title="${new Date(e.at).toLocaleString()}">${hhmmS(e.at)}</span>`;
-  return `<div class="sx-ev k-${esc(e.kind)}${fold ? " fold" : ""}"${fold ? ` onclick="if(!event.target.closest('a,pre'))this.classList.toggle('open')" title="click for the ${e.kind === "command" || e.kind === "test" ? "command" : "detail"}"` : ""}><span class="k">${esc(k)}</span><span class="x">${main}${fold ? ` <span class="more">⋯</span>` : ""}</span><span class="r">${right}</span>${fold ? `<pre>${esc(fold)}</pre>` : ""}</div>`;
+  const has = !!foldHtml;
+  const what = e.diff ? "change" : e.kind === "command" || e.kind === "test" ? "command" : "detail";
+  return `<div class="sx-ev k-${esc(e.kind)}${has ? " fold" : ""}"${has ? ` onclick="if(!event.target.closest('a,pre'))this.classList.toggle('open')" title="click for the ${what}"` : ""}><span class="k">${esc(k)}</span><span class="x">${main}${has ? ` <span class="more">${e.diff ? "±" : "⋯"}</span>` : ""}</span><span class="r">${right}</span>${has ? `<pre class="hljs">${foldHtml}</pre>` : ""}</div>`;
 }
 function sxCard(c) {
   const ev = (c.evidence || []).map((x) => `<div class="ce"><span>${esc(x.kind)}</span>${esc(x.text)}</div>`).join("");
@@ -1817,6 +1849,8 @@ function sxFeed() {
   }
   flush();
   feedEl.innerHTML = out.join("") || `<div class="sx-empty">Nothing yet. Every action the agent takes shows up here, in its own words.</div>`;
+  // ?sxopen: every fold open (headless screenshots of the code folds)
+  if (new URLSearchParams(location.search).has("sxopen")) for (const el of feedEl.querySelectorAll(".sx-ev.fold")) el.classList.add("open");
   if (near || sxStick) { feedEl.scrollTop = feedEl.scrollHeight; sxStick = false; }
 }
 function renderSession() { if (!SX) return; sxHead(); sxLanes(); sxAsk(); sxFeed(); }
