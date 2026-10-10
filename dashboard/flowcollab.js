@@ -25,7 +25,12 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
   const save = () => { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(STATE, JSON.stringify(state, null, 1)); };
 
   const clients = new Set();
-  const activity = [];              // recent events, newest last
+  // every event, newest last; kept on disk so a session's trail survives a
+  // reload or a dashboard restart (the viewer replays it as history)
+  const LOG = path.join(cacheDir, "flow-activity.jsonl");
+  const MAX_EVENTS = 20000;
+  let activity = [];
+  try { activity = fs.readFileSync(LOG, "utf8").split("\n").filter(Boolean).slice(-MAX_EVENTS).map((l) => JSON.parse(l)); } catch (_) {}
   const edits = new Map();          // "mod|name|id" -> [{old, new, at, agent}]
   const changes = new Map();        // "mod|name" -> last regen's edge diff
   const key = (mod, name, id) => `${mod}|${name}|${id}`;
@@ -157,7 +162,11 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
 
   function note(evt) {
     activity.push(evt);
-    if (activity.length > 200) activity.shift();
+    try { fs.mkdirSync(cacheDir, { recursive: true }); fs.appendFileSync(LOG, JSON.stringify(evt) + "\n"); } catch (_) {}
+    if (activity.length > MAX_EVENTS * 1.25) {   // compact the log now and then
+      activity = activity.slice(-MAX_EVENTS);
+      try { fs.writeFileSync(LOG, activity.map((e) => JSON.stringify(e)).join("\n") + "\n"); } catch (_) {}
+    }
     broadcast(evt);
   }
 
@@ -257,7 +266,8 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
         notes: state.notes.filter((n) => n.mod === mod && n.name === name),
         locks, edits: nodeEdits,
         plan: state.plan && state.plan.mod === mod && state.plan.name === name ? state.plan : null,
-        activity: activity.filter((e) => (e.hits || []).some((h) => h.mod === mod && h.name === name)).slice(-30),
+        // this map's events (the viewer groups them into sessions by agent)
+        activity: activity.filter((e) => (e.hits || []).some((h) => h.mod === mod && h.name === name)).slice(-3000),
         changes: changes.get(`${mod}|${name}`) || null,
       });
       return true;

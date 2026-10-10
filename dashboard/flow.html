@@ -73,6 +73,15 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 .node.planned rect:first-child { stroke: #d9a441 !important; stroke-width: 2.4; stroke-dasharray: 8 4; }
 .node.locked rect:first-child { fill: #1d1414; }
 .node .marks { font-size: 9.5px; fill: #e0913c; }
+.trailbar { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; font-size: 11.5px; color: var(--muted); }
+.trailbar select, .trailbar button { font: inherit; font-size: 11.5px; color: var(--text); background: var(--panel2); border: 1px solid var(--line2); border-radius: 4px; padding: 1px 5px; max-width: 150px; }
+.trailbar input[type=range] { flex: 1; min-width: 40px; }
+#trailN { width: 60px; flex: none; }
+#scrubAt { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space: nowrap; }
+.tpath { fill: none; stroke: #f0e6c8; stroke-linecap: round; }
+.tstep circle { stroke: #0e1012; stroke-width: 1.5; }
+.tstep text { font-family: var(--mono); font-size: 9px; fill: #0e1012; font-weight: 700; text-anchor: middle; pointer-events: none; }
+#live .ev.at { background: #2a2416; }
 .edge.new { stroke: #5fb36b !important; opacity: 1 !important; stroke-width: 2.6; }
 #live { border-bottom: 1px solid var(--line); max-height: 40%; overflow: auto; }
 #live .ev { padding: 3px 12px; font-size: 11.5px; cursor: pointer; border-left: 3px solid transparent; }
@@ -114,10 +123,21 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 </header>
 <main>
   <div id="timeline">
-    <div id="live"><h2>Agent, live <span id="liveState" style="text-transform:none;letter-spacing:0"></span></h2><div id="feed"><div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div></div></div>
+    <div id="live"><h2>Agent, live <span id="liveState" style="text-transform:none;letter-spacing:0"></span></h2>
+      <div class="trailbar">
+        <select id="sess" title="whose trail to show"></select>
+        <label title="leave a fading trail of the blocks the agent touched"><input type="checkbox" id="trailOn" checked> trail</label>
+        <label title="how many steps the trail remembers">steps <input type="range" id="trailN" min="3" max="60" value="15"></label>
+      </div>
+      <div class="trailbar">
+        <button id="play" title="replay this session from the start">&#9654;</button>
+        <input type="range" id="scrub" min="0" max="0" value="0" title="scrub through the session; far right = live">
+        <span id="scrubAt"></span>
+      </div>
+      <div id="feed"><div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div></div></div>
     <h2>Entry points, in order</h2><div id="tl"></div>
   </div>
-  <div id="canvas"><svg id="svg"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b747d"></path></marker></defs><g id="vp"><g id="edges"></g><g id="nodes"></g></g></svg>
+  <div id="canvas"><svg id="svg"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b747d"></path></marker></defs><marker id="tarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#f0e6c8"></path></marker><g id="vp"><g id="halos"></g><g id="edges"></g><g id="trail"></g><g id="nodes"></g><g id="steps"></g></g></svg>
     <div id="lasso"></div>
     <div id="plan"></div>
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
@@ -161,7 +181,7 @@ async function open(v, keep) {
   $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks · ${m.calls || "?"} calls traced · ${m.weapon || ""}`;
   if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; }
   await loadCollab();
-  if (!keep) { feed = collab.activity.map(feedRow); renderFeed(); }
+  if (!keep) { feed = collab.activity.map(feedRow); cursor = null; renderSessions(); renderFeed(); }
   $("xlangWrap").style.display = doc.static ? "" : "none";
   document.querySelector(".legend").innerHTML = doc.static
     ? `Languages: ${Object.entries(LANG).map(([l, c]) => `<span style="color:${c}">&#9632;</span> ${l}`).join(" ")}<br>
@@ -237,6 +257,7 @@ function draw() {
     ng.appendChild(g);
   }
   applyHighlight();
+  drawTrail();
 }
 function applyHighlight() {
   const on = hotIds || (selected ? new Set([selected, ...(doc.out[selected] || []).map((e) => e.to), ...(doc.inn[selected] || []).map((e) => e.from)]) : null);
@@ -396,31 +417,136 @@ function marksOf(n) {
   return `<text class="${cls}" x="${W - 8}" y="16" text-anchor="end">${esc(parts.join(" · "))}</text>`;
 }
 const VERB = { reading: "reading", editing: "editing", edited: "edited", denied: "BLOCKED (locked)", added: "new edge", removed: "edge gone" };
+const TOUCH = new Set(["reading", "editing", "edited", "denied"]);
+const KCOL = { reading: "#7fb2e0", editing: "#e0913c", edited: "#e0913c", denied: "#e05050" };
+const RANK = { reading: 0, editing: 1, edited: 2, denied: 3 };
+let cursor = null, playing = null;   // cursor: steps shown (null = live, all of them)
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 function feedRow(e) {
   const mine = (e.hits || []).find((h) => current && h.mod === current.mod && h.name === current.name);
   return { kind: e.kind, at: e.at, agent: e.agent, ids: mine ? mine.ids : (e.ids || []), text: e.text };
 }
+// sessions = one agent's run of tool calls (Claude Code session id)
+function sessions() {
+  const by = new Map();
+  for (const r of feed) {
+    if (!TOUCH.has(r.kind) || !r.agent) continue;
+    const s = by.get(r.agent) || { agent: r.agent, first: r.at, last: r.at, count: 0 };
+    s.last = r.at; s.count++; by.set(r.agent, s);
+  }
+  return [...by.values()].sort((a, b) => b.last - a.last);
+}
+function sessAgent() {
+  const v = $("sess").value;
+  if (v === "all") return null;
+  if (v === "auto" || !v) { const s = sessions()[0]; return s ? s.agent : null; }
+  return v;
+}
+// the session's touches as steps: consecutive events on the same blocks are
+// one step (a read then an edit of one block = one step, kind = the strongest)
+function allSteps() {
+  const ag = sessAgent(), out = [];
+  for (const r of feed) {
+    if (!TOUCH.has(r.kind) || (ag && r.agent !== ag) || !r.ids.length) continue;
+    const prev = out[out.length - 1], key = r.ids.join("|");
+    if (prev && prev.key === key) { if (RANK[r.kind] >= RANK[prev.kind]) prev.kind = r.kind; prev.at = r.at; prev.rows.push(r); }
+    else out.push({ key, ids: r.ids, kind: r.kind, at: r.at, rows: [r] });
+    r.step = out.length - 1;
+  }
+  return out;
+}
+function renderSessions() {
+  const was = $("sess").value || "auto";
+  const list = sessions();
+  $("sess").innerHTML = `<option value="auto">latest session</option><option value="all">all sessions</option>` +
+    list.map((s) => `<option value="${esc(s.agent)}">${esc(s.agent)} · ${clock(s.first)}-${clock(s.last)} · ${s.count}</option>`).join("");
+  $("sess").value = [...$("sess").options].some((o) => o.value === was) ? was : "auto";
+}
+function drawTrail() {
+  const hg = $("halos"), tg = $("trail"), sg = $("steps");
+  hg.innerHTML = ""; tg.innerHTML = ""; sg.innerHTML = "";
+  const steps = allSteps();
+  const shown = cursor == null ? steps.length : Math.min(cursor, steps.length);
+  $("scrub").max = steps.length; $("scrub").value = shown;
+  $("scrubAt").textContent = !steps.length ? "no steps yet" : cursor == null ? `live · ${steps.length} steps`
+    : `step ${shown}/${steps.length} · ${shown ? clock(steps[shown - 1].at) : "start"}`;
+  markFeed(steps, shown);
+  if (!$("trailOn").checked || !shown) return;
+  const N = +$("trailN").value, from = Math.max(0, shown - N), win = steps.slice(from, shown);
+  const fresh = (i) => (i + 1) / win.length;            // 1 = the newest step
+  const svg = (tag, attrs) => { const el = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
+  // onion skin: each block keeps the tint of its latest touch, fading with age
+  const last = {};
+  win.forEach((s, i) => { for (const id of s.ids) last[id] = { i, kind: s.kind, n: from + i + 1 }; });
+  for (const [id, t] of Object.entries(last)) {
+    const q = pos[id]; if (!q) continue;
+    const f = fresh(t.i);
+    hg.appendChild(svg("rect", { x: q.x - 7, y: q.y - 7, width: W + 14, height: H + 14, rx: 11, fill: KCOL[t.kind], opacity: (0.06 + 0.42 * f).toFixed(2) }));
+    const g = svg("g", { class: "tstep", opacity: (0.35 + 0.65 * f).toFixed(2) });
+    g.appendChild(svg("circle", { cx: q.x, cy: q.y, r: 9, fill: KCOL[t.kind] }));
+    const tx = svg("text", { x: q.x, y: q.y + 3 }); tx.textContent = t.n; g.appendChild(tx);
+    sg.appendChild(g);
+  }
+  // the path the agent took, step to step
+  const at = (s) => { const id = s.ids.find((x) => pos[x]); return id && { x: pos[id].x + W / 2, y: pos[id].y + H / 2 }; };
+  for (let i = 1; i < win.length; i++) {
+    const a = at(win[i - 1]), b = at(win[i]);
+    if (!a || !b || (a.x === b.x && a.y === b.y)) continue;
+    const f = fresh(i), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - Math.min(80, Math.abs(b.x - a.x) * 0.15 + 20);
+    tg.appendChild(svg("path", { class: "tpath", d: `M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}`, "stroke-width": (1 + 2.2 * f).toFixed(1),
+      opacity: (0.1 + 0.8 * f).toFixed(2), "marker-end": "url(#tarrow)" }));
+  }
+}
 function renderFeed() {
-  const rows = feed.slice(-40).reverse();
+  const ag = sessAgent();
+  const rows = feed.filter((r) => !TOUCH.has(r.kind) || !ag || r.agent === ag).slice(-60).reverse();
   $("feed").innerHTML = rows.length ? rows.map((r, i) => `<div class="ev k-${r.kind}" data-i="${i}">
-      <span class="t">${new Date(r.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+      <span class="t">${clock(r.at)}</span>
       ${esc(VERB[r.kind] || r.kind)} ${r.text ? esc(r.text) : r.ids.slice(0, 3).map((id) => `<b>${esc(short(id))}</b>`).join(", ")}${r.ids.length > 3 ? ` +${r.ids.length - 3}` : ""}</div>`).join("")
     : `<div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div>`;
-  for (const el of document.querySelectorAll("#feed .ev[data-i]")) el.onclick = () => { const r = rows[+el.dataset.i]; if (r.ids[0] && doc.byId[r.ids[0]]) select(r.ids[0]); };
+  for (const el of document.querySelectorAll("#feed .ev[data-i]")) el.onclick = () => {
+    const r = rows[+el.dataset.i];
+    if (r.step != null) { stopPlay(); cursor = r.step + 1; drawTrail(); }   // scrub to that moment
+    if (r.ids[0] && doc.byId[r.ids[0]]) select(r.ids[0]);
+  };
+  feedRows = rows;
 }
+let feedRows = [];
+function markFeed(steps, shown) {
+  const els = document.querySelectorAll("#feed .ev[data-i]");
+  els.forEach((el) => { const r = feedRows[+el.dataset.i]; el.classList.toggle("at", cursor != null && r && r.step === shown - 1); });
+}
+function stopPlay() { if (playing) { clearInterval(playing); playing = null; $("play").innerHTML = "&#9654;"; } }
+$("play").onclick = () => {
+  if (playing) return stopPlay();
+  const n = allSteps().length; if (!n) return;
+  cursor = cursor == null || cursor >= n ? 1 : cursor;
+  $("play").innerHTML = "&#10074;&#10074;";
+  playing = setInterval(() => {
+    const total = allSteps().length;
+    if (cursor >= total) { stopPlay(); cursor = null; } else cursor++;
+    drawTrail();
+  }, 450);
+  drawTrail();
+};
+$("scrub").oninput = () => { stopPlay(); const v = +$("scrub").value; cursor = v >= +$("scrub").max ? null : v; drawTrail(); };
+$("sess").onchange = () => { stopPlay(); cursor = null; renderFeed(); drawTrail(); };
+$("trailOn").onchange = drawTrail;
+$("trailN").oninput = drawTrail;
 function onActivity(e) {
   const row = feedRow(e);
   if (!row.ids.length) return;
-  const life = { reading: 3000, editing: 8000, denied: 5000 }[e.kind];
+  // long enough to catch from across the room; the trail keeps it after
+  const life = { reading: 9000, editing: 20000, denied: 12000 }[e.kind];
   for (const id of row.ids) {
     if (life) glow[id] = { kind: e.kind, until: Date.now() + life };
-    else if (e.kind === "edited") delete glow[id];
+    else if (e.kind === "edited") glow[id] = { kind: "editing", until: Date.now() + 6000 };
   }
-  feed.push(row); renderFeed();
+  feed.push(row); renderSessions(); renderFeed();
   if (e.kind === "edited") loadCollab().then(() => { draw(); if (selected && row.ids.includes(selected)) select(selected); });
-  else applyHighlight();
+  else { applyHighlight(); drawTrail(); }
 }
-setInterval(() => {   // let reads and edits fade
+setInterval(() => {   // let the glow fade (the trail stays)
   let changed = false;
   for (const [id, g] of Object.entries(glow)) if (g.until < Date.now()) { delete glow[id]; changed = true; }
   if (changed && doc) applyHighlight();
