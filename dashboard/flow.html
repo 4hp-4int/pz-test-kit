@@ -248,8 +248,8 @@ async function select(id) {
   </div>`;
   if (n.file) {
     try {
-      const abs = /^([A-Za-z]:|\/)/.test(n.file) ? n.file : (doc.root || "") + "/" + n.file;
-      const r = await fetch(`/api/source?path=${encodeURIComponent(abs)}`);
+      const q = (k, v) => `${k}=${encodeURIComponent(v)}`;
+      const r = await fetch(`/api/flow/source?${q("mod", current.mod)}&${q("name", current.name)}&${q("file", n.file)}`);
       if (!r.ok) throw new Error("no source");
       const src = await r.text();
       const lines = src.split("\n").slice(n.line - 1, Math.min(n.endLine || n.line + 40, n.line + 120));

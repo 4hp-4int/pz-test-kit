@@ -340,11 +340,41 @@ function readSummaries(loc) {
   try { return JSON.parse(fs.readFileSync(loc.summaries, "utf8")); } catch (_) { return {}; }
 }
 function sortKeys(o) { return Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]])); }
-function codeSlice(root, n) {
-  if (!n.file || n.external) return null;
-  const abs = /^([A-Za-z]:|\/)/.test(n.file) ? n.file : root + "/" + n.file;
+// A block's whole file. Paths in a .flyke are relative to the folder holding
+// flow/ (polyglot maps) or to the monorepo (trace maps); a first segment
+// "<Repo>@<branch>" (polyglot --also of files read out of git) is served
+// with git show, since those files exist on no disk.
+const gitShowCache = new Map();
+function blockSource(root, file) {
+  if (!file) return null;
+  const tryRead = (p) => { try { return allowedSource(p) && fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null; } catch (_) { return null; } };
+  if (/^([A-Za-z]:|\/)/.test(file)) return tryRead(file);
+  const local = tryRead(root + "/" + file) ?? tryRead(norm(BASE) + "/" + file);
+  if (local != null) return local;
+  const m = /^([^/@]+)@([^/]+)\/(.+)$/.exec(file);
+  if (!m || !safeId(m[1])) return null;
+  const repo = path.join(BASE, m[1]);
+  const key = file;
+  const hit = gitShowCache.get(key);
+  if (hit && Date.now() - hit.at < 30000) return hit.text;
   try {
-    const lines = fs.readFileSync(abs, "utf8").replace(/\r/g, "").split("\n");
+    const { execFileSync } = require("child_process");
+    // the label flattens "/" to "-" (feature/ledger -> feature-ledger): find the real branch
+    const branches = execFileSync("git", ["-C", repo, "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], { encoding: "utf8" })
+      .split(/\r?\n/).filter(Boolean);
+    const branch = branches.find((b) => b === m[2]) || branches.find((b) => b.replace(/\//g, "-") === m[2]);
+    if (!branch) return null;
+    const text = execFileSync("git", ["-C", repo, "show", branch + ":" + m[3]], { encoding: "utf8", maxBuffer: 16 << 20 });
+    gitShowCache.set(key, { text, at: Date.now() });
+    return text;
+  } catch (_) { return null; }
+}
+function codeSlice(root, n) {
+  if (!n.file) return null;
+  try {
+    const src = blockSource(root, n.file);
+    if (src == null) return null;
+    const lines = src.replace(/\r/g, "").split("\n");
     const a = Math.max(1, n.line || 1), b = Math.min(lines.length, n.endLine || a + 40, a + 200);
     return lines.slice(a - 1, b).join("\n");
   } catch (_) { return null; }
@@ -619,6 +649,16 @@ const server = http.createServer(async (req, res) => {
         else run.proc.kill();
       }
       return json(res, 200, { ok: true });
+    }
+
+    // GET /api/flow/source?mod&name&file: a block's file, resolved the way
+    // the map means it (map folder, monorepo, or git for Repo@branch labels)
+    if (url.pathname === "/api/flow/source") {
+      const loc = flykeLocation(url.searchParams.get("mod"), url.searchParams.get("name"));
+      const src = loc && blockSource(loc.root, url.searchParams.get("file"));
+      if (src == null) return json(res, 404, { error: "not available" });
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(src);
     }
 
     // GET /api/source?path=...
