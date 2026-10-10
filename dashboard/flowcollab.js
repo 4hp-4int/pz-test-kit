@@ -938,5 +938,8 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     return false;
   }
 
-  return { handle, broadcast };
+  // a message for the agent from elsewhere in the dashboard (the summarize
+  // button): queued like a task change, delivered by hook context or a wake
+  function tell(msg) { state.taskMsgs.push("- " + msg); save(); flushWaiters(); }
+  return { handle, broadcast, tell };
 };

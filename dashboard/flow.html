@@ -1179,7 +1179,7 @@ $("ask").onclick = async () => {
   if (!picked.size || !current) return;
   await fetch("/api/flow/selection", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mod: current.mod, name: current.name, ids: [...picked], request: "summarize" }) });
-  $("selinfo").textContent = `${picked.size} handed to the agent: ask it to summarize the selection`;
+  $("selinfo").textContent = `${picked.size} sent to the agent: it gets the request on its next action (or now, if it's listening)`;
 };
 // ── tasks: the work graph, on the map ─────────────────────────────────────
 // The strip across the top: active first, then review, blocked, planned,

@@ -475,7 +475,10 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "POST") {
         const body = await readBody(req);
         flowSelection = { mod: body.mod, name: body.name, ids: Array.isArray(body.ids) ? body.ids : [], request: body.request || "", note: body.note || "", at: Date.now() };
-        return json(res, 200, { ok: true, count: flowSelection.ids.length });
+        // tell the agent (hook context while it works, or a wake if it listens)
+        const n = flowSelection.ids.length, what = flowSelection.request || "summarize";
+        if (n) collab.tell(`the operator selected ${n} block${n === 1 ? "" : "s"} on ${flowSelection.mod}/${flowSelection.name} and asks you to ${what} ${n === 1 ? "it" : "them"}: read the selection with flow_selection (code and boundary), then write what each is FOR with flow_summarize (a purpose-first title and a sentence)${flowSelection.note ? ". Operator: " + flowSelection.note : ""}.`);
+        return json(res, 200, { ok: true, count: n, told: n > 0 });
       }
       if (!flowSelection) return json(res, 200, { empty: true });
       return json(res, 200, flowPack(flowSelection));
