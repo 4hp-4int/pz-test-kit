@@ -1,0 +1,319 @@
+// SousVide Flow, live: the operator and the agent working on the same map.
+//
+// Agent -> operator: Claude Code hooks (flow-hook.js) report every Read /
+// Edit / Write here; the file and line range are mapped onto the map's
+// blocks, and the viewer lights them up as they are read and edited, with a
+// per-block diff once an edit lands. A map with a flow/regen.sh is rebuilt
+// after edits, and the viewer is told which edges appeared or vanished.
+//
+// Operator -> agent: notes on blocks, locks, and answers to the agent's plan
+// are delivered on the agent's next tool call (PostToolUse additionalContext)
+// or next prompt. A locked block is enforced, not requested: an Edit or
+// Write that touches one is denied at PreToolUse.
+//
+// State that must survive a dashboard restart (notes, locks, plan) lives in
+// .cache/flow-collab.json; activity and diffs are in memory.
+
+const fs = require("fs");
+const path = require("path");
+const { spawn } = require("child_process");
+
+module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, readBody, json, bashPath, cacheDir }) {
+  const STATE = path.join(cacheDir, "flow-collab.json");
+  let state = { notes: [], locks: {}, plan: null, nextNote: 1 };
+  try { state = { ...state, ...JSON.parse(fs.readFileSync(STATE, "utf8")) }; } catch (_) {}
+  const save = () => { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(STATE, JSON.stringify(state, null, 1)); };
+
+  const clients = new Set();
+  const activity = [];              // recent events, newest last
+  const edits = new Map();          // "mod|name|id" -> [{old, new, at, agent}]
+  const changes = new Map();        // "mod|name" -> last regen's edge diff
+  const key = (mod, name, id) => `${mod}|${name}|${id}`;
+
+  function broadcast(evt) {
+    const line = `data: ${JSON.stringify(evt)}\n\n`;
+    for (const res of clients) { try { res.write(line); } catch (_) { clients.delete(res); } }
+  }
+
+  // ── file -> blocks ────────────────────────────────────────────────────────
+  const indexCache = new Map();     // flyke file -> { mtime, byFile: Map(absLower -> [node]) }
+  function maps() {
+    const out = [];
+    for (const r of flykeRoots()) {
+      const dir = path.join(r.root, "flow");
+      let names = [];
+      try { names = fs.readdirSync(dir).filter((f) => f.endsWith(".flyke")); } catch (_) { continue; }
+      for (const f of names) out.push({ mod: r.id, name: f.replace(/\.flyke$/, ""), root: norm(r.root), file: path.join(dir, f) });
+    }
+    return out;
+  }
+  function indexOf(m) {
+    const mtime = fs.statSync(m.file).mtimeMs;
+    const hit = indexCache.get(m.file);
+    if (hit && hit.mtime === mtime) return hit;
+    const doc = JSON.parse(fs.readFileSync(m.file, "utf8"));
+    const byFile = new Map();
+    for (const n of doc.nodes) {
+      if (!n.file || !n.line) continue;
+      // relative to the map's folder (polyglot) or the monorepo (trace maps);
+      // Repo@branch files read out of git have no working copy to edit
+      const cands = /^([A-Za-z]:|\/)/.test(n.file) ? [n.file] : [m.root + "/" + n.file, norm(BASE) + "/" + n.file];
+      const abs = cands.find((p) => fs.existsSync(p));
+      if (!abs) continue;
+      const k = norm(abs).toLowerCase();
+      if (!byFile.has(k)) byFile.set(k, []);
+      byFile.get(k).push({ id: n.id, line: n.line, endLine: n.endLine || n.line });
+    }
+    const ix = { mtime, byFile, edges: doc.edges };
+    indexCache.set(m.file, ix);
+    return ix;
+  }
+  // blocks a line range touches, in every map; [a, b] null = the whole file
+  function blocksAt(file, a, b) {
+    const k = norm(file).toLowerCase();
+    const out = [];
+    for (const m of maps()) {
+      let ix;
+      try { ix = indexOf(m); } catch (_) { continue; }
+      const nodes = ix.byFile.get(k);
+      if (!nodes) continue;
+      let ids;
+      if (a == null) ids = nodes.map((n) => n.id);
+      else {
+        const over = nodes.filter((n) => n.line <= b && n.endLine >= a);
+        // prefer real blocks; top-level code only when nothing narrower matches
+        const narrow = over.filter((n) => !/::<module>$/.test(n.id));
+        ids = (narrow.length ? narrow : over.length ? over : nodes.filter((n) => /::<module>$/.test(n.id))).map((n) => n.id);
+      }
+      if (ids.length) out.push({ mod: m.mod, name: m.name, root: m.root, ids });
+    }
+    return out;
+  }
+  const lineOf = (text, idx) => text.slice(0, idx).split("\n").length;
+  function rangeOf(file, needle) {
+    if (!needle) return null;
+    try {
+      const text = fs.readFileSync(file, "utf8").replace(/\r/g, "");
+      const i = text.indexOf(needle.replace(/\r/g, ""));
+      if (i < 0) return null;
+      return [lineOf(text, i), lineOf(text, i) + needle.split("\n").length - 1];
+    } catch (_) { return null; }
+  }
+
+  // ── what the agent gets told ──────────────────────────────────────────────
+  function pendingContext() {
+    const lines = [];
+    for (const n of state.notes) {
+      if (n.delivered || n.done) continue;
+      n.delivered = true;
+      lines.push(`- note #${n.id} on ${n.node} (${n.mod}/${n.name}): ${n.text}`);
+    }
+    if (state.plan && state.plan.status !== "proposed" && !state.plan.delivered) {
+      const p = state.plan;
+      p.delivered = true;
+      lines.push(p.status === "rejected"
+        ? `- your plan was REJECTED${p.answer ? ": " + p.answer : ""}. Do not start it; ask the operator.`
+        : `- your plan was approved${p.removed.length ? `, except these blocks, now locked: ${p.removed.join(", ")}` : ""}${p.answer ? ". Operator: " + p.answer : ""}.`);
+    }
+    if (!lines.length) return null;
+    save();
+    broadcast({ type: "collab" });
+    return "SousVide Flow, from the operator watching the flow chart (answer notes with the flow_notes tool, reply + done):\n" + lines.join("\n");
+  }
+  const lockedIn = (hits) => {
+    const out = [];
+    for (const h of hits) for (const id of h.ids) { const l = state.locks[key(h.mod, h.name, id)]; if (l) out.push({ id, ...l }); }
+    return out;
+  };
+
+  // ── regen after edits (maps that know how to rebuild themselves) ─────────
+  const regenTimers = new Map();
+  function scheduleRegen(hit) {
+    const script = path.join(hit.root, "flow", "regen.sh");
+    if (!fs.existsSync(script)) return;
+    const k = hit.mod + "|" + hit.name;
+    clearTimeout(regenTimers.get(k));
+    regenTimers.set(k, setTimeout(() => {
+      const loc = flykeLocation(hit.mod, hit.name);
+      const before = loc ? JSON.parse(fs.readFileSync(loc.file, "utf8")).edges : [];
+      broadcast({ type: "regen", mod: hit.mod, name: hit.name, phase: "start" });
+      const p = spawn(bashPath(), [script], { cwd: hit.root });
+      let err = "";
+      p.stderr.on("data", (c) => (err += c));
+      p.on("close", (code) => {
+        let diff = { added: [], removed: [] };
+        try {
+          const after = JSON.parse(fs.readFileSync(loc.file, "utf8")).edges;
+          const ek = (e) => `${e.from}|${e.to}|${e.kind || "call"}`;
+          const A = new Set(before.map(ek)), B = new Set(after.map(ek));
+          diff = { added: after.filter((e) => !A.has(ek(e))).map((e) => ({ from: e.from, to: e.to, kind: e.kind || "call" })),
+                   removed: before.filter((e) => !B.has(ek(e))).map((e) => ({ from: e.from, to: e.to, kind: e.kind || "call" })) };
+        } catch (_) {}
+        changes.set(k, { ...diff, at: Date.now() });
+        broadcast({ type: "reload", mod: hit.mod, name: hit.name, ok: code === 0, error: code ? err.slice(-400) : "", ...diff });
+      });
+    }, 2500));
+  }
+
+  function note(evt) {
+    activity.push(evt);
+    if (activity.length > 200) activity.shift();
+    broadcast(evt);
+  }
+
+  // ── the hook endpoint ─────────────────────────────────────────────────────
+  function onHook(p) {
+    const ev = p.hook_event_name, tool = p.tool_name || "", ti = p.tool_input || {};
+    const agent = String(p.session_id || "agent").slice(0, 6);
+    if (ev === "UserPromptSubmit") {
+      const ctx = pendingContext();
+      return ctx ? { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } } : null;
+    }
+    const file = ti.file_path || ti.notebook_path;
+    const isEdit = /^(Edit|MultiEdit|Write|NotebookEdit)$/.test(tool);
+    let hits = [];
+    if (file) {
+      const list = tool === "MultiEdit" ? (ti.edits || []) : [{ old_string: ti.old_string, new_string: ti.new_string }];
+      if (tool === "Read") {
+        const a = ti.offset ? Number(ti.offset) : null;
+        hits = blocksAt(file, a, a == null ? null : a + Number(ti.limit || 2000) - 1);
+      } else if (tool === "Write" || tool === "NotebookEdit") {
+        hits = blocksAt(file, null, null);
+      } else if (isEdit) {
+        const merged = new Map();
+        for (const e of list) {
+          // before the edit the old text is in the file; after it, the new text
+          const r = ev === "PreToolUse" ? rangeOf(file, e.old_string) : rangeOf(file, e.new_string);
+          if (!r) continue;
+          const span = Math.max((e.old_string || "").split("\n").length, (e.new_string || "").split("\n").length) - 1;
+          for (const h of blocksAt(file, r[0], r[0] + span)) {
+            const m = merged.get(h.mod + "|" + h.name) || { ...h, ids: [] };
+            for (const id of h.ids) if (!m.ids.includes(id)) m.ids.push(id);
+            merged.set(h.mod + "|" + h.name, m);
+          }
+        }
+        hits = [...merged.values()];
+      }
+    }
+
+    if (ev === "PreToolUse") {
+      if (isEdit) {
+        const locked = lockedIn(hits);
+        if (locked.length) {
+          note({ type: "activity", kind: "denied", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h) });
+          const why = locked.map((l) => `${l.id}${l.note ? " (" + l.note + ")" : ""}`).join("; ");
+          return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+            permissionDecisionReason: `The operator has locked these blocks in the SousVide Flow chart: ${why}. Leave them as they are, or ask the operator to unlock them.` } };
+        }
+      }
+      if (hits.length) note({ type: "activity", kind: isEdit ? "editing" : "reading", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h) });
+      return null;
+    }
+    if (ev === "PostToolUse") {
+      if (isEdit && hits.length) {
+        const list = tool === "MultiEdit" ? (ti.edits || []) : tool === "Edit" ? [{ old_string: ti.old_string, new_string: ti.new_string }] : [{ old_string: "", new_string: "(whole file written)" }];
+        const cut = (s) => String(s || "").slice(0, 4000);
+        for (const h of hits) {
+          for (const id of h.ids) {
+            const k = key(h.mod, h.name, id);
+            const arr = edits.get(k) || [];
+            for (const e of list) arr.push({ old: cut(e.old_string), new: cut(e.new_string), at: Date.now(), agent });
+            edits.set(k, arr.slice(-5));
+          }
+          scheduleRegen(h);
+        }
+        note({ type: "activity", kind: "edited", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h) });
+      }
+      const ctx = pendingContext();
+      return ctx ? { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: ctx } } : null;
+    }
+    return null;
+  }
+
+  // ── HTTP ──────────────────────────────────────────────────────────────────
+  async function handle(req, res, url) {
+    const p = url.pathname;
+    if (!p.startsWith("/api/flow/")) return false;
+    if (p === "/api/flow/hook" && req.method === "POST") {
+      const out = onHook(await readBody(req));
+      json(res, 200, out ? { output: out } : {});
+      return true;
+    }
+    if (p === "/api/flow/events") {
+      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
+      res.write(": connected\n\n");
+      clients.add(res);
+      const ping = setInterval(() => { try { res.write(": ping\n\n"); } catch (_) {} }, 20000);
+      req.on("close", () => { clearInterval(ping); clients.delete(res); });
+      return true;
+    }
+    if (p === "/api/flow/collab") {
+      const mod = url.searchParams.get("mod"), name = url.searchParams.get("name");
+      const pre = `${mod}|${name}|`;
+      const locks = {}, nodeEdits = {};
+      for (const [k, v] of Object.entries(state.locks)) if (k.startsWith(pre)) locks[k.slice(pre.length)] = v;
+      for (const [k, v] of edits) if (k.startsWith(pre)) nodeEdits[k.slice(pre.length)] = v;
+      json(res, 200, {
+        notes: state.notes.filter((n) => n.mod === mod && n.name === name),
+        locks, edits: nodeEdits,
+        plan: state.plan && state.plan.mod === mod && state.plan.name === name ? state.plan : null,
+        activity: activity.filter((e) => (e.hits || []).some((h) => h.mod === mod && h.name === name)).slice(-30),
+        changes: changes.get(`${mod}|${name}`) || null,
+      });
+      return true;
+    }
+    if (p === "/api/flow/note" && req.method === "POST") {
+      const b = await readBody(req);
+      if (!b.mod || !b.name || !b.node || !String(b.text || "").trim()) { json(res, 400, { error: "mod, name, node, text" }); return true; }
+      const n = { id: state.nextNote++, mod: b.mod, name: b.name, node: b.node, text: String(b.text).trim().slice(0, 2000), at: Date.now(), delivered: false, done: false, reply: "" };
+      state.notes.push(n); save(); broadcast({ type: "collab" });
+      json(res, 200, n);
+      return true;
+    }
+    if (p === "/api/flow/notes") {
+      if (req.method === "POST") {   // the agent answers: { id, reply, done }
+        const b = await readBody(req);
+        const n = state.notes.find((x) => x.id === Number(b.id));
+        if (!n) { json(res, 404, { error: "no such note" }); return true; }
+        if (b.reply != null) n.reply = String(b.reply).slice(0, 2000);
+        if (b.done != null) n.done = !!b.done;
+        n.delivered = true;
+        save(); broadcast({ type: "collab" });
+        json(res, 200, n);
+        return true;
+      }
+      json(res, 200, { open: state.notes.filter((n) => !n.done) });
+      return true;
+    }
+    if (p === "/api/flow/lock" && req.method === "POST") {
+      const b = await readBody(req);
+      const k = key(b.mod, b.name, b.node);
+      if (b.locked) state.locks[k] = { note: String(b.note || "").slice(0, 300), at: Date.now() };
+      else delete state.locks[k];
+      save(); broadcast({ type: "collab" });
+      json(res, 200, { ok: true });
+      return true;
+    }
+    if (p === "/api/flow/plan" && req.method === "POST") {
+      const b = await readBody(req);
+      if (b.answer) {               // the operator: { answer: approve|reject, removed, text }
+        if (!state.plan) { json(res, 404, { error: "no plan" }); return true; }
+        const pl = state.plan;
+        pl.status = b.answer === "reject" ? "rejected" : "approved";
+        pl.removed = Array.isArray(b.removed) ? b.removed : [];
+        pl.answer = String(b.text || "").slice(0, 1000);
+        pl.delivered = false;
+        for (const id of pl.removed) state.locks[key(pl.mod, pl.name, id)] = { note: "removed from the agent's plan", at: Date.now() };
+      } else {                      // the agent proposes: { mod, name, ids, note }
+        state.plan = { mod: b.mod, name: b.name, ids: Array.isArray(b.ids) ? b.ids : [], note: String(b.note || "").slice(0, 2000),
+                       status: "proposed", removed: [], answer: "", at: Date.now(), delivered: false };
+      }
+      save(); broadcast({ type: "collab" });
+      json(res, 200, state.plan);
+      return true;
+    }
+    return false;
+  }
+
+  return { handle, broadcast };
+};

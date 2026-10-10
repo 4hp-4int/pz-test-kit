@@ -64,6 +64,38 @@ svg { width: 100%; height: 100%; display: block; }
 .det .links a { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--link); margin: 1px 6px 1px 0; cursor: pointer; }
 pre.code { font-family: var(--mono); font-size: 11px; background: #0b0d0f; border: 1px solid var(--line); padding: 8px; overflow: auto; max-height: 420px; margin: 4px 0; }
 pre.code .ln { color: var(--dim); user-select: none; display: inline-block; width: 38px; }
+/* live: the agent's attention and the operator's marks */
+@keyframes glow { 0% { stroke-width: 5; } 100% { stroke-width: 1.2; } }
+.node.reading rect:first-child { stroke: #7fb2e0 !important; animation: glow 1.2s ease-out infinite; }
+.node.editing rect:first-child { stroke: #e0913c !important; animation: glow .6s ease-out infinite; }
+.node.edited rect:first-child { stroke: #e0913c !important; stroke-width: 2; }
+.node.denied rect:first-child { stroke: #e05050 !important; stroke-width: 3; }
+.node.planned rect:first-child { stroke: #d9a441 !important; stroke-width: 2.4; stroke-dasharray: 8 4; }
+.node.locked rect:first-child { fill: #1d1414; }
+.node .marks { font-size: 9.5px; fill: #e0913c; }
+.edge.new { stroke: #5fb36b !important; opacity: 1 !important; stroke-width: 2.6; }
+#live { border-bottom: 1px solid var(--line); max-height: 40%; overflow: auto; }
+#live .ev { padding: 3px 12px; font-size: 11.5px; cursor: pointer; border-left: 3px solid transparent; }
+#live .ev:hover { background: var(--panel2); }
+#live .ev .t { color: var(--dim); font-family: var(--mono); font-size: 10.5px; }
+#live .ev.k-reading { border-left-color: #7fb2e0; }
+#live .ev.k-editing, #live .ev.k-edited { border-left-color: #e0913c; }
+#live .ev.k-denied, #live .ev.k-removed { border-left-color: #e05050; }
+#live .ev.k-added { border-left-color: #5fb36b; }
+#live .ev b { font-weight: 600; font-family: var(--mono); font-size: 11px; }
+#plan { position: absolute; left: 50%; transform: translateX(-50%); top: 10px; max-width: 70%; display: none; background: #241d10; border: 1px solid #d9a441; border-radius: 6px; padding: 8px 12px; font-size: 12px; z-index: 2; }
+#plan b { color: var(--accent); }
+#plan button, .det button { font: inherit; font-size: 12px; color: var(--text); background: var(--panel2); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 8px; margin: 6px 6px 0 0; cursor: pointer; }
+#plan input { font: inherit; font-size: 12px; background: #0b0d0f; color: var(--text); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 6px; width: 260px; margin-top: 6px; }
+.det textarea { width: 100%; min-height: 52px; font: inherit; font-size: 12px; background: #0b0d0f; color: var(--text); border: 1px solid var(--line2); border-radius: 4px; padding: 6px; }
+.det .noteitem { margin: 6px 0; padding: 6px 8px; background: var(--panel2); border-left: 3px solid #7fb2e0; font-size: 12px; }
+.det .noteitem.done { opacity: .55; border-left-color: #5fb36b; }
+.det .noteitem .r { color: #5fb36b; margin-top: 4px; }
+.det .noteitem .st { color: var(--dim); font-size: 10.5px; }
+.det .lockbar { margin: 8px 0; }
+.det .lockbar.on { color: #e05050; }
+pre.diff { font-family: var(--mono); font-size: 11px; background: #0b0d0f; border: 1px solid var(--line); padding: 6px 8px; overflow: auto; max-height: 260px; margin: 4px 0; white-space: pre-wrap; }
+pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 .legend { position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: var(--muted); background: rgba(21,24,27,.9); padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; }
 </style>
 </head>
@@ -81,9 +113,13 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
   <a href="/workbench">workbench</a>
 </header>
 <main>
-  <div id="timeline"><h2>Entry points, in order</h2><div id="tl"></div></div>
+  <div id="timeline">
+    <div id="live"><h2>Agent, live <span id="liveState" style="text-transform:none;letter-spacing:0"></span></h2><div id="feed"><div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div></div></div>
+    <h2>Entry points, in order</h2><div id="tl"></div>
+  </div>
   <div id="canvas"><svg id="svg"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b747d"></path></marker></defs><g id="vp"><g id="edges"></g><g id="nodes"></g></g></svg>
     <div id="lasso"></div>
+    <div id="plan"></div>
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
   </div>
   <div id="side"><h2>Block</h2><div id="det"><div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div></div></div>
@@ -91,7 +127,11 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 <script>
 const W = 230, H = 50, GX = 110, GY = 16;
 let doc = null, pos = {}, view = { x: 20, y: 20, k: 0.8 }, selected = null, hotIds = null;
-let picked = new Set(), lastVersion = 0, current = null;
+let picked = new Set(), current = null;
+// live collaboration: what the server knows (notes, locks, diffs, plan) and
+// what is glowing right now (block id -> { kind, until })
+let collab = { notes: [], locks: {}, edits: {}, plan: null, activity: [], changes: null }, glow = {}, feed = [];
+const short = (id) => id.split("::").slice(-1)[0] || id;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
@@ -119,7 +159,9 @@ async function open(v, keep) {
   for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
   const m = doc.meta || {};
   $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks · ${m.calls || "?"} calls traced · ${m.weapon || ""}`;
-  if (!keep) { selected = null; hotIds = null; picked = new Set(); }
+  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; }
+  await loadCollab();
+  if (!keep) { feed = collab.activity.map(feedRow); renderFeed(); }
   $("xlangWrap").style.display = doc.static ? "" : "none";
   document.querySelector(".legend").innerHTML = doc.static
     ? `Languages: ${Object.entries(LANG).map(([l, c]) => `<span style="color:${c}">&#9632;</span> ${l}`).join(" ")}<br>
@@ -171,6 +213,7 @@ function draw() {
     if (e.kind !== "mirror") p.setAttribute("marker-end", "url(#arrow)");
     p.setAttribute("stroke-width", (0.8 + 3 * Math.log1p(e.count) / Math.log1p(maxC)).toFixed(2));
     p.dataset.from = e.from; p.dataset.to = e.to;
+    if (doc.newEdges && doc.newEdges.has(`${e.from}|${e.to}|${e.kind || "call"}`)) p.classList.add("new");
     const t = document.createElementNS("http://www.w3.org/2000/svg", "title"); t.textContent = `${e.kind || "call"}: ${e.from} → ${e.to} ×${e.count}\n${e.data}`;
     p.appendChild(t); eg.appendChild(p);
   }
@@ -185,7 +228,7 @@ function draw() {
       <text x="12" y="20">${esc(label.length > 28 ? label.slice(0, 27) + "…" : label)}</text>
       <text class="mod" x="12" y="37">${esc(n.kind === "entry" ? "entry point" : (n.lang ? n.lang + " / " : "") + String(n.module || "").split("/").slice(-1)[0])}</text>
       <text class="cnt" x="${W - 8}" y="37" text-anchor="end">×${n.calls}</text>
-      ${n.ai ? `<text class="sum${n.aiStale ? " stale" : ""}" x="${W - 8}" y="16" text-anchor="end">${n.aiStale ? "stale" : "summary"}</text>` : ""}`;
+      ${marksOf(n)}`;
     g.onclick = (ev) => {
       ev.stopPropagation();
       if (ev.shiftKey) { picked.has(n.id) ? picked.delete(n.id) : picked.add(n.id); updateSel(); return; }
@@ -201,6 +244,14 @@ function applyHighlight() {
     g.classList.toggle("dim", !!on && !on.has(g.dataset.id));
     g.classList.toggle("sel", g.dataset.id === selected);
     g.classList.toggle("picked", picked.has(g.dataset.id));
+    const id = g.dataset.id, gl = glow[id];
+    g.classList.toggle("reading", !!gl && gl.kind === "reading");
+    g.classList.toggle("editing", !!gl && gl.kind === "editing");
+    g.classList.toggle("denied", !!gl && gl.kind === "denied");
+    g.classList.toggle("edited", !gl && !!collab.edits[id]);
+    g.classList.toggle("planned", !!collab.plan && collab.plan.status === "proposed" && collab.plan.ids.includes(id));
+    g.classList.toggle("locked", !!collab.locks[id]);
+    if (gl) g.classList.remove("dim");
   }
   for (const p of document.querySelectorAll(".edge")) {
     const hot = on && on.has(p.dataset.from) && on.has(p.dataset.to) && (hotIds || p.dataset.from === selected || p.dataset.to === selected);
@@ -236,6 +287,7 @@ async function select(id) {
   $("det").innerHTML = `<div class="det">
     <div class="id">${esc(n.id)}</div>
     <div class="modl">${esc(n.kind === "entry" ? "entry point" : n.module)} · called ${n.calls}× · ${esc(Object.keys(n.steps || {}).join(", "))}</div>
+    ${collabPanel(n.id)}
     ${n.ai ? `<div class="ai"><b>AI summary${n.aiStale ? `<span class="badge stale">stale: the code changed</span>` : (n.aiBy ? `<span class="badge ok">${esc(n.aiBy)}${n.aiAt ? " " + esc(n.aiAt) : ""}</span>` : "")}</b>${esc(n.ai)}</div>` : ""}
     ${n.summary ? `<div class="doc">${n.ai ? "Doc comment: " : ""}${esc(n.summary)}</div>` : (n.ai ? "" : `<div class="doc">(no summary)</div>`)}
     ${(n.in || []).length ? `<h2 style="margin:10px 0 2px">Data in</h2>${rows(n.in)}` : ""}
@@ -325,16 +377,113 @@ $("ask").onclick = async () => {
     body: JSON.stringify({ mod: current.mod, name: current.name, ids: [...picked], request: "summarize" }) });
   $("selinfo").textContent = `${picked.size} handed to the agent: ask it to summarize the selection`;
 };
-// live refresh: the agent writes summaries; reload when the file changes
-setInterval(async () => {
-  if (!current) return;
-  try {
-    const v = await (await fetch(`/api/flow/version?mod=${encodeURIComponent(current.mod)}&name=${encodeURIComponent(current.name)}`)).json();
-    if (lastVersion && v.summaries && v.summaries !== lastVersion) open(current.mod + "|" + current.name, true);
-    lastVersion = v.summaries || lastVersion || 1;
-  } catch (_) {}
-}, 2500);
-$("pick").onchange = () => { lastVersion = 0; open($("pick").value); };
+// ── live: the agent's activity, the operator's notes, locks and plan ───────
+const qs = () => `mod=${encodeURIComponent(current.mod)}&name=${encodeURIComponent(current.name)}`;
+const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+async function loadCollab() {
+  try { collab = await (await fetch(`/api/flow/collab?${qs()}`)).json(); } catch (_) {}
+  renderPlan();
+}
+function marksOf(n) {
+  const open = collab.notes.filter((x) => x.node === n.id && !x.done).length;
+  const parts = [];
+  if (collab.locks[n.id]) parts.push("locked");
+  if (open) parts.push(open + (open === 1 ? " note" : " notes"));
+  if (collab.edits[n.id]) parts.push("edited");
+  if (n.ai) parts.push(n.aiStale ? "stale" : "summary");
+  if (!parts.length) return "";
+  const cls = parts.length === 1 && parts[0] === "summary" ? "sum" : n.aiStale && parts.length === 1 ? "sum stale" : "marks";
+  return `<text class="${cls}" x="${W - 8}" y="16" text-anchor="end">${esc(parts.join(" · "))}</text>`;
+}
+const VERB = { reading: "reading", editing: "editing", edited: "edited", denied: "BLOCKED (locked)", added: "new edge", removed: "edge gone" };
+function feedRow(e) {
+  const mine = (e.hits || []).find((h) => current && h.mod === current.mod && h.name === current.name);
+  return { kind: e.kind, at: e.at, agent: e.agent, ids: mine ? mine.ids : (e.ids || []), text: e.text };
+}
+function renderFeed() {
+  const rows = feed.slice(-40).reverse();
+  $("feed").innerHTML = rows.length ? rows.map((r, i) => `<div class="ev k-${r.kind}" data-i="${i}">
+      <span class="t">${new Date(r.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+      ${esc(VERB[r.kind] || r.kind)} ${r.text ? esc(r.text) : r.ids.slice(0, 3).map((id) => `<b>${esc(short(id))}</b>`).join(", ")}${r.ids.length > 3 ? ` +${r.ids.length - 3}` : ""}</div>`).join("")
+    : `<div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div>`;
+  for (const el of document.querySelectorAll("#feed .ev[data-i]")) el.onclick = () => { const r = rows[+el.dataset.i]; if (r.ids[0] && doc.byId[r.ids[0]]) select(r.ids[0]); };
+}
+function onActivity(e) {
+  const row = feedRow(e);
+  if (!row.ids.length) return;
+  const life = { reading: 3000, editing: 8000, denied: 5000 }[e.kind];
+  for (const id of row.ids) {
+    if (life) glow[id] = { kind: e.kind, until: Date.now() + life };
+    else if (e.kind === "edited") delete glow[id];
+  }
+  feed.push(row); renderFeed();
+  if (e.kind === "edited") loadCollab().then(() => { draw(); if (selected && row.ids.includes(selected)) select(selected); });
+  else applyHighlight();
+}
+setInterval(() => {   // let reads and edits fade
+  let changed = false;
+  for (const [id, g] of Object.entries(glow)) if (g.until < Date.now()) { delete glow[id]; changed = true; }
+  if (changed && doc) applyHighlight();
+}, 500);
+function renderPlan() {
+  const p = collab.plan, el = $("plan");
+  if (!p || p.status !== "proposed") { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.innerHTML = `<b>The agent plans to touch ${p.ids.length} block${p.ids.length === 1 ? "" : "s"}</b><div>${esc(p.note)}</div>
+    <div style="margin-top:4px">${p.ids.map((id) => `<label style="margin-right:10px;font-family:var(--mono);font-size:11px"><input type="checkbox" class="planid" value="${esc(id)}" checked> ${esc(short(id))}</label>`).join("")}</div>
+    <input id="planText" placeholder="optional: anything to tell the agent">
+    <div><button id="planOk">approve</button><button id="planNo">reject</button><span style="color:var(--dim)">untick blocks to keep the agent off them (they get locked)</span></div>`;
+  $("planOk").onclick = () => post("/api/flow/plan", { answer: "approve", text: $("planText").value,
+    removed: [...document.querySelectorAll(".planid")].filter((c) => !c.checked).map((c) => c.value) });
+  $("planNo").onclick = () => post("/api/flow/plan", { answer: "reject", text: $("planText").value });
+}
+function collabPanel(id) {
+  const lock = collab.locks[id];
+  const notes = collab.notes.filter((x) => x.node === id);
+  const ed = collab.edits[id] || [];
+  const diff = (e) => `<pre class="diff">${e.old ? esc(e.old).split("\n").map((l) => `<span class="del">- ${l}</span>`).join("\n") + "\n" : ""}${esc(e.new).split("\n").map((l) => `<span class="add">+ ${l}</span>`).join("\n")}</pre>`;
+  return `<div class="lockbar ${lock ? "on" : ""}">${lock ? `Locked: the agent's edits here are refused${lock.note ? " (" + esc(lock.note) + ")" : ""}.` : ""}
+      <button onclick="toggleLock('${esc(id)}', ${!lock})">${lock ? "unlock" : "lock: keep the agent off this block"}</button></div>
+    ${ed.length ? `<h2 style="margin:10px 0 2px">Agent edits (${ed.length})</h2>${ed.slice().reverse().map((e) => `<div class="modl">${new Date(e.at).toLocaleTimeString()}</div>${diff(e)}`).join("")}` : ""}
+    <h2 style="margin:10px 0 2px">Notes to the agent</h2>
+    ${notes.map((x) => `<div class="noteitem ${x.done ? "done" : ""}">${esc(x.text)}
+      <div class="st">#${x.id} · ${x.done ? "done" : x.delivered ? "delivered" : "waiting for the agent's next step"}</div>
+      ${x.reply ? `<div class="r">agent: ${esc(x.reply)}</div>` : ""}</div>`).join("")}
+    <textarea id="noteText" placeholder="Ask for a change, or tell the agent something about this block. It arrives on the agent's next step."></textarea>
+    <button onclick="sendNote('${esc(id)}')">send to agent</button>`;
+}
+async function toggleLock(id, on) { await post("/api/flow/lock", { mod: current.mod, name: current.name, node: id, locked: on }); }
+async function sendNote(id) {
+  const t = $("noteText").value.trim(); if (!t) return;
+  await post("/api/flow/note", { mod: current.mod, name: current.name, node: id, text: t });
+}
+function connect() {
+  const es = new EventSource("/api/flow/events");
+  es.onopen = () => { $("liveState").textContent = "· connected"; };
+  es.onerror = () => { $("liveState").textContent = "· reconnecting"; };
+  es.onmessage = async (m) => {
+    const e = JSON.parse(m.data);
+    if (!current || !doc) return;
+    const here = e.mod === current.mod && e.name === current.name;
+    if (e.type === "activity") onActivity(e);
+    else if (e.type === "collab") {
+      const typing = document.activeElement && document.activeElement.id === "noteText" ? $("noteText").value : null;
+      await loadCollab(); draw();
+      if (selected) { await select(selected); if (typing != null && $("noteText")) $("noteText").value = typing; }
+    } else if (e.type === "summaries" && here) open(current.mod + "|" + current.name, true);
+    else if (e.type === "regen" && here) $("liveState").textContent = "· rebuilding the map";
+    else if (e.type === "reload" && here) {
+      $("liveState").textContent = e.ok ? "· map rebuilt" : "· map rebuild FAILED";
+      await open(current.mod + "|" + current.name, true);
+      doc.newEdges = new Set(e.added.map((x) => `${x.from}|${x.to}|${x.kind}`));
+      for (const x of e.added) feed.push({ kind: "added", at: Date.now(), ids: [x.from, x.to], text: `${x.kind}: ${short(x.from)} → ${short(x.to)}` });
+      for (const x of e.removed) feed.push({ kind: "removed", at: Date.now(), ids: [x.from], text: `${x.kind}: ${short(x.from)} → ${short(x.to)}` });
+      renderFeed(); draw();
+    }
+  };
+}
+connect();
+$("pick").onchange = () => open($("pick").value);
 $("leaves").onchange = () => { layout(); draw(); fit(); };
 $("xlang").onchange = () => { layout(); draw(); fit(); };
 $("fit").onclick = fit;

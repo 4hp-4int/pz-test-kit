@@ -136,6 +136,28 @@ const TOOLS = [
     run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/summaries", { mod: a.mod, name: a.name, summaries: a.summaries, by: a.by || "agent" }); },
   },
   {
+    name: "flow_plan",
+    description: "SousVide Flow: before a change, show the operator which blocks you intend to touch. They light up on the flow chart; the operator approves, trims (trimmed blocks become locked) or rejects, and the answer reaches you on your next tool call. Use block ids from the map (flow_selection returns them).",
+    inputSchema: { type: "object", properties: {
+      mod: { type: "string" }, name: { type: "string" },
+      ids: { type: "array", items: { type: "string" }, description: "block ids you plan to edit" },
+      note: { type: "string", description: "one or two sentences: what you will change and why" },
+    }, required: ["mod", "name", "ids", "note"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/plan", { mod: a.mod, name: a.name, ids: a.ids, note: a.note }); },
+  },
+  {
+    name: "flow_notes",
+    description: "SousVide Flow: notes the operator pinned on blocks of the flow chart. Without arguments, lists the open ones. With id, answers one: reply (shown under the note) and/or done: true. Notes also arrive on their own as context after your tool calls.",
+    inputSchema: { type: "object", properties: {
+      id: { type: "number" }, reply: { type: "string" }, done: { type: "boolean" },
+    } },
+    run: async (a) => {
+      await ensureDashboard();
+      if (a.id == null) return request("GET", "/api/flow/notes");
+      return request("POST", "/api/flow/notes", { id: a.id, reply: a.reply, done: a.done });
+    },
+  },
+  {
     name: "live_status",
     description: "SousVide Live: is the local dedicated server (Docker 'pzserver') up, and is pz-shell armed and its VM responsive? Use before the other live_* tools.",
     inputSchema: { type: "object", properties: {} },

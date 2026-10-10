@@ -420,6 +420,9 @@ function readBody(req) {
   });
 }
 const safeId = (s) => /^[A-Za-z0-9_.-]+$/.test(s || "");
+// Flow, live: agent activity (Claude Code hooks) and operator notes/locks/plan
+const collab = require("./flowcollab")({ BASE, norm, flykeRoots, flykeLocation, readBody, json,
+  bashPath: () => bashPath(), cacheDir: path.join(HERE, ".cache") });
 
 const listCache = new Map();
 function listTests(mod) {
@@ -453,6 +456,7 @@ const server = http.createServer(async (req, res) => {
     // flow/<name>.summaries.json, each keyed to a hash of the code it
     // describes: the map stays a pure function of the code, and a summary
     // whose code changed is shown as stale.
+    if (await collab.handle(req, res, url)) return;
     if (url.pathname === "/api/flow/selection") {
       if (req.method === "POST") {
         const body = await readBody(req);
@@ -478,6 +482,7 @@ const server = http.createServer(async (req, res) => {
         wrote++;
       }
       fs.writeFileSync(loc.summaries, JSON.stringify(sortKeys(store), null, 1) + "\n");
+      collab.broadcast({ type: "summaries", mod: body.mod, name: body.name, ids: Object.keys(body.summaries || {}) });
       return json(res, 200, { wrote, unknown });
     }
     if (url.pathname === "/api/flow/version") {
