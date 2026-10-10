@@ -354,7 +354,14 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     };
     if (ev === "UserPromptSubmit") {
       setStatus("working");
-      if (p.prompt) note({ type: "activity", kind: "prompt", agent, at: Date.now(), text: String(p.prompt).slice(0, 4000), task: state.activeTask, prompt: String(p.prompt_id || "").slice(0, 8) });
+      const sys = /^\s*<task-notification>/.test(String(p.prompt || ""));
+      if (sys) {
+        const t = String(p.prompt);
+        const summary = (/<summary>([\s\S]*?)<\/summary>/.exec(t) || [])[1] || "a background task finished";
+        const id = (/<task-id>(\w+)<\/task-id>/.exec(t) || [])[1];
+        for (const l of state.lanes) if (id && (l.bgId === id || l.agentId === id)) laneEnd(l, summary);
+        note({ type: "activity", kind: "notify", agent, at: Date.now(), text: summary.trim().slice(0, 300), task: state.activeTask });
+      } else if (p.prompt) note({ type: "activity", kind: "prompt", agent, at: Date.now(), text: String(p.prompt).slice(0, 4000), task: state.activeTask, prompt: String(p.prompt_id || "").slice(0, 8) });
       return withCtx("UserPromptSubmit");
     }
     if (ev === "Stop") {   // the agent's turn ended: the operator's move
@@ -812,7 +819,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     }
     if (p === "/api/flow/session") {
       const n = Number(url.searchParams.get("events") || 400);
-      json(res, 200, { session: state.session, open: state.openStep, activeTask: state.activeTask, listening: waiters.length,
+      json(res, 200, { session: state.session, open: state.openStep, activeTask: state.activeTask, active: taskById(state.activeTask) || null, listening: waiters.length,
         steps: state.steps.slice(-60), lanes: state.lanes.slice(-40), events: activity.slice(-n), cards: state.cards || [] });
       return true;
     }

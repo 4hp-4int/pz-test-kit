@@ -208,6 +208,8 @@ body.lay-session #canvas { display: none; }
 .sx-turn .tx.long { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); }
 .sx-turn.open .tx.long { max-height: none; -webkit-mask-image: none; }
 .sx-yield { margin: 10px 0; color: var(--accent); font-size: 12px; text-align: center; letter-spacing: .5px; }
+.sx-yield.sys { color: var(--dim); font-size: 11.5px; }
+.sx-step.cont { margin-top: 8px; } .sx-step .h2 { color: var(--muted); font-size: 12.5px; }
 .sx-yield::before, .sx-yield::after { content: ""; display: inline-block; width: 60px; height: 1px; background: #6b5320; vertical-align: middle; margin: 0 10px; }
 .sx-step { margin: 14px 0 4px; padding-left: 12px; border-left: 3px solid #7fb2e0; }
 .sx-step.s-done { border-left-color: #5fb36b; } .sx-step.s-failed { border-left-color: #e05050; } .sx-step.s-changed { border-left-color: #e0913c; }
@@ -249,6 +251,13 @@ body.lay-session #canvas { display: none; }
 .sx-card .st { float: right; font-size: 11px; color: var(--dim); }
 .sx-more { margin-left: 84px; color: var(--dim); font-size: 12.5px; cursor: pointer; }
 .sx-empty { color: var(--dim); padding: 30px 0; font-size: 14px; }
+#sxTasks { padding: 8px 22px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: flex-start; }
+#sxTasks #tasks { position: static; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: auto; }
+#sxTasks #tasks .chip { font-size: 12.5px; padding: 3px 11px 3px 8px; background: var(--panel2); }
+#sxTasks #tasks input { font-size: 13px; }
+#sxTasks #dock { position: static; background: none; border: none; padding: 0; max-width: none; flex: 1; min-width: 260px; display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: baseline; }
+#sxTasks #dock .dh { width: 100%; font-size: 10.5px; margin: 0; }
+#sxTasks #dock .dk { font-size: 12.5px; color: #b4bac0; white-space: normal; overflow: visible; }
 #layout button { font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 0; margin: 0; }
 #layout button:first-child { border-radius: 4px 0 0 4px; } #layout button:last-child { border-radius: 0 4px 4px 0; }
 #layout button.on { background: #2a2416; border-color: var(--accent); color: var(--accent); }
@@ -276,6 +285,7 @@ body.lay-session #canvas { display: none; }
     <div class="tabs"><span id="tab_session" class="on" onclick="setTab('session')">Session</span><span id="tab_tasks" onclick="setTab('tasks')">Tasks</span><span id="tab_live" onclick="setTab('live')">Map activity</span></div>
     <div id="pane_session">
       <div class="sx-head" id="sxHead"></div>
+      <div id="sxTasks"><div id="tasks"></div><div id="dock" style="display:none"></div></div>
       <div class="sx-lanes" id="sxLanes"></div>
       <div class="sx-ask" id="sxAsk"></div>
       <div class="sx-feed" id="sxFeed"><div class="sx-empty">Loading the session…</div></div>
@@ -303,8 +313,6 @@ body.lay-session #canvas { display: none; }
     <div id="loading"><div class="spin"></div><span id="loadingText"></span></div>
     <div id="toast"></div>
     <div id="tip"></div>
-    <div id="tasks"></div>
-    <div id="dock" style="display:none"></div>
     <div id="plan"></div>
     <div id="side"><span class="close" title="close (the selection stays)" onclick="closeSide()">✕</span><h2>Block</h2><div id="det"><div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div></div></div>
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
@@ -1184,10 +1192,8 @@ const editedOf = (t) => Object.keys(t.touched).filter((id) => t.touched[id].e);
 const driftOf = (t) => t.planned.length ? editedOf(t).filter((id) => !t.planned.includes(id)) : [];
 function renderStrip() {
   const act = tasks.find((t) => t.id === activeTask);
-  const st = openStep != null && steps.find((x) => x.id === openStep);
   const chip = (t) => `<span class="chip act ${shownTask === t.id ? "shown" : ""}" data-id="${t.id}" title="${esc(t.why || t.title)}"><i style="background:${taskColor(t.id)}"></i><b style="color:${STATE_COL[t.state]}">${esc(t.state)}</b> #${t.id} ${esc(t.title.length > 34 ? t.title.slice(0, 33) + "…" : t.title)}</span>`;
   $("tasks").innerHTML = (act ? chip(act) : "")
-    + (st ? `<span class="chip cap" title="${esc(st.why)}">▸ ${esc(st.title)}${st.why ? ` <span style="color:var(--dim)">· ${esc(st.why)}</span>` : ""}</span>` : "")
     + `<span class="chip add" id="addTask" title="a task for this map (selected blocks become its plan)">+ task</span>`;
   for (const el of document.querySelectorAll("#tasks .chip[data-id]")) el.onclick = () => showTask(+el.dataset.id);
   $("addTask").onclick = newTaskInline;
@@ -1290,7 +1296,7 @@ let pinSig = "";
 function pinsAndDock() {
   const { pins, dock } = pinPlan();
   FlowGPU.setPins(pins);
-  $("dock").innerHTML = dock.length ? `<div class="dh">not on this map yet</div>` + dock.map((t) =>
+  $("dock").innerHTML = dock.length ? `<div class="dh">open tasks with nothing on this map</div>` + dock.map((t) =>
     `<div class="dk" onclick="showTask(${t.id})"><i style="background:${taskColor(t.id)}"></i>#${t.id} ${esc(t.title)}</div>`).join("") : "";
   $("dock").style.display = dock.length ? "" : "none";
 }
@@ -1710,15 +1716,15 @@ async function loadSession() {
 }
 function queueSession() { clearTimeout(sxTimer); sxTimer = setTimeout(loadSession, 300); }
 function sxHead() {
-  const st = SX.session || {}, step = SX.steps.find((x) => x.id === SX.open), task = tasks.find((t) => t.id === SX.activeTask);
+  const st = SX.session || {}, step = SX.steps.find((x) => x.id === SX.open), task = SX.active || tasks.find((t) => t.id === SX.activeTask);
   $("sxHead").innerHTML = `<span class="sx-status ${esc(st.status || "idle")}"><i></i>${esc(STATUS_WORD[st.status] || st.status)} <span class="el" data-since="${st.since || 0}">${st.since ? dur(Date.now() - st.since) : ""}</span></span>
-    ${task ? `<div class="sx-task">Task <b>#${task.id} ${esc(task.title)}</b></div>` : ""}
+    ${task ? `<div class="sx-task">Task <b>#${task.id} ${esc(task.title)}</b>${task.mod && current && (task.mod !== current.mod || task.name !== current.name) ? ` <span style="color:var(--dim)">· on ${esc(task.mod)} / ${esc(task.name)}</span>` : ""}</div>` : ""}
     ${step ? `<div class="sx-now ${step.inferred ? "inferred" : ""}">${esc(step.title)}</div>${step.why ? `<div class="sx-why">${esc(step.why)}</div>` : step.inferred ? `<div class="sx-why">The agent has not said what this step is; the board named it from its first action.</div>` : ""}`
       : `<div class="sx-now inferred">No step open</div>`}`;
 }
 function sxLanes() {
   const now = Date.now();
-  const lanes = SX.lanes.filter((l) => l.status === "running" || now - (l.ended || 0) < 10 * 60e3).slice(-8).reverse();
+  const lanes = SX.lanes.filter((l) => !/flow-wait|next Flow note/.test((l.detail || "") + l.label)).filter((l) => l.status === "running" || now - (l.ended || 0) < 10 * 60e3).slice(-8).reverse();
   $("sxLanes").innerHTML = lanes.map((l) => {
     const run = l.status === "running";
     const meta = run ? (l.kind === "command" && l.lastOutput ? `${dur(now - l.started)} · last output ${dur(now - l.lastOutput)} ago` : dur(now - l.started) + (l.events ? ` · ${l.events} actions` : ""))
@@ -1786,17 +1792,22 @@ function sxFeed() {
     else out.push(run.map(sxEvent).join(""));
     run = [];
   };
+  const shown = new Set();
   const openStep = (st) => {
     flush();
     if (!st) { curStep = null; return; }
     curStep = st;
+    if (shown.has(st.id)) { out.push(`<div class="sx-step cont s-${esc(st.status)}"><div class="h2">continuing: ${esc(st.title)}</div></div>`); return; }
+    shown.add(st.id);
     const took = (st.closed || Date.now()) - st.opened;
     out.push(`<div class="sx-step s-${esc(st.status)} ${st.inferred ? "inferred" : ""}"><div class="h"><span class="ic">${STEP_IC[st.status] || "▸"}</span>${esc(st.title)}<span class="m">#${st.id} · ${hhmmS(st.opened)} · ${dur(took)}</span></div>
       ${st.why ? `<div class="why">${esc(st.why)}</div>` : ""}${st.result ? `<div class="res"><b>${esc(st.status === "changed" ? "plan changed" : st.status === "failed" ? "failed" : "result")}</b>${esc(st.result)}</div>` : ""}</div>`);
   };
   for (const it of items) {
+    if (it.e && it.e.kind === "prompt" && /^\s*<task-notification>/.test(it.e.text)) { flush(); out.push(`<div class="sx-yield sys">${esc(((/<summary>([\s\S]*?)<\/summary>/.exec(it.e.text) || [])[1] || "a background task finished").trim())} · ${hhmmS(it.at)}</div>`); continue; }
     if (it.e && it.e.kind === "prompt") { openStep(null); out.push(`<div class="sx-turn"><div class="who">You · ${hhmmS(it.at)}</div><div class="tx ${it.e.text.length > 500 ? "long" : ""}" onclick="this.parentNode.classList.toggle('open')">${esc(it.e.text)}</div></div>`); continue; }
     if (it.e && it.e.kind === "stop") { flush(); out.push(`<div class="sx-yield">your move · ${hhmmS(it.at)}</div>`); continue; }
+    if (it.e && it.e.kind === "notify") { flush(); out.push(`<div class="sx-yield sys">${esc(it.e.text)} · ${hhmmS(it.at)}</div>`); continue; }
     const st = it.st || stepAt(it.at);
     if (st !== curStep) openStep(st);
     if (it.st) continue;
