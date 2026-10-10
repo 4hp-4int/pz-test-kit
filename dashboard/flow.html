@@ -368,6 +368,15 @@ function layout() {
     const maxD = Math.max(0, ...ids.filter((u) => !lone.includes(u)).map((u) => depth[u]));
     for (const u of lone) depth[u] = maxD + 1;    // unconnected units: one column at the end
   }
+  // a sketch sits in its block's column, right under it (twice: a sketch may sit by a sketch)
+  const nearOf = {};
+  for (const u of ids) {
+    const b = V.units.get(u).block;
+    if (b && b.sketch && b.sketch.near) { const nu = unitOf(b.sketch.near); if (V.units.has(nu) && nu !== u) nearOf[u] = nu; }
+  }
+  for (let pass = 0; pass < 2; pass++) for (const u in nearOf) depth[u] = depth[nearOf[u]];
+  // pins sit above their tile: reserve that room so they never cover the tile above
+  const pinRows = pinPlan().rows, PIN_H = 22;
   const cols = {};
   for (const u of ids) (cols[depth[u]] ||= []).push(u);
   // wrap tall columns so the whole map comes out about the canvas's shape
@@ -381,7 +390,16 @@ function layout() {
     // order by the average row of a unit's callers (fewer crossings), then by name
     const bary = (u) => { const r = (V.inn[u] || []).map((e) => rowOf[e.from]).filter((v) => v != null); return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 1e9; };
     list.sort((a, b) => (bary(a) - bary(b)) || lab(a).localeCompare(lab(b)));
-    list.forEach((u, i) => { pos[u] = { x: (x + Math.floor(i / ROWS)) * (W + GX), y: (i % ROWS) * (H + GY) }; rowOf[u] = i % ROWS; });
+    const sk = list.filter((u) => nearOf[u] && list.includes(nearOf[u]));
+    for (const u of sk) list.splice(list.indexOf(u), 1);
+    for (const u of sk) { let k = list.indexOf(nearOf[u]) + 1; while (k < list.length && nearOf[list[k]] === nearOf[u]) k++; list.splice(k, 0, u); }
+    let y = 0;
+    list.forEach((u, i) => {
+      if (i % ROWS === 0) y = 0;
+      y += (pinRows[u] != null ? pinRows[u] + 1 : 0) * PIN_H;
+      pos[u] = { x: (x + Math.floor(i / ROWS)) * (W + GX), y }; rowOf[u] = i % ROWS;
+      y += H + GY;
+    });
     x += Math.ceil(list.length / ROWS);
   }
 }
@@ -714,6 +732,10 @@ async function loadTasks() {
     for (const id of new Set([...t.planned, ...Object.keys(t.touched)])) (taskOf.get(id) || taskOf.set(id, []).get(id)).push(t);
   }
   renderStrip();
+  if (doc && Object.keys(pos).length) {
+    const sig = JSON.stringify(pinPlan().rows);
+    if (sig !== pinSig) { const first = !pinSig; pinSig = sig; if (!first) { layout(); draw(true); } }
+  }
   if (shownTask != null) { const t = tasks.find((x) => x.id === shownTask); if (t && selected == null) taskPanel(t); }
 }
 const editedOf = (t) => Object.keys(t.touched).filter((id) => t.touched[id].e);
@@ -802,14 +824,18 @@ function sketchPanel(n) {
     ${ins.length || outs.length ? `<h2 style="margin:10px 0 2px">Links</h2><div class="links" style="font-size:12px">${[...outs, ...ins].join("")}</div>` : ""}
   </div>`;
 }
-function pinsAndDock() {
+// each open task's pin sits on the unit holding most of its anchors; the
+// active task first, so it wins when pins would collide
+function pinPlan() {
   const pins = [], dock = [], rows = {};
-  for (const t of tasks.filter((x) => OPEN.includes(x.state))) {
+  const order = tasks.filter((x) => OPEN.includes(x.state))
+    .sort((a, b) => (a.id === activeTask ? -1 : b.id === activeTask ? 1 : 0) || OPEN.indexOf(a.state) - OPEN.indexOf(b.state) || a.id - b.id);
+  for (const t of order) {
     const count = {};
     for (const id of new Set([...t.planned, ...Object.keys(t.touched)])) {
       const real = doc.realSketch && doc.realSketch.get(id) || id;
       if (!doc.byId[real] || !visible(doc.byId[real])) continue;
-      const u = unitOf(real); if (pos[u]) count[u] = (count[u] || 0) + 1;
+      const u = unitOf(real); if (V.units.has(u)) count[u] = (count[u] || 0) + 1;
     }
     const best = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
     if (!best) { dock.push(t); continue; }
@@ -817,6 +843,11 @@ function pinsAndDock() {
     pins.push({ id: best[0], row, color: taskColor(t.id), active: t.id === activeTask,
                 text: `#${t.id} ${t.title.length > 38 ? t.title.slice(0, 37) + "…" : t.title}`, task: t.id });
   }
+  return { pins, dock, rows };
+}
+let pinSig = "";
+function pinsAndDock() {
+  const { pins, dock } = pinPlan();
   FlowGPU.setPins(pins);
   $("dock").innerHTML = dock.length ? `<div class="dh">not on this map yet</div>` + dock.map((t) =>
     `<div class="dk" onclick="showTask(${t.id})"><i style="background:${taskColor(t.id)}"></i>#${t.id} ${esc(t.title)}</div>`).join("") : "";

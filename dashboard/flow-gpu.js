@@ -301,7 +301,11 @@
   G.setPins = function (pins) { G.pins = pins || []; G.layoutPins(); G.invalidate(); };
   G.layoutPins = function () {
     if (!G.L) return;
-    const s = Math.min(5, Math.max(0.7, 1 / G.view.k));
+    // world size up close (the layout reserved that room above the tile); a
+    // little larger far out to stay legible; where two would overlap, the
+    // earlier pin (the active task first) wins and the later one hides
+    const s = Math.min(2.5, Math.max(1, 1 / G.view.k));
+    const placed = [];
     let used = 0;
     for (const p of G.pins) {
       const u = G.units.get(p.id); if (!u) continue;
@@ -318,9 +322,12 @@
         pin.bg.clear().roundRect(0, 0, w, 19, 5).fill({ color: 0x15181b, alpha: 0.96 }).stroke({ width: p.active ? 2 : 1, color: c });
         pin.bg.rect(0, 0, 5, 19).fill(c);
       }
-      pin.box.visible = true; pin.text.visible = true;
+      const r = { x: u.x + 4, y: u.y - (p.row + 1) * 22 * s, w: (pin.text.width + 18) * s, h: 19 * s };
+      const clash = placed.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h);
+      pin.box.visible = !clash; pin.text.visible = true;
+      if (!clash) placed.push(r);
       pin.box.scale.set(s);
-      pin.box.position.set(u.x + 4, u.y - (p.row + 1) * 22 * s);
+      pin.box.position.set(r.x, r.y);
       used++;
     }
     for (let i = used; i < G.pinPool.length; i++) G.pinPool[i].box.visible = false;
