@@ -84,6 +84,7 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 #live .ev.at { background: #2a2416; }
 .edge.new { stroke: #5fb36b !important; opacity: 1 !important; stroke-width: 2.6; }
 #live { border-bottom: 1px solid var(--line); max-height: 40%; overflow: auto; }
+.static #live { max-height: none; border-bottom: none; }
 #live .ev { padding: 3px 12px; font-size: 11.5px; cursor: pointer; border-left: 3px solid transparent; }
 #live .ev:hover { background: var(--panel2); }
 #live .ev .t { color: var(--dim); font-family: var(--mono); font-size: 10.5px; }
@@ -114,6 +115,8 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
   <select id="pick"></select>
   <label><input type="checkbox" id="leaves"> hide leaf helpers</label>
   <label id="xlangWrap" style="display:none"><input type="checkbox" id="xlang" checked> cross-language only</label>
+  <label title="how much to show at once: big maps start at whole files">zoom <select id="level">
+    <option value="auto">auto</option><option value="folder">folders</option><option value="file">files</option><option value="block">functions</option></select></label>
   <button id="fit">fit</button>
   <span id="selinfo">shift-click or shift-drag to select</span>
   <button id="ask" disabled title="Hand the selected blocks to your agent: it reads them with flow_selection and writes summaries with flow_summarize">summarize selection</button>
@@ -135,7 +138,7 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
         <span id="scrubAt"></span>
       </div>
       <div id="feed"><div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div></div></div>
-    <h2>Entry points, in order</h2><div id="tl"></div>
+    <h2 id="tlHead">Entry points, in order</h2><div id="tl"></div>
   </div>
   <div id="canvas"><svg id="svg"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b747d"></path></marker></defs><marker id="tarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#f0e6c8"></path></marker><g id="vp"><g id="halos"></g><g id="edges"></g><g id="trail"></g><g id="nodes"></g><g id="steps"></g></g></svg>
     <div id="lasso"></div>
@@ -165,7 +168,8 @@ function colorOf(n) {
 async function load() {
   const list = await (await fetch("/api/flyke")).json();
   $("pick").innerHTML = list.map((f) => `<option value="${esc(f.mod)}|${esc(f.name)}">${esc(f.mod)} / ${esc(f.name)}</option>`).join("");
-  const want = new URLSearchParams(location.search).get("f");
+  const qp = new URLSearchParams(location.search), want = qp.get("f");
+  if (qp.get("level")) $("level").value = qp.get("level");
   if (want) $("pick").value = want;
   if (list.length) open($("pick").value);
 }
@@ -178,11 +182,17 @@ async function open(v, keep) {
   doc.out = {}; doc.inn = {};
   for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
   const m = doc.meta || {};
-  $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks · ${m.calls || "?"} calls traced · ${m.weapon || ""}`;
-  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; }
+  $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks` + (doc.static ? ` · ${m.files || "?"} files` : ` · ${m.calls || "?"} calls traced · ${m.weapon || ""}`);
+  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; opened = new Set(); }
   await loadCollab();
   if (!keep) { feed = collab.activity.map(feedRow); cursor = null; renderSessions(); renderFeed(); }
-  $("xlangWrap").style.display = doc.static ? "" : "none";
+  // "cross-language only" only means something when a map spans languages
+  const langs = new Set(doc.nodes.map((n) => n.lang).filter((l) => l && l !== "data"));
+  $("xlangWrap").style.display = doc.static && langs.size > 1 ? "" : "none";
+  if (!keep) { $("xlang").checked = langs.size > 1; doc.seam = null; }
+  document.body.classList.toggle("static", !!doc.static);
+  // a static map's "entry points" are just every file's top level: noise
+  $("tlHead").style.display = $("tl").style.display = doc.static ? "none" : "";
   document.querySelector(".legend").innerHTML = doc.static
     ? `Languages: ${Object.entries(LANG).map(([l, c]) => `<span style="color:${c}">&#9632;</span> ${l}`).join(" ")}<br>
        Edges: <span style="color:#7fb2e0">- - http</span> / <span style="color:#5fb36b">&#8212; sql</span> / <span style="color:#b8c0c8">&middot;&middot;&middot; file</span> / <span style="color:#d9a441">&middot;&middot;&middot; mirror (same check ids)</span> / grey = call`
@@ -206,24 +216,143 @@ function visible(n) {
   return n.kind === "entry" || (doc.out[n.id] || []).length > 0;
 }
 function edgeVisible(e) { return !(doc.static && $("xlang").checked && e.kind === "call"); }
+// ── zoom levels: a big map shows whole files (or folders) until you open one ──
+// The view is built from units: a unit is a block, or a closed group of blocks
+// (a file or a folder). Edges are aggregated onto units. Everything that names
+// blocks (glow, trail, notes, picks, plan) is mapped through unitOf.
+let opened = new Set(), V = { units: new Map(), edges: [], out: {}, inn: {} };
+function effLevel() {
+  const v = $("level").value; if (v !== "auto") return v;
+  const files = new Set(doc.nodes.map((n) => n.file).filter(Boolean)).size;
+  return files > 40 ? "folder" : doc.nodes.length > 200 ? "file" : "block";
+}
+const dirOf = (f) => f.split("/").slice(0, -1).join("/") || ".";
+// the groups a block sits in, outermost first: open one to see the next
+function chainOf(n) {
+  const lv = effLevel();
+  if (lv === "block" || !n.file || n.kind === "entry") return [];   // contract/data nodes stand alone
+  return lv === "file" ? ["f:" + n.file] : ["d:" + dirOf(n.file), "f:" + n.file];
+}
+function groupKey(n) { const c = chainOf(n); return c.length ? c[c.length - 1] : null; }
+function unitOf(id) {
+  const n = doc.byId[id]; if (!n) return id;
+  for (const k of chainOf(n)) if (!opened.has(k)) return "g:" + k;
+  return id;
+}
+function openChain(n) { let changed = false; for (const k of chainOf(n)) if (!opened.has(k)) { opened.add(k); changed = true; } return changed; }
+function buildView() {
+  const units = new Map();
+  for (const n of doc.nodes) {
+    if (!visible(n)) continue;
+    const u = unitOf(n.id);
+    if (u === n.id) { units.set(u, { id: u, block: n, members: [n.id] }); continue; }
+    const g = units.get(u) || { id: u, group: u.slice(2), members: [], langs: {} };
+    g.members.push(n.id); g.langs[n.lang || ""] = (g.langs[n.lang || ""] || 0) + 1;
+    units.set(u, g);
+  }
+  const agg = new Map();
+  for (const e of doc.edges) {
+    if (!edgeVisible(e)) continue;
+    const a = unitOf(e.from), b = unitOf(e.to);
+    if (a === b || !units.has(a) || !units.has(b)) continue;
+    const k = `${a}|${b}|${e.kind || "call"}`;
+    const x = agg.get(k) || { from: a, to: b, kind: e.kind, count: 0, data: [], raw: [] };
+    x.count += e.count || 1; if (e.data && x.data.length < 4 && !x.data.includes(e.data)) x.data.push(e.data);
+    x.raw.push(e); agg.set(k, x);
+  }
+  V = { units, edges: [...agg.values()], out: {}, inn: {} };
+  for (const e of V.edges) { (V.out[e.from] ||= []).push(e); (V.inn[e.to] ||= []).push(e); }
+}
+const base = (p) => String(p || "").split("/").slice(-1)[0];
+// folders read relative to what they share (media/lua/... is noise)
+function folderName(dir) {
+  const dirs = [...new Set(doc.nodes.map((n) => n.file && dirOf(n.file)).filter(Boolean))];
+  let pre = dirs[0] || "";
+  for (const d of dirs) while (pre && !(d + "/").startsWith(pre + "/")) pre = pre.split("/").slice(0, -1).join("/");
+  const parts = pre ? pre.split("/") : [];
+  const keep = parts.slice(0, Math.max(0, parts.length - 1)).join("/");   // keep one shared segment for context
+  return keep && dir.startsWith(keep + "/") ? dir.slice(keep.length + 1) : dir;
+}
+function groupName(g) { return base(g.slice(2)) + (g.startsWith("d:") ? "/" : ""); }
+// where a folder sits, without the part every folder shares
+function folderCtx(dir) { const f = folderName(dir).split("/"); return f.slice(0, -1).join("/"); }
+function unitLabel(u) {
+  if (u.group) return groupName(u.group);
+  const n = u.block;
+  if (n.kind === "entry") return n.id;
+  if (n.id.startsWith("file ")) return n.id.slice(5);          // a data file: its name, not its extension
+  return n.id.includes("::") ? short(n.id) : n.id.split(".").slice(-1)[0];   // static path::name / traced module.fn
+}
+function unitColor(u) {
+  if (u.block) return colorOf(u.block);
+  const top = Object.entries(u.langs).sort((a, b) => b[1] - a[1])[0];
+  return top && LANG[top[0]] ? LANG[top[0]] : `hsl(${hue(u.group)} 45% 55%)`;
+}
 function layout() {
+  buildView();
   pos = {};
+  const ids = [...V.units.keys()], depth = {};
+  if (effLevel() === "block" && !doc.static) {
+    for (const id of ids) depth[id] = V.units.get(id).block.column || 0;   // traced: call depth from the event
+  } else {
+    // columns by who calls whom: breadth-first from the units nothing calls,
+    // so a unit sits one column right of its NEAREST caller (the deepest
+    // caller stretched a single chain of files across the whole screen)
+    const callers = (u) => (V.inn[u] || []).filter((e) => e.kind !== "mirror");
+    let frontier = ids.filter((u) => !callers(u).length);
+    if (!frontier.length && ids.length) frontier = [ids[0]];
+    for (const u of frontier) depth[u] = 0;
+    while (frontier.length) {
+      const next = [];
+      for (const u of frontier) for (const e of V.out[u] || []) {
+        if (e.kind === "mirror" || depth[e.to] != null) continue;
+        depth[e.to] = depth[u] + 1; next.push(e.to);
+      }
+      frontier = next;
+    }
+    for (const u of ids) if (depth[u] == null) depth[u] = 0;   // only reachable through a cycle
+    const lone = ids.filter((u) => !(V.inn[u] || []).length && !(V.out[u] || []).length);
+    const maxD = Math.max(0, ...ids.filter((u) => !lone.includes(u)).map((u) => depth[u]));
+    for (const u of lone) depth[u] = maxD + 1;    // unconnected units: one column at the end
+  }
   const cols = {};
-  for (const n of doc.nodes) if (visible(n)) (cols[n.column] ||= []).push(n);
-  const used = Object.keys(cols).map(Number).sort((a, b) => a - b);
-  used.forEach((c, ci) => {
+  for (const u of ids) (cols[depth[u]] ||= []).push(u);
+  const rowOf = {}, ROWS = 16, lab = (u) => unitLabel(V.units.get(u)).toLowerCase();
+  let x = 0;
+  for (const c of Object.keys(cols).map(Number).sort((a, b) => a - b)) {
     const list = cols[c];
-    list.sort((a, b) => (a.lang || "").localeCompare(b.lang || "") || (a.module || "").localeCompare(b.module || "") || b.calls - a.calls);
-    list.forEach((n, i) => { pos[n.id] = { x: ci * (W + GX), y: i * (H + GY) }; });
-  });
+    // order by the average row of a unit's callers (fewer crossings), then by name
+    const bary = (u) => { const r = (V.inn[u] || []).map((e) => rowOf[e.from]).filter((v) => v != null); return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 1e9; };
+    list.sort((a, b) => (bary(a) - bary(b)) || lab(a).localeCompare(lab(b)));
+    list.forEach((u, i) => { pos[u] = { x: (x + Math.floor(i / ROWS)) * (W + GX), y: (i % ROWS) * (H + GY) }; rowOf[u] = i % ROWS; });
+    x += Math.ceil(list.length / ROWS);
+  }
+}
+function marksOfUnit(u) {
+  if (u.block) return marksOf(u.block);
+  const m = u.members, parts = [];
+  const locked = m.filter((id) => collab.locks[id]).length;
+  const notes = collab.notes.filter((x) => !x.done && m.includes(x.node)).length;
+  const edited = m.filter((id) => collab.edits[id]).length;
+  const sums = m.filter((id) => doc.byId[id].ai).length, stale = m.filter((id) => doc.byId[id].aiStale).length;
+  if (locked) parts.push(locked + " locked");
+  if (notes) parts.push(notes + (notes === 1 ? " note" : " notes"));
+  if (edited) parts.push(edited + " edited");
+  if (stale) parts.push(stale + " stale");
+  else if (sums) parts.push(sums + "/" + m.length + " sum");
+  return parts.length ? `<text class="marks" x="${W - 8}" y="16" text-anchor="end">${esc(parts.join(" · "))}</text>` : "";
+}
+function toggleOpen(key) {
+  opened.has(key) ? opened.delete(key) : opened.add(key);
+  layout(); draw();
 }
 function draw() {
   const eg = $("edges"), ng = $("nodes");
   eg.innerHTML = ""; ng.innerHTML = "";
-  const maxC = Math.max(1, ...doc.edges.map((e) => e.count));
-  for (const e of doc.edges) {
+  const maxC = Math.max(1, ...V.edges.map((e) => e.count));
+  for (const e of V.edges) {
     const a = pos[e.from], b = pos[e.to];
-    if (!a || !b || !edgeVisible(e)) continue;
+    if (!a || !b) continue;
     const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2;
     let d;
     if (x2 > x1) { const mx = (x1 + x2) / 2; d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; }
@@ -233,51 +362,108 @@ function draw() {
     if (e.kind !== "mirror") p.setAttribute("marker-end", "url(#arrow)");
     p.setAttribute("stroke-width", (0.8 + 3 * Math.log1p(e.count) / Math.log1p(maxC)).toFixed(2));
     p.dataset.from = e.from; p.dataset.to = e.to;
-    if (doc.newEdges && doc.newEdges.has(`${e.from}|${e.to}|${e.kind || "call"}`)) p.classList.add("new");
-    const t = document.createElementNS("http://www.w3.org/2000/svg", "title"); t.textContent = `${e.kind || "call"}: ${e.from} → ${e.to} ×${e.count}\n${e.data}`;
+    if (doc.newEdges && e.raw.some((r) => doc.newEdges.has(`${r.from}|${r.to}|${r.kind || "call"}`))) p.classList.add("new");
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    t.textContent = `${e.kind || "call"}: ${e.from.replace(/^g:/, "")} → ${e.to.replace(/^g:/, "")} ×${e.count}` + (e.raw.length > 1 ? ` (${e.raw.length} links)` : "") + (e.data.length ? "\n" + e.data.join("\n") : "");
     p.appendChild(t); eg.appendChild(p);
   }
-  for (const n of doc.nodes) {
-    const q = pos[n.id]; if (!q) continue;
+  for (const u of V.units.values()) {
+    const q = pos[u.id]; if (!q) continue;
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    g.setAttribute("class", "node"); g.setAttribute("transform", `translate(${q.x},${q.y})`); g.dataset.id = n.id;
-    const c = colorOf(n);
-    const label = n.kind === "entry" ? n.id : n.id.split(".").slice(-1)[0];
-    g.innerHTML = `<rect width="${W}" height="${H}" fill="#181c20" stroke="${c}"></rect>
+    g.setAttribute("class", "node" + (u.group ? " grp" : "")); g.setAttribute("transform", `translate(${q.x},${q.y})`); g.dataset.id = u.id;
+    const c = unitColor(u), label = unitLabel(u);
+    const nFiles = u.group && u.group.startsWith("d:") ? new Set(u.members.map((id) => doc.byId[id].file)).size : 0;
+    const sub = u.group
+      ? (nFiles ? `${folderCtx(u.group.slice(2)) || Object.keys(u.langs).filter(Boolean).join("+")} · ${nFiles} files`
+                : `${Object.keys(u.langs).filter(Boolean).join("+")} · ${base(dirOf(u.group.slice(2)))}`)
+      : (u.block.kind === "entry" ? "entry point" : (u.block.lang ? u.block.lang + " / " : "") + String(u.block.module || "").split("/").slice(-1)[0]);
+    g.innerHTML = `${u.group ? `<rect x="4" y="4" width="${W}" height="${H}" fill="#14171a" stroke="${c}" stroke-opacity=".45"></rect>` : ""}
+      <rect width="${W}" height="${H}" fill="${u.group ? "#1d2227" : "#181c20"}" stroke="${c}"></rect>
       <rect width="5" height="${H}" fill="${c}" stroke="none"></rect>
       <text x="12" y="20">${esc(label.length > 28 ? label.slice(0, 27) + "…" : label)}</text>
-      <text class="mod" x="12" y="37">${esc(n.kind === "entry" ? "entry point" : (n.lang ? n.lang + " / " : "") + String(n.module || "").split("/").slice(-1)[0])}</text>
-      <text class="cnt" x="${W - 8}" y="37" text-anchor="end">×${n.calls}</text>
-      ${marksOf(n)}`;
+      <text class="mod" x="12" y="37">${esc(sub.length > 21 ? "…" + sub.slice(-20) : sub)}</text>
+      <text class="cnt" x="${W - 8}" y="37" text-anchor="end">${u.group ? u.members.length + " blocks ▸" : "×" + u.block.calls}</text>
+      ${marksOfUnit(u)}`;
     g.onclick = (ev) => {
       ev.stopPropagation();
-      if (ev.shiftKey) { picked.has(n.id) ? picked.delete(n.id) : picked.add(n.id); updateSel(); return; }
-      select(n.id);
+      if (ev.shiftKey) {
+        const all = u.members.every((id) => picked.has(id));
+        for (const id of u.members) all ? picked.delete(id) : picked.add(id);
+        updateSel(); return;
+      }
+      select(u.id);
+    };
+    g.ondblclick = (ev) => {
+      ev.stopPropagation();
+      if (u.group) toggleOpen(u.group);
+      else { const k = groupKey(u.block); if (k != null && opened.has(k)) toggleOpen(k); }   // a block closes its file
+      centerOn(unitOf(u.members[0]));
     };
     ng.appendChild(g);
   }
   applyHighlight();
   drawTrail();
 }
+const GRANK = { reading: 1, editing: 2, denied: 3 };
 function applyHighlight() {
-  const on = hotIds || (selected ? new Set([selected, ...(doc.out[selected] || []).map((e) => e.to), ...(doc.inn[selected] || []).map((e) => e.from)]) : null);
+  const selU = selected ? unitOf(selected) : null;
+  const on = hotIds ? new Set([...hotIds].map(unitOf))
+    : selU ? new Set([selU, ...(V.out[selU] || []).map((e) => e.to), ...(V.inn[selU] || []).map((e) => e.from)]) : null;
+  const plan = collab.plan && collab.plan.status === "proposed" ? new Set(collab.plan.ids) : null;
   for (const g of document.querySelectorAll(".node")) {
-    g.classList.toggle("dim", !!on && !on.has(g.dataset.id));
-    g.classList.toggle("sel", g.dataset.id === selected);
-    g.classList.toggle("picked", picked.has(g.dataset.id));
-    const id = g.dataset.id, gl = glow[id];
+    const u = V.units.get(g.dataset.id); if (!u) continue;
+    let gl = null;
+    for (const id of u.members) { const x = glow[id]; if (x && (!gl || GRANK[x.kind] > GRANK[gl.kind])) gl = x; }
+    g.classList.toggle("dim", !!on && !on.has(u.id) && !gl);
+    g.classList.toggle("sel", u.id === selU);
+    g.classList.toggle("picked", u.members.some((id) => picked.has(id)));
     g.classList.toggle("reading", !!gl && gl.kind === "reading");
     g.classList.toggle("editing", !!gl && gl.kind === "editing");
     g.classList.toggle("denied", !!gl && gl.kind === "denied");
-    g.classList.toggle("edited", !gl && !!collab.edits[id]);
-    g.classList.toggle("planned", !!collab.plan && collab.plan.status === "proposed" && collab.plan.ids.includes(id));
-    g.classList.toggle("locked", !!collab.locks[id]);
-    if (gl) g.classList.remove("dim");
+    g.classList.toggle("edited", !gl && u.members.some((id) => collab.edits[id]));
+    g.classList.toggle("planned", !!plan && u.members.some((id) => plan.has(id)));
+    g.classList.toggle("locked", u.members.some((id) => collab.locks[id]));
   }
   for (const p of document.querySelectorAll(".edge")) {
-    const hot = on && on.has(p.dataset.from) && on.has(p.dataset.to) && (hotIds || p.dataset.from === selected || p.dataset.to === selected);
+    const hot = on && on.has(p.dataset.from) && on.has(p.dataset.to) && (hotIds || p.dataset.from === selU || p.dataset.to === selU);
     p.classList.toggle("hot", !!hot); p.classList.toggle("dim", !!on && !hot);
   }
+}
+function groupPanel(u) {
+  const link = (ids) => ids.map((x) => `<a onclick="select('${esc(x)}')">${esc(x.replace(/^g:/, ""))}</a>`).join("");
+  const ins = [...new Set((V.inn[u.id] || []).map((e) => e.from))], outs = [...new Set((V.out[u.id] || []).map((e) => e.to))];
+  const blocks = u.members.map((id) => doc.byId[id]).sort((a, b) => (a.line || 0) - (b.line || 0));
+  const isDir = u.group.startsWith("d:");
+  const files = isDir ? [...new Set(blocks.map((n) => n.file))].sort() : [];
+  $("det").innerHTML = `<div class="det">
+    <div class="id">${esc(u.group.slice(2))}${isDir ? "/" : ""}</div>
+    <div class="modl">${isDir ? files.length + " files · " : ""}${u.members.length} blocks · ${esc(Object.keys(u.langs).filter(Boolean).join(", "))} · double-click it on the chart to open</div>
+    <button onclick="toggleOpen('${esc(u.group)}')">open into its ${isDir ? "files" : "blocks"}</button>
+    ${isDir ? `<h2 style="margin:10px 0 2px">Files</h2>${files.map((f) => {
+        const ms = blocks.filter((n) => n.file === f), sums = ms.filter((n) => n.ai).length;
+        return `<div style="margin:2px 0"><a style="color:var(--link);cursor:pointer;font-family:var(--mono);font-size:11.5px" onclick="openFile('${esc(f)}')">${esc(base(f))}</a>
+          <span style="color:var(--dim);font-size:11px">${ms.length} blocks${sums ? " · " + sums + " summarized" : ""}</span></div>`; }).join("")}` : ""}
+    ${ins.length ? `<h2 style="margin:10px 0 2px">Used by</h2><div class="links">${link(ins)}</div>` : ""}
+    ${outs.length ? `<h2 style="margin:6px 0 2px">Uses</h2><div class="links">${link(outs)}</div>` : ""}
+    ${isDir ? "" : `<h2 style="margin:10px 0 2px">Blocks</h2>`}
+    ${isDir ? "" : blocks.map((n) => `<div style="margin:3px 0"><a style="color:var(--link);cursor:pointer;font-family:var(--mono);font-size:11.5px" onclick="select('${esc(n.id)}')">${esc(short(n.id))}</a>
+      <span style="color:var(--dim);font-size:11px">:${n.line || ""}${collab.edits[n.id] ? " · edited" : ""}${collab.locks[n.id] ? " · locked" : ""}</span>
+      ${n.ai ? `<div style="color:var(--muted);font-size:11.5px;margin-left:8px">${esc(n.ai)}${n.aiStale ? ` <span class="badge stale">stale</span>` : ""}</div>` : n.summary ? `<div style="color:var(--dim);font-size:11.5px;margin-left:8px">${esc(n.summary)}</div>` : ""}</div>`).join("")}
+  </div>`;
+}
+// from a folder's panel: open the folder, then show the file
+function openFile(f) {
+  const n = doc.nodes.find((x) => x.file === f); if (!n) return;
+  const c = chainOf(n);
+  for (const k of c.slice(0, -1)) opened.add(k);
+  layout(); draw();
+  const id = c.length ? "g:" + c[c.length - 1] : n.id;
+  select(id); centerOn(id);
+}
+function centerOn(id) {
+  const q = pos[id]; if (!q) return;
+  const r = $("canvas").getBoundingClientRect();
+  view.x = r.width / 2 - (q.x + W / 2) * view.k; view.y = r.height / 2 - (q.y + H / 2) * view.k; apply();
 }
 function renderTimeline() {
   $("tl").innerHTML = doc.timeline.map((t, i) => `<div class="tl" data-i="${i}"><div class="s">${esc(t.step)}</div>
@@ -298,13 +484,21 @@ function showTrace(t) {
     <div style="margin-top:10px">${rows}</div>${t.calls.length >= 60 ? `<div class="modl">…truncated</div>` : ""}</div>`;
 }
 async function select(id) {
+  if (id.startsWith("g:")) {
+    selected = id; hotIds = null;
+    document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
+    applyHighlight();
+    const u = V.units.get(id); if (u) groupPanel(u);
+    return;
+  }
+  const n = doc.byId[id]; if (!n) return;
+  if (visible(n) && openChain(n)) { layout(); draw(); centerOn(id); }
   selected = id; hotIds = null;
   document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
   applyHighlight();
-  const n = doc.byId[id]; if (!n) return;
   const rows = (list) => `<table>${list.map(([s, c]) => `<tr><td class="c">×${c}</td><td>${esc(s || "(nothing)")}</td></tr>`).join("")}</table>`;
   const link = (ids) => ids.map((x) => `<a onclick="select('${esc(x)}')">${esc(x)}</a>`).join("");
-  const callers = (doc.inn[id] || []).map((e) => e.from), callees = (doc.out[id] || []).map((e) => e.to);
+  const callers = [...new Set((doc.inn[id] || []).map((e) => e.from))], callees = [...new Set((doc.out[id] || []).map((e) => e.to))];
   $("det").innerHTML = `<div class="det">
     <div class="id">${esc(n.id)}</div>
     <div class="modl">${esc(n.kind === "entry" ? "entry point" : n.module)} · called ${n.calls}× · ${esc(Object.keys(n.steps || {}).join(", "))}</div>
@@ -357,7 +551,7 @@ window.onmouseup = () => {
       const a = toChart(Math.min(lasso.x0, lasso.x1), Math.min(lasso.y0, lasso.y1));
       const b = toChart(Math.max(lasso.x0, lasso.x1), Math.max(lasso.y0, lasso.y1));
       for (const [id, q] of Object.entries(pos)) {
-        if (q.x + W >= a.x && q.x <= b.x && q.y + H >= a.y && q.y <= b.y) picked.add(id);
+        if (q.x + W >= a.x && q.x <= b.x && q.y + H >= a.y && q.y <= b.y) for (const m of (V.units.get(id) || { members: [id] }).members) picked.add(m);
       }
       updateSel();
     }
@@ -477,7 +671,7 @@ function drawTrail() {
   const svg = (tag, attrs) => { const el = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
   // onion skin: each block keeps the tint of its latest touch, fading with age
   const last = {};
-  win.forEach((s, i) => { for (const id of s.ids) last[id] = { i, kind: s.kind, n: from + i + 1 }; });
+  win.forEach((s, i) => { for (const id of new Set(s.ids.map(unitOf))) last[id] = { i, kind: s.kind, n: from + i + 1 }; });
   for (const [id, t] of Object.entries(last)) {
     const q = pos[id]; if (!q) continue;
     const f = fresh(t.i);
@@ -488,7 +682,7 @@ function drawTrail() {
     sg.appendChild(g);
   }
   // the path the agent took, step to step
-  const at = (s) => { const id = s.ids.find((x) => pos[x]); return id && { x: pos[id].x + W / 2, y: pos[id].y + H / 2 }; };
+  const at = (s) => { const id = s.ids.map(unitOf).find((x) => pos[x]); return id && { x: pos[id].x + W / 2, y: pos[id].y + H / 2 }; };
   for (let i = 1; i < win.length; i++) {
     const a = at(win[i - 1]), b = at(win[i]);
     if (!a || !b || (a.x === b.x && a.y === b.y)) continue;
@@ -614,9 +808,11 @@ function connect() {
     }
   };
 }
-connect();
+// ?nolive: no event stream (headless screenshots never settle with one open)
+if (!new URLSearchParams(location.search).has("nolive")) connect();
 $("pick").onchange = () => open($("pick").value);
 $("leaves").onchange = () => { layout(); draw(); fit(); };
+$("level").onchange = () => { opened = new Set(); layout(); draw(); fit(); };
 $("xlang").onchange = () => { layout(); draw(); fit(); };
 $("fit").onclick = fit;
 load();
