@@ -268,7 +268,7 @@ async function open(v, keep) {
   for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
   const m = doc.meta || {};
   $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks` + (doc.static ? ` · ${m.files || "?"} files` : ` · ${m.calls || "?"} calls traced · ${m.weapon || ""}`);
-  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; collapsed = new Set(); shownTask = null; }
+  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; shownTask = null; layout.fresh = true; }
   await loadCollab();
   if (!keep) { feed = collab.activity.map(feedRow); cursor = null; renderSessions(); renderFeed(); }
   // "cross-language only" only means something when a map spans languages
@@ -308,34 +308,45 @@ function visible(n) {
   return n.kind === "entry" || (doc.out[n.id] || []).length > 0;
 }
 function edgeVisible(e) { return !(doc.static && $("xlang").checked && e.kind === "call"); }
-// ── the nested map: areas hold files, files hold blocks; zoom reveals them ──
-// The whole tree is laid out ONCE (nothing moves when you zoom). What is
-// shown depends on the zoom: a container opens when it is big enough on
-// screen for its children to be read, and is on screen; until then it is one
-// card with its title and purpose. Everything that names blocks (glow, trail,
-// notes, picks, plan) maps through unitOf: the deepest unit shown.
-let collapsed = new Set(), T = null, VIS = { units: new Map(), unitOfBlock: {} }, visSig = "";
+// ── the map at scale: a CUT through the tree, chosen by interest ───────────
+// A codebase spans orders of magnitude (a mod: thousands of functions; a
+// repo: tens of thousands), so the board never shows "everything". It shows
+// a cut: which containers are open. Rules:
+//   interest   each block's base importance (callers, callees, a summary)
+//              plus the SESSION: the open step, the active task, the trail,
+//              the selection, notes and edits. A container's interest is
+//              what it holds. Detail goes where the work is.
+//   budget     an open container shows at most BUDGET children, the most
+//              interesting, in flow order; the rest are one "+N more" card
+//   size       a closed box is sized by interest and amount of code within a
+//              fixed range, never by everything inside it
+//   zoom       a closed box that fills the screen opens; an open one that
+//              shrinks far closes (with hysteresis); each change re-lays the
+//              map with the box you are looking at held in place, and the
+//              rest glides there
+// Everything that names blocks (glow, trail, notes, picks, plan) maps through
+// unitOf: the unit standing for that block in the current cut.
+let T = null, VIS = { units: new Map(), unitOfBlock: {} }, visSig = "";
 let V = { units: new Map(), edges: [], out: {}, inn: {} }, allEdges = false, hoverId = null;
-const PAD = 18, GAP = 22;
+let expanded = new Set(), showAll = new Set(), autoOpened = new Set(), heldClosed = new Set(), forced = new Set(), interest = {}, groupInterest = {};
+const PAD = 18, GAP = 22, BUDGET = 24;
 const dirOf = (f) => f.split("/").slice(0, -1).join("/") || ".";
-// the agent's named areas (flow/<name>.areas.json): concept groups of files
 function areaOf(file) {
   if (!doc.areaByFile) { doc.areaByFile = {}; for (const a of doc.areas || []) for (const f of a.files) doc.areaByFile[f] = a; }
   return doc.areaByFile[file] || null;
 }
 const groupInfo = (g) => (doc.groups || {})[g] || null;
-// the containers a block sits in, outermost first
-function chainOf(n) {
-  if (!n.file) return ["x:other"];                      // data files, entry points: one group of their own
-  const a = areaOf(n.file);
-  if (!a) return ["d:" + dirOf(n.file), "f:" + n.file];
-  // an area sits inside the folder its files share (Genome holds its six areas)
-  return [areaDir(a) ? "d:" + areaDir(a) : null, "a:" + a.key, "f:" + n.file].filter(Boolean);
-}
 function areaDir(a) {
   if (a._dir !== undefined) return a._dir;
   const dirs = [...new Set(a.files.map(dirOf))];
   return (a._dir = dirs.length === 1 ? dirs[0] : null);
+}
+// the containers a block sits in, outermost first
+function chainOf(n) {
+  if (!n.file) return ["x:other"];
+  const a = areaOf(n.file);
+  if (!a) return ["d:" + dirOf(n.file), "f:" + n.file];
+  return [areaDir(a) ? "d:" + areaDir(a) : null, "a:" + a.key, "f:" + n.file].filter(Boolean);
 }
 function groupKey(n) { const c = chainOf(n); return c[c.length - 1]; }
 function unitOf(id) { return VIS.unitOfBlock[id] || id; }
@@ -361,15 +372,45 @@ function buildTree() {
   }
   T = { groups, roots };
 }
-// order items so callers come before what they call (left to right, top to
-// bottom), using the map's edges between the blocks they hold
+// ── interest: what matters, and what the session is doing ─────────────────
+function computeInterest() {
+  interest = {};
+  const deg = (id) => (doc.inn[id] || []).length + (doc.out[id] || []).length;
+  for (const n of doc.nodes) {
+    // what it is for counts more than how often it is called: a summarized
+    // function outranks a two-letter helper everything calls
+    const name = String(n.fn || n.id.split(/::|\./).pop() || "");
+    let v = 0.7 * Math.log1p(deg(n.id)) + (n.ai ? 1.6 : 0) + (n.summary && n.summary !== "Top-level code of the file." ? 0.4 : 0)
+          + (n.role ? -0.6 : 0) + (name.length <= 3 || name === "<module>" ? -1.2 : 0);
+    interest[n.id] = v;
+  }
+  const boost = (id, b) => { if (interest[id] != null) interest[id] += b; };
+  const st = typeof openStep !== "undefined" && openStep != null && steps.find((x) => x.id === openStep);
+  if (st) for (const id of Object.keys(st.blocks || {})) boost(id, 6);
+  const act = typeof activeTask !== "undefined" && tasks.find((t) => t.id === activeTask);
+  if (act) for (const id of new Set([...act.planned, ...Object.keys(act.touched)])) boost(id, 4);
+  for (const t of tasks) if (OPEN.includes(t.state) && t.id !== activeTask) for (const id of t.planned) boost(id, 1.2);
+  const recent = feed.filter((r) => TOUCH.has(r.kind)).slice(-30);
+  recent.forEach((r, i) => { for (const id of r.ids) boost(id, 1 + 3 * (i + 1) / recent.length); });
+  for (const nt of collab.notes || []) if (!nt.done) boost(nt.node, 3);
+  for (const id of Object.keys(collab.edits || {})) boost(id, 2);
+  if (selected && interest[selected] != null) boost(selected, 8);
+  groupInterest = {};
+  for (const g of T.groups.values()) {
+    let mx = 0;
+    for (const id of g.members) mx = Math.max(mx, interest[id] || 0);
+    groupInterest[g.key] = mx + 0.35 * Math.log1p(g.members.length);
+  }
+}
+const isExpanded = (key) => expanded.has(key);
+// order items so callers come before what they call, using the map's edges
 function flowOrder(items, itemOfBlock) {
   const out = {}, inDeg = {};
   for (const it of items) { out[it.id] = new Set(); inDeg[it.id] = 0; }
   for (const e of doc.edges) {
     if (e.kind === "mirror") continue;
     const a = itemOfBlock[e.from], b = itemOfBlock[e.to];
-    if (a && b && a !== b && !out[a].has(b)) { out[a].add(b); inDeg[b]++; }
+    if (a && b && a !== b && out[a] && out[b] && !out[a].has(b)) { out[a].add(b); inDeg[b]++; }
   }
   const depth = {};
   let frontier = items.filter((it) => !inDeg[it.id]).map((it) => it.id);
@@ -380,9 +421,8 @@ function flowOrder(items, itemOfBlock) {
     for (const id of frontier) for (const b of out[id]) if (depth[b] == null) { depth[b] = depth[id] + 1; next.push(b); }
     frontier = next;
   }
-  return items.slice().sort((x, y) => ((depth[x.id] ?? 99) - (depth[y.id] ?? 99)) || (y.w * y.h - x.w * x.h) || x.label.localeCompare(y.label));
+  return items.slice().sort((x, y) => ((depth[x.id] ?? 99) - (depth[y.id] ?? 99)) || (y.interest - x.interest) || x.label.localeCompare(y.label));
 }
-// rows of items, each row as wide as fits `width`
 function shelf(items, width) {
   let x = 0, y = 0, rowH = 0, maxW = 0;
   for (const it of items) {
@@ -391,85 +431,82 @@ function shelf(items, width) {
   }
   return { w: maxW, h: y + rowH };
 }
-const headerOf = (g) => g.kind === "file" ? 124 : Math.max(118, Math.min(380, g.w * 0.075));
-function layoutTree() {
+const HEADER = 118;
+// a closed box: sized by interest and amount, within a fixed range
+function closedSize(g, maxI) {
+  const t = Math.min(1, 0.65 * (groupInterest[g.key] || 0) / Math.max(1, maxI) + 0.35 * Math.log1p(g.members.length) / Math.log1p(2000));
+  return { w: Math.round(300 + 260 * t), h: Math.round(150 + 70 * t) };
+}
+// lay out the cut: every unit shown gets a rect
+function layoutCut() {
   pos = {};
+  const units = new Map(), unitOfBlock = {};
+  const maxI = Math.max(1, ...Object.values(groupInterest));
   const cr = $("canvas").getBoundingClientRect(), aspect = Math.max(1, (cr.width || 1600) / (cr.height || 900));
-  const size = (g) => {
-    const items = [];
+  // measure: returns { w, h, items } for a group in the cut
+  const measure = (g) => {
+    if (!isExpanded(g.key)) { const s = closedSize(g, maxI); g._m = { w: s.w, h: s.h, open: false }; return g._m; }
+    let items = [];
     const itemOfBlock = {};
     for (const k of g.kids) {
-      const c = T.groups.get(k); size(c);
-      items.push({ id: c.id, w: c.w, h: c.h, label: groupName(k), g: c });
+      const c = T.groups.get(k), m = measure(c);
+      const must = expanded.has(k) || c.members.some((b) => forced.has(b));
+      items.push({ id: c.id, w: m.w, h: m.h, label: groupName(k), interest: (groupInterest[k] || 0) + (must ? 100 : 0), g: c });
       for (const b of c.members) itemOfBlock[b] = c.id;
     }
-    // blocks: source order inside a file, flow order otherwise
-    const blocks = g.blocks.map((id) => doc.byId[id]).filter(Boolean);
-    const bItems = blocks.map((n) => ({ id: n.id, w: W, h: H, label: n.id, line: n.line || 0 }));
-    for (const it of bItems) itemOfBlock[it.id] = it.id;
-    const ordered = g.kind === "file" ? bItems.sort((a, b) => a.line - b.line || a.id.localeCompare(b.id))
-                                      : flowOrder([...items, ...bItems], itemOfBlock);
-    const all = g.kind === "file" ? bItems : ordered;
-    const area = all.reduce((s, it) => s + (it.w + GAP) * (it.h + GAP), 0);
-    const width = Math.max(...all.map((it) => it.w), Math.sqrt(area * (g.kind === "file" ? 1.6 : 1.5)));
-    const box = shelf(all, width);
-    g.items = all;
-    g.w = Math.max(box.w + 2 * PAD, 340);
-    g.hh = headerOf(g);
-    g.h = g.hh + box.h + PAD;
+    for (const id of g.blocks) { items.push({ id, w: W, h: H, label: id, interest: (interest[id] || 0) + (forced.has(id) ? 100 : 0), line: (doc.byId[id] || {}).line || 0 }); itemOfBlock[id] = id; }
+    // the density budget: the most interesting, the rest as one card
+    const cap = BUDGET;
+    let hidden = [];
+    if (items.length > cap && !showAll.has(g.key)) {
+      const keep = new Set(items.slice().sort((a, b) => b.interest - a.interest).slice(0, cap - 1).map((it) => it.id));
+      hidden = items.filter((it) => !keep.has(it.id));
+      items = items.filter((it) => keep.has(it.id));
+    }
+    items = g.kind === "file" ? items.sort((a, b) => (a.line || 0) - (b.line || 0)) : flowOrder(items, itemOfBlock);
+    if (hidden.length) items.push({ id: "more:" + g.key, w: W, h: H, label: "", more: hidden, interest: 0 });
+    const area = items.reduce((s, it) => s + (it.w + GAP) * (it.h + GAP), 0);
+    const width = Math.max(...items.map((it) => it.w), Math.sqrt(area * 1.6));
+    const box = shelf(items, width);
+    g._m = { w: Math.max(box.w + 2 * PAD, 360), h: HEADER + box.h + PAD, open: true, items };
+    return g._m;
   };
   const top = T.roots.map((k) => T.groups.get(k));
-  top.forEach(size);
-  const itemOfBlock = {};
-  for (const g of top) for (const b of g.members) itemOfBlock[b] = g.id;
   const roleRank = (g) => { const n = g.members.length || 1, src = (g.roles.source || 0) / n; return g.kind === "other" ? 3 : src >= 0.5 ? 0 : (g.roles.test || 0) + (g.roles.check || 0) >= (g.roles.tool || 0) ? 1 : 2; };
-  const items = flowOrder(top.map((g) => ({ id: g.id, w: g.w, h: g.h, label: groupName(g.key), g })), itemOfBlock)
-    .map((it, i) => ({ it, i })).sort((a, b) => roleRank(a.it.g) - roleRank(b.it.g) || a.i - b.i).map((x) => x.it);
+  const itemOfBlock = {};
+  let items = top.map((g) => { const m = measure(g); for (const b of g.members) itemOfBlock[b] = g.id; return { id: g.id, w: m.w, h: m.h, label: groupName(g.key), interest: groupInterest[g.key] || 0, g }; });
+  items = flowOrder(items, itemOfBlock).map((it, i) => ({ it, i })).sort((a, b) => roleRank(a.it.g) - roleRank(b.it.g) || a.i - b.i).map((x) => x.it);
   const area = items.reduce((s, it) => s + (it.w + GAP * 3) * (it.h + GAP * 3), 0);
-  const saved = GAP;
   const width = Math.max(...items.map((it) => it.w), Math.sqrt(area * aspect));
-  // the top level breathes more
   let x = 0, y = 0, rowH = 0;
   for (const it of items) {
-    if (x > 0 && x + it.w > width) { x = 0; y += rowH + saved * 4; rowH = 0; }
-    it.rx = x; it.ry = y; x += it.w + saved * 4; rowH = Math.max(rowH, it.h);
+    if (x > 0 && x + it.w > width) { x = 0; y += rowH + GAP * 4; rowH = 0; }
+    it.rx = x; it.ry = y; x += it.w + GAP * 4; rowH = Math.max(rowH, it.h);
   }
   const place = (g, ox, oy) => {
-    pos[g.id] = { x: ox, y: oy, w: g.w, h: g.h, hh: g.hh };
-    for (const it of g.items) {
-      const ax = ox + PAD + it.rx, ay = oy + g.hh + it.ry;
-      if (it.g) place(it.g, ax, ay); else pos[it.id] = { x: ax, y: ay, w: W, h: H };
+    const m = g._m;
+    pos[g.id] = { x: ox, y: oy, w: m.w, h: m.h, hh: HEADER };
+    units.set(g.id, { id: g.id, group: g.key, open: m.open, members: g.members, langs: g.langs, roles: g.roles, kind: g.kind });
+    if (!m.open) { for (const b of g.members) unitOfBlock[b] = g.id; return; }
+    for (const it of m.items) {
+      const ax = ox + PAD + it.rx, ay = oy + HEADER + it.ry;
+      if (it.g) place(it.g, ax, ay);
+      else if (it.more) {
+        const members = it.more.flatMap((h) => h.g ? h.g.members : [h.id]);
+        pos[it.id] = { x: ax, y: ay, w: W, h: H };
+        units.set(it.id, { id: it.id, more: it.more.length, hidden: it.more, parent: g.key, members, langs: {}, roles: {} });
+        for (const b of members) unitOfBlock[b] = it.id;
+      } else {
+        pos[it.id] = { x: ax, y: ay, w: W, h: H };
+        units.set(it.id, { id: it.id, block: doc.byId[it.id], members: [it.id] });
+        unitOfBlock[it.id] = it.id;
+      }
     }
   };
   for (const it of items) place(it.g, it.rx, it.ry);
-}
-// is a container open on screen right now?
-function onScreen(r, margin) {
-  const cr = $("canvas").getBoundingClientRect();
-  const x = r.x * view.k + view.x, y = r.y * view.k + view.y, w = r.w * view.k, h = r.h * view.k;
-  return x + w > -margin && y + h > -margin && x < cr.width + margin && y < cr.height + margin;
-}
-function isOpen(g) {
-  if (collapsed.has(g.key)) return false;
-  const sw = g.w * view.k, sh = g.h * view.k, cr = $("canvas").getBoundingClientRect();
-  if (g.kind === "file") { if (view.k < 0.42 || (sw < 320 && sh < 260)) return false; }   // its blocks must be readable
-  else if (sw < Math.min(560, cr.width * 0.4) && sh < cr.height * 0.45) return false;    // its files must be readable
-  return onScreen(pos[g.id], 300);
-}
-function computeVisible() {
-  const units = new Map(), unitOfBlock = {};
-  const visit = (key) => {
-    const g = T.groups.get(key);
-    const open = isOpen(g);
-    units.set(g.id, { id: g.id, group: key, open, members: g.members, langs: g.langs, roles: g.roles, kind: g.kind });
-    if (!open) { for (const b of g.members) unitOfBlock[b] = g.id; return; }
-    for (const k of g.kids) visit(k);
-    for (const b of g.blocks) { units.set(b, { id: b, block: doc.byId[b], members: [b] }); unitOfBlock[b] = b; }
-  };
-  T.roots.forEach(visit);
   VIS = { units, unitOfBlock };
 }
-// edges between the units shown (open containers are never ends: their children are)
+// edges between the units shown (an open container is never an end)
 function buildView() {
   const units = VIS.units, agg = new Map();
   for (const e of doc.edges) {
@@ -484,25 +521,90 @@ function buildView() {
   V = { units, edges: [...agg.values()], out: {}, inn: {} };
   for (const e of V.edges) { (V.out[e.from] ||= []).push(e); (V.inn[e.to] ||= []).push(e); }
 }
-// the full rebuild: a new map, a filter change
+// the start: open the path to where the session is working
+function initialCut() {
+  expanded = new Set(); showAll = new Set(); autoOpened = new Set(); heldClosed = new Set(); forced = new Set();
+  const st = openStep != null && steps.find((x) => x.id === openStep);
+  const act = activeTask != null && tasks.find((t) => t.id === activeTask);
+  const seeds = st && Object.keys(st.blocks || {}).length ? Object.keys(st.blocks) : act && act.planned.length ? act.planned : [];
+  // the session's region: the containers around the work open, so you see it among its neighbours
+  for (const id of seeds.slice(0, 3)) { const n = doc.byId[id]; if (n && visible(n)) for (const k of chainOf(n).slice(0, -1)) expanded.add(k); }
+  // a small map opens to its files from the start
+  if (T.roots.length <= 3) for (const k of T.roots) expanded.add(k);
+}
+// the full rebuild: a new map, a filter change, a new cut
 function layout() {
-  buildTree(); layoutTree(); computeVisible(); buildView();
+  buildTree();
+  for (const k of [...expanded]) if (!T.groups.has(k)) expanded.delete(k);
+  computeInterest();
+  if (layout.fresh) { layout.fresh = false; initialCut(); }
+  layoutCut(); buildView();
   visSig = [...VIS.units.keys()].join("|");
 }
-// the cheap one, on every view change: did what is shown change?
-let visPending = false;
-function refreshVisible() {
-  if (visPending || !T) return;
-  visPending = true;
-  requestAnimationFrame(() => {
-    visPending = false;
-    computeVisible();
-    const sig = [...VIS.units.keys()].join("|");
-    if (sig !== visSig) { visSig = sig; buildView(); draw(); }
-    renderCrumbs();
-  });
+// re-lay the map with one unit held in place on screen. mode "open"/"close"
+// (semantic zoom) keeps its centre and gives it about the screen room it had,
+// so the box you were zooming into stays put and its contents appear in it
+function relayout(anchorId, mode) {
+  const before = anchorId && pos[anchorId] ? { ...pos[anchorId] } : null;
+  layout();
+  const after = anchorId && pos[anchorId];
+  if (before && after) {
+    const cr = $("canvas").getBoundingClientRect();
+    let k = view.k;
+    if (mode === "open") k = Math.min(view.k * Math.min(before.w / after.w, before.h / after.h) * 1.8, 0.92 * Math.min(cr.width / after.w, (cr.height - 80) / after.h));
+    else if (mode === "close") k = view.k * Math.min(before.w / after.w, before.h / after.h);
+    k = Math.max(minZoom(), Math.min(3, k));
+    if (mode) {
+      const sx = (before.x + before.w / 2) * view.k + view.x, sy = (before.y + before.h / 2) * view.k + view.y;
+      view.x = sx - (after.x + after.w / 2) * k; view.y = sy - (after.y + after.h / 2) * k; view.k = k;
+    } else { view.x += (before.x - after.x) * view.k; view.y += (before.y - after.y) * view.k; }
+    FlowGPU.setView(view);
+  }
+  draw(true);
+  renderCrumbs();
 }
-// where the view is: the deepest open container under the centre of the screen
+// the containers inside a container (all depths)
+function within(key) { return [...expanded].filter((k) => { let p = T.groups.get(k); while (p && p.parent) { if (p.parent === key) return true; p = T.groups.get(p.parent); } return false; }); }
+// auto: opened by zooming or navigating there (zooming out closes it again);
+// otherwise opened on purpose (the chevron) and it stays open
+function openGroup(key, auto, mode) {
+  if (expanded.has(key)) return;
+  expanded.add(key); heldClosed.delete(key); if (auto) autoOpened.add(key);
+  relayout("g:" + key, mode);
+}
+function closeGroup(key, mode) {
+  if (!expanded.has(key)) return;
+  for (const k of [key, ...within(key)]) { expanded.delete(k); autoOpened.delete(k); showAll.delete(k); }
+  if (!mode) heldClosed.add(key);   // closed on purpose: zooming does not reopen it until you zoom away
+  relayout("g:" + key, mode);
+}
+function toggleCollapse(key) { expanded.has(key) ? closeGroup(key) : openGroup(key); }
+function showMore(key) { showAll.add(key); relayout("g:" + key); }
+// semantic zoom: when the camera settles, open the closed box that fills the
+// screen and close the auto-opened one that shrank far (hysteresis between)
+let zoomTimer = null;
+const OPEN_AT = 0.3, CLOSE_AT = 0.16;
+function refreshVisible() {
+  renderCrumbs();
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(semanticZoom, 160);
+}
+function semanticZoom() {
+  if (!T || follow.cam) return;
+  const cr = $("canvas").getBoundingClientRect(), k = view.k;
+  const cx = (cr.width / 2 - view.x) / k, cy = (cr.height / 2 - view.y) / k;
+  const frac = (r) => Math.max(r.w * k / cr.width, r.h * k / cr.height);
+  for (const key of [...heldClosed]) { const r = pos["g:" + key]; if (!r || frac(r) < CLOSE_AT) heldClosed.delete(key); }
+  for (const u of VIS.units.values()) {
+    if (!u.group || u.open || heldClosed.has(u.group)) continue;
+    const r = pos[u.id];
+    if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h && frac(r) > OPEN_AT) return openGroup(u.group, true, "open");
+  }
+  const shrunk = [...autoOpened].map((key) => pos["g:" + key] ? { key, r: pos["g:" + key] } : null).filter(Boolean)
+    .filter((x) => frac(x.r) < CLOSE_AT).sort((a, b) => b.r.w * b.r.h - a.r.w * a.r.h);   // outermost first
+  if (shrunk.length) closeGroup(shrunk[0].key, "close");
+}
+// where the view is: the deepest open container under the centre
 function renderCrumbs() {
   const el = $("crumbs"); if (!el || !T) return;
   const cr = $("canvas").getBoundingClientRect();
@@ -510,7 +612,7 @@ function renderCrumbs() {
   const path = [];
   let level = T.roots;
   for (;;) {
-    const hit = level.find((k) => { const r = pos["g:" + k]; return r && cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h && VIS.units.get("g:" + k)?.open; });
+    const hit = level.find((k) => { const r = pos["g:" + k]; return r && expanded.has(k) && cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h; });
     if (!hit) break;
     path.push(hit); level = T.groups.get(hit).kids;
   }
@@ -523,8 +625,28 @@ function zoomToRect(r, maxK) {
   const k = Math.min(maxK || 1.2, (cr.width - 60) / r.w, (cr.height - 120) / r.h);
   glideTo(cr.width / 2 - (r.x + r.w / 2) * k, (cr.height + 60) / 2 - (r.y + r.h / 2) * k, k);
 }
-function zoomToGroup(key) { const r = pos["g:" + key]; if (r) zoomToRect(r); }
-function toggleCollapse(key) { collapsed.has(key) ? collapsed.delete(key) : collapsed.add(key); computeVisible(); visSig = [...VIS.units.keys()].join("|"); buildView(); draw(); }
+// a container: open it (and the path down to it), then bring it to the screen
+function zoomToGroup(key) {
+  if (!T || !T.groups.has(key)) return;
+  const path = [key];
+  for (let p = T.groups.get(key).parent; p; p = T.groups.get(p).parent) path.unshift(p);
+  const shut = path.filter((k) => !expanded.has(k));
+  for (const k of shut) { expanded.add(k); autoOpened.add(k); heldClosed.delete(k); }
+  if (shut.length) relayout("g:" + shut[0]);
+  const r = pos["g:" + key]; if (r) zoomToRect(r);
+}
+// a block: open what holds it (past the budget if need be); returns its rect
+function revealBlock(id) {
+  const n = doc.byId[id]; if (!n || !visible(n)) return null;
+  const shut = chainOf(n).filter((k) => !expanded.has(k));
+  const hidden = !shut.length && unitOf(id) !== id;
+  if (!shut.length && !hidden) return pos[id] || null;
+  for (const k of shut) { expanded.add(k); autoOpened.add(k); heldClosed.delete(k); }
+  forced.add(id);
+  if (forced.size > 12) forced.delete(forced.values().next().value);   // the last few you went to
+  relayout(unitOf(id));
+  return pos[id] || null;
+}
 const base = (p) => String(p || "").split("/").slice(-1)[0];
 // folders read relative to what they share (media/lua/... is noise)
 function folderName(dir) {
@@ -605,6 +727,15 @@ function taskTint(u) {
   for (const id of u.members) for (const t of taskOf.get(id) || []) { if (t.id === activeTask) return taskColor(t.id); best = best || taskColor(t.id); }
   return best;
 }
+// the budget's remainder: one card naming the most interesting of what it holds
+function moreUnit(u, q, on) {
+  const names = u.hidden.slice().sort((a, b) => b.interest - a.interest).slice(0, 4).map((it) => it.g ? groupName(it.g.key) : unitLabel({ block: doc.byId[it.id] }));
+  const gl = u.members.some((id) => glow[id]);
+  return { id: u.id, kind: "card", x: q.x, y: q.y, w: q.w, h: q.h, label: `+${u.more} more`, chev: "",
+    sub: `in ${groupName(u.parent)} · click to show all`, body: names.join(", ") + (u.more > 4 ? ", …" : ""), cnt: u.members.length + " blocks",
+    marks: "", look: { color: "#6b747d", group: false, ghost: true, fill: "#14171a", border: { color: "#6b747d", width: 1.2, dash: [5, 4] }, task: taskTint(u),
+                       dim: on && !on.has(u.id) && !gl ? 0.14 : 1, glow: null } };
+}
 function syncScene(animate, sceneChanged) {
   const selU = selected ? unitOf(selected) : null;
   const on = hotIds ? new Set([...hotIds].map(unitOf))
@@ -613,6 +744,7 @@ function syncScene(animate, sceneChanged) {
   const units = [];
   for (const u of V.units.values()) {
     const q = pos[u.id]; if (!q) continue;
+    if (u.more) { units.push(moreUnit(u, q, on)); continue; }
     const kind = u.block ? "card" : u.open ? "frame" : "closed";
     let gl = null;
     for (const id of u.members) { const x = glow[id]; if (x && (!gl || GRANK[x.kind] > GRANK[gl.kind])) gl = x; }
@@ -648,9 +780,7 @@ function syncScene(animate, sceneChanged) {
     body = String(body || "");
     const lim = kind === "card" ? 92 : 320;
     if (body.length > lim) body = body.slice(0, lim - 1).replace(/\s+\S*$/, "") + "…";
-    // a closed container: the outlines of what it holds (its shape before you zoom in)
-    const kids = kind === "closed" && T.groups.get(u.group) ? (T.groups.get(u.group).items || []).slice(0, 240).map((it) => {
-      const r = pos[it.id]; return r ? [Math.round(r.x - q.x), Math.round(r.y - q.y), Math.round(r.w), Math.round(it.g ? Math.min(r.h, r.h) : r.h)] : null; }).filter(Boolean) : null;
+    const kids = null;
     units.push({ id: u.id, kind, x: q.x, y: q.y, w: q.w || W, h: q.h || H, hh: q.hh, kids,
       chev: u.group ? (u.open ? "▾" : "▸") : "",
       label: kind === "card" && label.length > 34 ? label.slice(0, 33) + "…" : label,
@@ -679,6 +809,7 @@ function syncScene(animate, sceneChanged) {
 }
 // edges by level: between containers always (bundled: one per pair); between
 // functions only around what you point at, select, or are shown (all edges: every one)
+const EDGE_BUDGET = 120;
 function edgesForRender(selU) {
   const focus = new Set();
   if (selU) focus.add(selU);
@@ -689,8 +820,12 @@ function edgesForRender(selU) {
     if (!(cardA && cardB) || allEdges) return true;
     return focus.has(e.from) || focus.has(e.to) || e.kind && e.kind !== "call";
   });
-  const maxC = Math.max(1, ...keep.map((e) => e.count));
   const near = (e) => focus.has(e.from) || focus.has(e.to);
+  if (!allEdges && keep.length > EDGE_BUDGET) {
+    const must = keep.filter((e) => near(e) || e.kind && e.kind !== "call"), rest = keep.filter((e) => !(near(e) || e.kind && e.kind !== "call"));
+    keep.length = 0; keep.push(...must, ...rest.sort((a, b) => b.count - a.count).slice(0, Math.max(0, EDGE_BUDGET - must.length)));
+  }
+  const maxC = Math.max(1, ...keep.map((e) => e.count));
   return keep.map((e) => ({ from: e.from, to: e.to, kind: e.kind, w: 0.8 + 3.4 * Math.log1p(e.count) / Math.log1p(maxC),
                             faint: (e.from.startsWith("g:") || e.to.startsWith("g:")) && !near(e) && !(e.kind && e.kind !== "call") }));
 }
@@ -705,7 +840,7 @@ function groupPanel(u) {
     ${(() => { const a = u.group.startsWith("a:") ? (doc.areas || []).find((x) => x.key === u.group.slice(2)) : null; const t = a ? a.text : (groupInfo(u.group) || {}).text; return t ? `<div class="ai"><b>What it is for</b>${esc(t)}</div>` : ""; })()}
     <div class="modl">${isDir ? files.length + " files · " : ""}${u.members.length} blocks · ${esc(Object.keys(u.langs).filter(Boolean).join(", "))}</div>
     <button onclick="zoomToGroup('${esc(u.group)}')">zoom in</button>
-    <button onclick="toggleCollapse('${esc(u.group)}')">${collapsed.has(u.group) ? "expand" : "collapse"}</button>
+    <button onclick="toggleCollapse('${esc(u.group)}')">${expanded.has(u.group) ? "collapse" : "expand"}</button>
     ${isDir ? `<h2 style="margin:10px 0 2px">Files</h2>${files.map((f) => {
         const ms = blocks.filter((n) => n.file === f), sums = ms.filter((n) => n.ai).length;
         return `<div style="margin:2px 0"><a style="color:var(--link);cursor:pointer;font-family:var(--mono);font-size:11.5px" onclick="openFile('${esc(f)}')">${esc(base(f))}</a>
@@ -754,7 +889,7 @@ async function select(id) {
     return;
   }
   const n = doc.byId[id]; if (!n) return;
-  if (visible(n) && unitOf(id) !== id) { const q = pos[id]; if (q) zoomToRect({ x: q.x - 260, y: q.y - 180, w: q.w + 520, h: q.h + 360 }, 1); }
+  if (visible(n) && unitOf(id) !== id) { const q = revealBlock(id); if (q) zoomToRect({ x: q.x - 260, y: q.y - 180, w: q.w + 520, h: q.h + 360 }, 1); }
   if (n.sketch) { selected = id; hotIds = null; applyHighlight(); return sketchPanel(n); }
   selected = id; hotIds = null;
   document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
@@ -851,12 +986,13 @@ window.addEventListener("mouseup", () => {
   const id = FlowGPU.hit(p.at.x, p.at.y);
   if (id && id.startsWith("g:") && !p.shift) {
     const key = id.slice(2);
-    if (FlowGPU.lastPart === "chevron") { toggleCollapse(key); if (!collapsed.has(key)) zoomToGroup(key); return; }
+    if (FlowGPU.lastPart === "chevron") { if (expanded.has(key)) closeGroup(key); else zoomToGroup(key); return; }
     select(id);
     const u = V.units.get(id);
     if (!(u && u.open && FlowGPU.lastPart !== "header")) zoomToGroup(key);   // a closed one, or an open one's header: zoom to it
     return;
   }
+  if (id && id.startsWith("more:")) { showMore(id.slice(5)); return; }
   if (!id) { selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); return; }
   const u = V.units.get(id);
   if (p.shift && u) {
@@ -894,6 +1030,7 @@ function hover(p, e) {
   tipFor = id;
   if (!id) return hideTip();
   const u = V.units.get(id); if (!u) return hideTip();
+  if (u.more) { $("tip").innerHTML = `<b>${u.more} more in ${esc(groupName(u.parent))}</b><div>the board shows the ${BUDGET - 1} most relevant; click to show all</div>`; $("tip").style.display = "block"; placeTip(p); return; }
   const name = u.group ? groupName(u.group) : u.block.id;
   const extra = u.group ? (((doc.areas || []).find((x) => "a:" + x.key === u.group) || {}).text || (groupInfo(u.group) || {}).text || "") + ` (${u.members.length} blocks · double-click to open)` : (u.block.ai || u.block.summary || "");
   $("tip").innerHTML = `<b>${esc(name)}</b>${extra ? `<div>${esc(extra.length > 220 ? extra.slice(0, 219) + "…" : extra)}</div>` : ""}`;

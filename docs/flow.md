@@ -31,12 +31,33 @@ only while something moves (a tween, the agent's glow). Below 45% zoom text is
 switched off; off-screen tiles are culled. The meter at the bottom right shows
 render and model time per frame.
 
-Big maps open at folders (more than 40 files) or files (more than 200
-blocks): double-click a folder to open it into its files, a file into its
-blocks, a block to close its file; opening animates out of the tile that held
-them. URL options: `?f=<mod>|<name>`, `?level=folder|file|block`,
-`?open=d:<folder>,f:<file>`, `?nolive` (no event stream, for headless
-screenshots).
+The map is a cut through the tree (folders, the agent's areas, files,
+functions): which containers are open. It never shows "everything", so the
+screen always holds a readable amount whatever the repo's size:
+
+- **Interest.** Every block has a base weight (a summary, a doc comment,
+  callers and callees; tests and tools and two-letter helpers less) plus the
+  session: the open step's blocks, the active task's, the recent trail,
+  notes, edits, the selection. A container weighs what it holds.
+- **Budget.** An open container shows its 23 most interesting children in
+  flow order (callers first; source order inside a file), and the rest as one
+  `+N more` card naming the top of what it hides. Click it to show all.
+- **Size.** A closed box is sized by interest and amount of code within a
+  fixed range, never by everything inside it, so the whole map fits.
+- **Zoom.** When the camera settles, a closed box under the centre that fills
+  30% of the screen opens in place (it keeps its centre and its contents
+  appear in it); an auto-opened box that shrinks under 16% closes. The chevron
+  opens or closes on purpose: a box you open stays open, and a box you close
+  stays closed until you zoom away from it.
+- **The session leads.** A board opens with the containers around the open
+  step (or the active task's plan) open. Selecting or following a block opens
+  its path and pulls it past the budget.
+- **Edges** between containers are capped at the 120 heaviest; edges at what
+  you select or point at, and contract edges, always show.
+
+URL options: `?f=<mod>|<name>`, `?open=<group>` (`d:<folder>`, `a:<area>`,
+`f:<file>`: opens and zooms to it), `?focus=<block>`, `?task=<id>`,
+`?follow`, `?nolive` (no event stream, for headless screenshots).
 
 ## Roles: tests, checks, tools
 
