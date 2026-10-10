@@ -70,6 +70,18 @@ def fn_name(node, src, lang):
             return text(p.child_by_field_name("key"), src).strip("'\"")
         if p.type == "assignment_expression" and p.child_by_field_name("left") is not None:
             return text(p.child_by_field_name("left"), src).split(".")[-1]
+    if lang == "lua" and p is not None:
+        # x = function / local x = function / R.x = function: the name is the
+        # variable at the same position (a forward-declared `local exec` then
+        # `exec = function` hid Runtime's action executor from the map)
+        if p.type == "expression_list" and p.parent is not None and p.parent.type == "assignment_statement":
+            vl = next((c for c in p.parent.named_children if c.type == "variable_list"), None)
+            idx = p.named_children.index(node) if node in p.named_children else -1
+            if vl is not None and 0 <= idx < len(vl.named_children):
+                return text(vl.named_children[idx], src)
+        # { name = function ... }
+        if p.type == "field" and p.child_by_field_name("name") is not None:
+            return text(p.child_by_field_name("name"), src)
     return None
 
 
@@ -83,7 +95,8 @@ def doc_of(node, src, lang):
         return ""
     # a comment immediately above (through a wrapping declaration)
     target = node
-    while target.parent is not None and target.parent.type in ("variable_declarator", "lexical_declaration", "export_statement", "pair", "assignment_expression", "expression_statement"):
+    while target.parent is not None and target.parent.type in ("variable_declarator", "lexical_declaration", "export_statement", "pair", "assignment_expression", "expression_statement",
+                                                               "expression_list", "assignment_statement", "variable_declaration", "field"):
         target = target.parent
     prev, out = target.prev_sibling, []
     while prev is not None and prev.type == "comment":
