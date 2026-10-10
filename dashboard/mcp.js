@@ -146,6 +146,16 @@ const TOOLS = [
     run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/plan", { mod: a.mod, name: a.name, ids: a.ids, note: a.note }); },
   },
   {
+    name: "flow_step",
+    description: "SousVide Flow work journal: say what you are doing and why, so the operator can follow. op open: start a step (title = what, in a few words; why = the reason; task defaults to the active task); every read, edit, command and test run until the next step is filed under it. op close: end it with result (what you found or what changed) and status done | failed | changed (changed = the plan changed because of what you learned). op note: add a line to the open step. Open a new step whenever your intent changes; the operator reads the journal, not the raw events.",
+    inputSchema: { type: "object", properties: {
+      op: { type: "string", enum: ["open", "close", "note"] }, title: { type: "string" }, why: { type: "string" },
+      result: { type: "string" }, status: { type: "string", enum: ["done", "failed", "changed"] }, text: { type: "string" },
+      task: { type: "number" }, blocks: { type: "array", items: { type: "string" }, description: "block ids this step is about (optional; touched ones are recorded anyway)" },
+    }, required: ["op"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/steps", a); },
+  },
+  {
     name: "task_list",
     description: "SousVide Flow tasks: the work graph the operator watches beside the flow chart. Lists tasks (state, links, planned blocks, blocks touched while active, checks, evidence) and which one is active. Filter to one map with mod + name.",
     inputSchema: { type: "object", properties: { mod: { type: "string" }, name: { type: "string" } } },

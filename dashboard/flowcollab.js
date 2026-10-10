@@ -184,6 +184,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       try { fs.writeFileSync(LOG, activity.map((e) => JSON.stringify(e)).join("\n") + "\n"); } catch (_) {}
     }
     broadcast(evt);
+    if (typeof stepEvent === "function" && evt.type === "activity") stepEvent(evt);
   }
 
   // ── the hook endpoint ─────────────────────────────────────────────────────
@@ -193,6 +194,11 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     if (ev === "UserPromptSubmit") {
       const ctx = pendingContext();
       return ctx ? { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } } : null;
+    }
+    if (tool === "Bash" || tool === "PowerShell") {
+      if (ev === "PostToolUse") { const ce = commandEvent(p, agent); if (ce) note(ce); }
+      const ctx = ev === "PostToolUse" ? pendingContext() : null;
+      return ctx ? { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: ctx } } : null;
     }
     const file = ti.file_path || ti.notebook_path;
     const isEdit = /^(Edit|MultiEdit|Write|NotebookEdit)$/.test(tool);
@@ -211,7 +217,10 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
           const r = ev === "PreToolUse" ? rangeOf(file, e.old_string) : rangeOf(file, e.new_string);
           if (!r) continue;
           const span = Math.max((e.old_string || "").split("\n").length, (e.new_string || "").split("\n").length) - 1;
-          for (const h of blocksAt(file, r[0], r[0] + span)) {
+          // the enclosing function by name, read from the file as it is now
+          const fnName = scanBlock(file, r[0]);
+          const byName = fnName ? blocksByName(file, fnName) : [];
+          for (const h of (byName.length ? byName : blocksAt(file, r[0], r[0] + span))) {
             const m = merged.get(h.mod + "|" + h.name) || { ...h, ids: [] };
             for (const id of h.ids) if (!m.ids.includes(id)) m.ids.push(id);
             merged.set(h.mod + "|" + h.name, m);
@@ -396,6 +405,104 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     state.sketches = state.sketches.filter((x) => !(x.temp && x.task && closed.has(x.task)));
   };
 
+  // ── the work journal: steps the agent writes, with what happened under them ──
+  // The feed is raw events ("read exec", "edited Composer.lua"): no intent, no
+  // outcome. A STEP is the agent's own account: a title, why it is doing it,
+  // and when it closes, the result. While a step is open every hook event
+  // (reads, edits, commands, test runs) is filed under it, so the raw events
+  // become the evidence of a step instead of the story.
+  state.steps = state.steps || []; state.nextStep = state.nextStep || 1; state.openStep = state.openStep ?? null;
+  const STEP_STATUS = ["open", "done", "failed", "changed"];
+  const stepById = (id) => state.steps.find((x) => x.id === Number(id));
+  let stepTimer = null;
+  const stepsChanged = () => { save(); clearTimeout(stepTimer); stepTimer = setTimeout(() => broadcast({ type: "steps" }), 120); };
+  function stepEvent(e) {
+    const s = state.openStep != null && stepById(state.openStep);
+    if (!s) return;
+    s.events.push(e);
+    if (s.events.length > 300) s.events.splice(0, s.events.length - 300);
+    for (const h of e.hits || []) for (const id of h.ids || []) {
+      const c = s.blocks[id] || (s.blocks[id] = { r: 0, e: 0 });
+      if (e.kind === "edited") c.e++; else if (e.kind === "reading") c.r++;
+      if (!s.mod) { s.mod = h.mod; s.name = h.name; }
+    }
+    stepsChanged();
+  }
+  function stepOp(b) {
+    const now = Date.now();
+    if (b.op === "open") {
+      if (!String(b.title || "").trim()) return { error: "title" };
+      const prev = state.openStep != null && stepById(state.openStep);
+      if (prev && prev.status === "open") { prev.status = "done"; prev.closed = now; }
+      const task = b.task != null ? Number(b.task) : state.activeTask;
+      const t = task != null ? taskById(task) : null;
+      const s = { id: state.nextStep++, task: t ? t.id : null, title: String(b.title).trim().slice(0, 160), why: String(b.why || "").slice(0, 600),
+                  result: "", status: "open", opened: b.at || now, closed: null, mod: b.mod || (t && t.mod) || null, name: b.name || (t && t.name) || null,
+                  events: [], blocks: {}, notes: [] };
+      for (const id of b.blocks || []) s.blocks[id] = { r: 0, e: 0 };
+      state.steps.push(s);
+      state.openStep = b.closed ? null : s.id;
+      if (b.closed) { s.status = STEP_STATUS.includes(b.status) ? b.status : "done"; s.result = String(b.result || "").slice(0, 800); s.closed = b.closedAt || now; }
+      stepsChanged();
+      return s;
+    }
+    const s = b.id != null ? stepById(b.id) : (state.openStep != null && stepById(state.openStep));
+    if (!s) return { error: "no step (open one first)" };
+    if (b.op === "close") {
+      s.status = STEP_STATUS.includes(b.status) && b.status !== "open" ? b.status : "done";
+      s.result = String(b.result || s.result || "").slice(0, 800);
+      s.closed = now;
+      if (state.openStep === s.id) state.openStep = null;
+      stepsChanged();
+      return s;
+    }
+    if (b.op === "note") { s.notes.push({ text: String(b.text || "").slice(0, 600), at: now }); stepsChanged(); return s; }
+    return { error: "op: open | close | note" };
+  }
+  // a command's result line, when it is one we can read (test runners)
+  function commandEvent(p, agent) {
+    const ti = p.tool_input || {}, cmd = String(ti.command || "").trim();
+    if (!cmd) return null;
+    const out = (() => { const r = p.tool_response; if (!r) return ""; if (typeof r === "string") return r; return String(r.stdout || r.output || "") + "\n" + String(r.stderr || ""); })();
+    const pick = (re) => { const m = out.match(re); return m ? m[0].trim() : ""; };
+    const result = pick(/KAHLUA TOTAL:[^\n]*/) || pick(/MP CHECKS:[^\n]*/) || pick(/\d+ passed[^\n]*/) || pick(/Results: \d+ passed, \d+ failed/);
+    const test = /pztest|mp-check|pytest|npm (run )?test|validator/.test(cmd);
+    const failed = /([1-9]\d*) failed|[1-9]\d* errors|FAIL\b/.test(result);
+    return { type: "activity", kind: test ? "test" : "command", agent, at: Date.now(), text: cmd.replace(/\s+/g, " ").slice(0, 240), result, ok: test ? !failed : undefined, task: state.activeTask };
+  }
+
+  // The block an edit lands in, read from the file AS IT IS NOW: walk up from
+  // the edited line to the nearest function definition and match its name
+  // against the map's blocks for that file. The map's own line numbers go
+  // stale as soon as an earlier edit in the file shifts them (until the map
+  // rebuilds), which filed edits under blocks they never touched.
+  const DEF = [
+    /^\s*(?:local\s+)?function\s+([\w.:]+)\s*\(/,            // lua: function a.b(  / local function x(
+    /^\s*(?:local\s+)?([\w.:]+)\s*=\s*function\s*\(/,        // lua: x = function(
+    /^\s*(?:export\s+)?(?:async\s+)?function\s*\*?\s*(\w+)\s*\(/, // js: function x(
+    /^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>|\w+\s*=>)/, // js: const x = () =>
+    /^\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{\s*$/,            // js method: x(a) {
+    /^\s*(?:async\s+)?def\s+(\w+)\s*\(/,                     // python
+  ];
+  function scanBlock(file, line) {
+    let lines;
+    try { lines = fs.readFileSync(file, "utf8").replace(/\r/g, "").split("\n"); } catch (_) { return null; }
+    for (let i = Math.min(line, lines.length) - 1; i >= 0; i--) {
+      for (const re of DEF) { const m = re.exec(lines[i]); if (m && !/^(if|for|while|switch|catch|return)$/.test(m[1])) return m[1]; }
+    }
+    return null;
+  }
+  function blocksByName(file, name) {
+    const k = norm(file).toLowerCase(), out = [];
+    for (const m of maps()) {
+      let ix; try { ix = indexOf(m); } catch (_) { continue; }
+      const nodes = ix.byFile.get(k); if (!nodes) continue;
+      const ids = nodes.filter((n) => n.id.split("::").slice(1).join("::").replace(/@\d+$/, "") === name).map((n) => n.id);
+      if (ids.length) out.push({ mod: m.mod, name: m.name, root: m.root, ids: ids.slice(0, 1) });
+    }
+    return out;
+  }
+
   // ── HTTP ──────────────────────────────────────────────────────────────────
   async function handle(req, res, url) {
     const p = url.pathname;
@@ -411,6 +518,13 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       waiters.push(res);
       req.on("close", () => { const i = waiters.indexOf(res); if (i >= 0) { waiters.splice(i, 1); listening(); } });
       listening();
+      return true;
+    }
+    if (p === "/api/flow/steps") {
+      if (req.method === "POST") { const out = stepOp(await readBody(req)); json(res, out.error ? 400 : 200, out); return true; }
+      const task = url.searchParams.get("task");
+      const list = task ? state.steps.filter((x) => x.task === Number(task)) : state.steps.slice(-200);
+      json(res, 200, { steps: list, open: state.openStep });
       return true;
     }
     if (p === "/api/flow/tasks") {

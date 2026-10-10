@@ -125,6 +125,27 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 #dock .dk { font-size: 11.5px; cursor: pointer; padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #dock .dk:hover { color: var(--accent); }
 #dock .dk i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs span { flex: 1; text-align: center; padding: 7px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; }
+.tabs span.on { color: var(--text); border-bottom-color: var(--accent); }
+.tgroup h3, .tgroup summary { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 10px 10px 3px; font-weight: 600; cursor: default; }
+.tgroup summary { cursor: pointer; }
+.trow { padding: 5px 10px; cursor: pointer; border-left: 3px solid transparent; font-size: 12.5px; }
+.trow:hover { background: var(--panel2); }
+.trow.on { background: var(--panel2); border-left-color: var(--accent); }
+.trow i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.trow .tsub { color: var(--dim); font-size: 11px; margin: 1px 0 0 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow .ck { color: #5fb36b; font-family: var(--mono); font-size: 10.5px; }
+.trow .dr { color: #e0913c; font-size: 10.5px; }
+.trow .here { color: #d9a441; font-size: 10.5px; }
+.step { margin: 6px 0; padding: 6px 8px; background: var(--panel2); border-left: 3px solid #7fb2e0; border-radius: 0 4px 4px 0; font-size: 12.5px; }
+.step.s-done { border-left-color: #5fb36b; } .step.s-failed { border-left-color: #e05050; } .step.s-changed { border-left-color: #e0913c; }
+.step .sh { font-weight: 500; } .step .t, .jev .t { color: var(--dim); font-family: var(--mono); font-size: 10.5px; }
+.step .why { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.step .res { margin-top: 3px; }
+.step details summary { color: var(--dim); font-size: 11px; cursor: pointer; margin-top: 4px; }
+.jev { font-size: 11.5px; padding: 1px 0; word-break: break-all; }
+#tasks .chip.cap { cursor: default; max-width: 60%; overflow: hidden; text-overflow: ellipsis; border-color: #7fb2e0; }
 #hud { position: absolute; right: 10px; bottom: 10px; font: 10.5px var(--mono); color: var(--dim); background: rgba(14,16,18,.8); padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; pointer-events: none; }
 #tip { position: absolute; display: none; max-width: 360px; font-size: 12px; color: var(--text); background: #1b1f23; border: 1px solid var(--line2); border-radius: 5px; padding: 6px 9px; pointer-events: none; z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
 #tip b { font-family: var(--mono); font-size: 11.5px; color: var(--accent); word-break: break-all; }
@@ -151,6 +172,9 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 </header>
 <main>
   <div id="timeline">
+    <div class="tabs"><span id="tab_tasks" class="on" onclick="setTab('tasks')">Tasks</span><span id="tab_live" onclick="setTab('live')">Live</span></div>
+    <div id="pane_tasks"><div id="taskList"></div></div>
+    <div id="pane_live" style="display:none">
     <div id="live"><h2>Agent, live <span id="liveState" style="text-transform:none;letter-spacing:0"></span></h2>
       <div class="trailbar">
         <button id="follow" title="snap to the agent's work as it happens (F)">follow</button>
@@ -164,6 +188,7 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
         <span id="scrubAt"></span>
       </div>
       <div id="feed"><div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div></div></div>
+    </div>
     <h2 id="tlHead">Entry points, in order</h2><div id="tl"></div>
   </div>
   <div id="canvas">
@@ -731,6 +756,7 @@ async function loadTasks() {
     if (!OPEN.includes(t.state)) continue;
     for (const id of new Set([...t.planned, ...Object.keys(t.touched)])) (taskOf.get(id) || taskOf.set(id, []).get(id)).push(t);
   }
+  if (!steps.length) await loadSteps();
   renderStrip();
   if (doc && Object.keys(pos).length) {
     const sig = JSON.stringify(pinPlan().rows);
@@ -741,18 +767,15 @@ async function loadTasks() {
 const editedOf = (t) => Object.keys(t.touched).filter((id) => t.touched[id].e);
 const driftOf = (t) => t.planned.length ? editedOf(t).filter((id) => !t.planned.includes(id)) : [];
 function renderStrip() {
-  const open = tasks.filter((t) => OPEN.includes(t.state)).sort((a, b) => (a.id === activeTask ? -1 : b.id === activeTask ? 1 : 0) || OPEN.indexOf(a.state) - OPEN.indexOf(b.state) || b.updated - a.updated);
-  const done = tasks.filter((t) => t.state === "done").length;
-  $("tasks").innerHTML = open.slice(0, 8).map((t) => {
-    const ck = t.checks.length ? ` <span class="ck">${t.checks.filter((c) => c.done).length}/${t.checks.length}</span>` : "";
-    const dr = driftOf(t).length ? ` <span class="dr" title="edited outside the plan">drift ${driftOf(t).length}</span>` : "";
-    return `<span class="chip ${t.id === activeTask ? "act" : ""} ${shownTask === t.id ? "shown" : ""}" data-id="${t.id}" title="${esc(t.state)}: ${esc(t.why || t.title)}">
-      <i style="background:${taskColor(t.id)}"></i><b style="color:${STATE_COL[t.state]}">${esc(t.state)}</b> #${t.id} ${esc(t.title.length > 34 ? t.title.slice(0, 33) + "…" : t.title)}${ck}${dr}</span>`;
-  }).join("") + (open.length > 8 ? `<span class="chip more">+${open.length - 8}</span>` : "")
-    + (done ? `<span class="chip more" title="finished tasks are also in the map's flow/TASKS.md">${done} done</span>` : "")
+  const act = tasks.find((t) => t.id === activeTask);
+  const st = openStep != null && steps.find((x) => x.id === openStep);
+  const chip = (t) => `<span class="chip act ${shownTask === t.id ? "shown" : ""}" data-id="${t.id}" title="${esc(t.why || t.title)}"><i style="background:${taskColor(t.id)}"></i><b style="color:${STATE_COL[t.state]}">${esc(t.state)}</b> #${t.id} ${esc(t.title.length > 34 ? t.title.slice(0, 33) + "…" : t.title)}</span>`;
+  $("tasks").innerHTML = (act ? chip(act) : "")
+    + (st ? `<span class="chip cap" title="${esc(st.why)}">▸ ${esc(st.title)}${st.why ? ` <span style="color:var(--dim)">· ${esc(st.why)}</span>` : ""}</span>` : "")
     + `<span class="chip add" id="addTask" title="a task for this map (selected blocks become its plan)">+ task</span>`;
   for (const el of document.querySelectorAll("#tasks .chip[data-id]")) el.onclick = () => showTask(+el.dataset.id);
   $("addTask").onclick = newTaskInline;
+  renderTaskList();
 }
 function newTaskInline() {
   const el = $("addTask");
@@ -790,7 +813,9 @@ function taskPanel(t) {
     <div class="id" style="color:${taskColor(t.id)}">#${t.id} ${esc(t.title)}</div>
     <div class="modl"><b style="color:${STATE_COL[t.state]}">${esc(t.state)}</b>${t.id === activeTask ? " · active: the agent's reads and edits land here" : ""} · ${esc(t.owner)} · ${esc(t.mod ? t.mod + "/" + t.name : "no map yet")}</div>
     ${t.why ? `<div class="doc">${esc(t.why)}</div>` : ""}
-    <div><select id="tState">${["proposed", "planned", "active", "review", "blocked", "done", "dropped"].map((s) => `<option ${s === t.state ? "selected" : ""}>${s}</option>`).join("")}</select>
+    <h2 style="margin:10px 0 2px">Journal</h2>
+    ${journalHtml(t)}
+    <div style="margin-top:8px"><select id="tState">${["proposed", "planned", "active", "review", "blocked", "done", "dropped"].map((s) => `<option ${s === t.state ? "selected" : ""}>${s}</option>`).join("")}</select>
       ${t.id !== activeTask ? `<button onclick="taskSet(${t.id}, { activate: true })">make active</button>` : ""}
       ${t.state !== "done" ? `<button onclick="taskSet(${t.id}, { state: 'done' })">done</button>` : ""}</div>
     <h2 style="margin:10px 0 2px">Checks</h2>
@@ -854,6 +879,83 @@ function pinsAndDock() {
   $("dock").style.display = dock.length ? "" : "none";
 }
 function taskSet(id, change) { return post("/api/flow/task", { op: "update", by: "operator", id, ...change }); }
+
+// ── the work journal and the task panel ───────────────────────────────────
+// steps: the agent's own account of its work (title, why, result), with the
+// raw events filed under each. The left panel lists every task, grouped by
+// state, as a tree; a task's record leads with its journal.
+let steps = [], openStep = null;
+const STEP_ICON = { open: ["▸", "#7fb2e0"], done: ["✓", "#5fb36b"], failed: ["✗", "#e05050"], changed: ["↺", "#e0913c"] };
+async function loadSteps() {
+  try { const r = await (await fetch("/api/flow/steps")).json(); steps = r.steps || []; openStep = r.open; } catch (_) { steps = []; }
+  renderTaskList(); renderStrip();
+  if (shownTask != null && selected == null) { const t = tasks.find((x) => x.id === shownTask); if (t) taskPanel(t); }
+}
+const ago = (t) => { if (!t) return ""; const s = Math.max(0, (Date.now() - t) / 1000); return s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.round(s / 60) + "m" : s < 86400 ? Math.round(s / 3600) + "h" : Math.round(s / 86400) + "d"; };
+function stepCounts(s) {
+  const c = { reading: 0, edited: 0, command: 0, test: 0 };
+  for (const e of s.events || []) if (c[e.kind] != null) c[e.kind]++;
+  const parts = [];
+  if (c.reading) parts.push(c.reading + (c.reading === 1 ? " read" : " reads"));
+  if (c.edited) parts.push(c.edited + (c.edited === 1 ? " edit" : " edits"));
+  if (c.command) parts.push(c.command + (c.command === 1 ? " command" : " commands"));
+  if (c.test) parts.push(c.test + (c.test === 1 ? " test run" : " test runs"));
+  return parts.join(" · ");
+}
+function journalHtml(t) {
+  const mine = steps.filter((s) => s.task === t.id).sort((a, b) => a.opened - b.opened);
+  if (!mine.length) return `<div class="modl">No steps yet: the agent writes them as it works (flow_step).</div>`;
+  const blk = (id) => `<a onclick="select('${esc(id)}')">${esc(short(id))}</a>`;
+  return mine.map((s) => {
+    const [icon, col] = STEP_ICON[s.status] || STEP_ICON.open;
+    const evs = (s.events || []).slice(-40).map((e) => {
+      const what = e.kind === "command" || e.kind === "test" ? esc(e.text) + (e.result ? ` <span style="color:${e.ok === false ? "#e05050" : "#5fb36b"}">${esc(e.result)}</span>` : "")
+        : (e.hits || []).flatMap((h) => h.ids || []).slice(0, 4).map(blk).join(", ");
+      return `<div class="jev"><span class="t">${clock(e.at)}</span> ${esc(VERB[e.kind] || e.kind)} ${what}</div>`;
+    }).join("");
+    const touched = Object.keys(s.blocks || {});
+    return `<div class="step s-${s.status}">
+      <div class="sh"><b style="color:${col}">${icon}</b> ${esc(s.title)} <span class="t">${ago(s.closed || s.opened)} ago</span></div>
+      ${s.why ? `<div class="why">why: ${esc(s.why)}</div>` : ""}
+      ${s.result ? `<div class="res">${esc(s.result)}</div>` : ""}
+      ${(s.notes || []).map((n) => `<div class="why">· ${esc(n.text)}</div>`).join("")}
+      ${(s.events || []).length || touched.length ? `<details><summary>${esc(stepCounts(s) || touched.length + (touched.length === 1 ? " block" : " blocks"))}</summary>
+        ${touched.length ? `<div class="links" style="margin:3px 0">${touched.slice(0, 12).map(blk).join("")}</div>` : ""}${evs}</details>` : ""}
+    </div>`;
+  }).join("");
+}
+// the panel: every task on this map, grouped by state, as a tree
+const GROUPS = [["Active", ["active"]], ["Up next", ["planned", "proposed"]], ["Blocked", ["blocked"]], ["In review", ["review"]], ["Done", ["done", "dropped"]]];
+function renderTaskList() {
+  const el = $("taskList"); if (!el) return;
+  const byId = Object.fromEntries(tasks.map((x) => [x.id, x]));
+  const row = (t, depth) => {
+    const ck = t.checks.length ? `<span class="ck">${t.checks.filter((c) => c.done).length}/${t.checks.length}</span>` : "";
+    const dr = driftOf(t).length ? `<span class="dr">drift ${driftOf(t).length}</span>` : "";
+    const here = t.id === activeTask ? `<span class="here">agent here</span>` : "";
+    const last = steps.filter((s) => s.task === t.id).sort((a, b) => b.opened - a.opened)[0];
+    const links = [...t.links.map((l) => ({ w: { blocks: "blocks", found_while: "found while", replaces: "replaces", relates: "relates" }[l.type], to: l.to })),
+                   ...tasks.flatMap((x) => x.links.filter((l) => l.to === t.id && l.type === "blocks").map(() => ({ w: "blocked by", to: x.id })))];
+    return `<div class="trow ${shownTask === t.id ? "on" : ""}" data-id="${t.id}" style="padding-left:${10 + depth * 14}px">
+      <div><i style="background:${taskColor(t.id)}"></i>#${t.id} ${esc(t.title)} ${ck} ${dr} ${here}</div>
+      <div class="tsub">${last ? `<span style="color:${(STEP_ICON[last.status] || STEP_ICON.open)[1]}">${(STEP_ICON[last.status] || STEP_ICON.open)[0]}</span> ${esc(last.title)} · ` : ""}${ago(t.updated)} ago${links.length ? " · " + links.map((l) => `${l.w} #${l.to}`).join(", ") : ""}</div></div>`;
+  };
+  el.innerHTML = GROUPS.map(([label, states]) => {
+    const inGroup = tasks.filter((t) => states.includes(t.state));
+    if (!inGroup.length) return "";
+    const ids = new Set(inGroup.map((t) => t.id));
+    const out = [];
+    const walk = (t, d) => { out.push(row(t, d)); for (const c of inGroup.filter((x) => x.parent === t.id)) walk(c, d + 1); };
+    for (const t of inGroup.filter((x) => !x.parent || !ids.has(x.parent))) walk(t, 0);
+    const body = out.join("");
+    return label === "Done" ? `<details class="tgroup"><summary>${label} (${inGroup.length})</summary>${body}</details>`
+      : `<div class="tgroup"><h3>${label} (${inGroup.length})</h3>${body}</div>`;
+  }).join("") || `<div class="ev" style="color:var(--dim)">No tasks on this map.</div>`;
+  for (const r of el.querySelectorAll(".trow")) r.onclick = () => showTask(+r.dataset.id);
+}
+function setTab(name) {
+  for (const t of ["tasks", "live"]) { $("tab_" + t).classList.toggle("on", t === name); $("pane_" + t).style.display = t === name ? "" : "none"; }
+}
 
 // ── follow mode: the camera goes where the agent works ────────────────────
 // On each read/edit the camera opens what it must (folder, file), glides to the
@@ -962,7 +1064,7 @@ function marksOf(n) {
   const cls = parts.length === 1 && parts[0] === "summary" ? "sum" : n.aiStale && parts.length === 1 ? "sum stale" : "marks";
   return `<text class="${cls}" x="${W - 8}" y="16" text-anchor="end">${esc(parts.join(" · "))}</text>`;
 }
-const VERB = { reading: "reading", editing: "editing", edited: "edited", denied: "BLOCKED (locked)", added: "new edge", removed: "edge gone" };
+const VERB = { reading: "reading", editing: "editing", edited: "edited", denied: "BLOCKED (locked)", added: "new edge", removed: "edge gone", command: "ran", test: "tested" };
 const TOUCH = new Set(["reading", "editing", "edited", "denied"]);
 const KCOL = { reading: "#7fb2e0", editing: "#e0913c", edited: "#e0913c", denied: "#e05050" };
 const RANK = { reading: 0, editing: 1, edited: 2, denied: 3 };
@@ -1076,6 +1178,7 @@ $("trailOn").onchange = drawTrail;
 $("trailN").oninput = drawTrail;
 function onActivity(e) {
   const row = feedRow(e);
+  if (e.kind === "command" || e.kind === "test") { feed.push({ kind: e.kind, at: e.at, agent: e.agent, ids: [], text: e.text + (e.result ? "  " + e.result : "") }); renderFeed(); return; }
   if (!row.ids.length) return;
   // long enough to catch from across the room; the trail keeps it after
   const life = { reading: 9000, editing: 20000, denied: 12000 }[e.kind];
@@ -1156,6 +1259,7 @@ function connect() {
       if (selected) { await select(selected); if (typing != null && $("noteText")) $("noteText").value = typing; }
     } else if (e.type === "listening") setListening(e.n);
     else if (e.type === "tasks") { await loadCollab(); draw(); }
+    else if (e.type === "steps") await loadSteps();
     else if (e.type === "summaries" && here) open(current.mod + "|" + current.name, true);
     else if (e.type === "regen" && here) $("liveState").textContent = "· rebuilding the map";
     else if (e.type === "reload" && here) {

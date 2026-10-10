@@ -154,6 +154,25 @@ hooks while it is the active task. Edits outside the plan are **drift**.
   drift; folders and files roll it up.
 - A task that reaches done is appended to `<map root>/flow/TASKS.md`.
 
+## The work journal
+
+The feed is raw events; the journal is the agent's account. MCP `flow_step`:
+`open` a step with a title (what, in a few words) and why; every read, edit,
+Bash/PowerShell command and test run until the next step is filed under it
+(test runners' result lines are read: `KAHLUA TOTAL`, `MP CHECKS`, pytest);
+`close` it with the result and a status (done, failed, changed: the plan
+changed because of what was learned); `note` adds a line. A task's record
+in the viewer leads with its journal, the raw events folded under each step.
+
+The left panel's **Tasks** tab lists every task on the map, grouped (Active,
+Up next, Blocked, In review, Done) as a tree with links inline and each
+task's latest step; **Live** holds the trail and the raw feed. The strip over
+the map shows the active task and the open step.
+
+Edits are filed under the function they land in by reading the file as it
+is now (the nearest definition above the edit, matched by name), not the
+map's line numbers, which go stale until the map rebuilds.
+
 ## Endpoints
 
 | Endpoint | |
@@ -166,4 +185,5 @@ hooks while it is the active task. Edits outside the plan are **drift**.
 | `GET /api/flow/events` | live event stream for the viewer |
 | `GET /api/flow/collab?mod&name` | notes, locks, edits, plan, recent activity |
 | `POST /api/flow/note`, `/api/flow/notes`, `/api/flow/lock`, `/api/flow/plan` | operator and agent actions |
+| `GET/POST /api/flow/steps[?task]` | the work journal (`op: open \| close \| note`) |
 | `GET /api/flow/tasks[?mod&name]`, `POST /api/flow/task {op: new\|update\|link\|unlink\|delete}` | tasks |
