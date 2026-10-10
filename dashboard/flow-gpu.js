@@ -158,6 +158,7 @@
     if (b.dash) { g.roundRect(0, 0, W, H, 6).stroke({ width: 1.2, color: c }); dashedRect(g, 0, 0, W, H, b.dash[0], b.dash[1]); g.stroke({ width: b.width, color: toHex(b.color) }); }
     else g.roundRect(0, 0, W, H, 6).stroke({ width: b.width, color: toHex(b.color) });
     g.rect(0, 0, 5, H).fill(c);
+    if (look.task) g.rect(5, 0, W - 5, 3).fill(toHex(look.task));   // the task anchored here
     u.glow = look.glow;
     u.ring.clear();
     if (look.glow) {

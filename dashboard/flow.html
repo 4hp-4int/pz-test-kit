@@ -95,7 +95,7 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 #live .ev.k-denied, #live .ev.k-removed { border-left-color: #e05050; }
 #live .ev.k-added { border-left-color: #5fb36b; }
 #live .ev b { font-weight: 600; font-family: var(--mono); font-size: 11px; }
-#plan { position: absolute; left: 50%; transform: translateX(-50%); top: 10px; max-width: 70%; display: none; background: #241d10; border: 1px solid #d9a441; border-radius: 6px; padding: 8px 12px; font-size: 12px; z-index: 2; }
+#plan { position: absolute; left: 50%; transform: translateX(-50%); top: 46px; max-width: 70%; display: none; background: #241d10; border: 1px solid #d9a441; border-radius: 6px; padding: 8px 12px; font-size: 12px; z-index: 2; }
 #plan b { color: var(--accent); }
 #plan button, .det button { font: inherit; font-size: 12px; color: var(--text); background: var(--panel2); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 8px; margin: 6px 6px 0 0; cursor: pointer; }
 #plan input { font: inherit; font-size: 12px; background: #0b0d0f; color: var(--text); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 6px; width: 260px; margin-top: 6px; }
@@ -108,6 +108,18 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 .det .lockbar.on { color: #e05050; }
 pre.diff { font-family: var(--mono); font-size: 11px; background: #0b0d0f; border: 1px solid var(--line); padding: 6px 8px; overflow: auto; max-height: 260px; margin: 4px 0; white-space: pre-wrap; }
 pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
+#tasks { position: absolute; left: 8px; right: 8px; top: 8px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 2; pointer-events: none; }
+#tasks .chip, #tasks input { pointer-events: auto; }
+#tasks .chip { font-size: 11.5px; background: rgba(27,31,35,.92); border: 1px solid var(--line2); border-radius: 12px; padding: 2px 9px 2px 6px; cursor: pointer; white-space: nowrap; }
+#tasks .chip:hover, #tasks .chip.shown { border-color: var(--accent); }
+#tasks .chip.act { border-color: #d9a441; box-shadow: 0 0 0 1px #d9a44155, 0 0 10px #d9a44133; }
+#tasks .chip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+#tasks .chip b { font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; margin-right: 3px; }
+#tasks .chip .ck { color: #5fb36b; font-family: var(--mono); font-size: 10.5px; }
+#tasks .chip .dr { color: #e0913c; font-size: 10.5px; }
+#tasks .chip.add, #tasks .chip.more { color: var(--muted); padding-left: 9px; }
+#tasks input { font: inherit; font-size: 12px; background: #0b0d0f; color: var(--text); border: 1px solid var(--accent); border-radius: 12px; padding: 2px 9px; }
+.det select, .det input:not([type]) { font: inherit; font-size: 12px; background: #0b0d0f; color: var(--text); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 6px; }
 #hud { position: absolute; right: 10px; bottom: 10px; font: 10.5px var(--mono); color: var(--dim); background: rgba(14,16,18,.8); padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; pointer-events: none; }
 #tip { position: absolute; display: none; max-width: 360px; font-size: 12px; color: var(--text); background: #1b1f23; border: 1px solid var(--line2); border-radius: 5px; padding: 6px 9px; pointer-events: none; z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
 #tip b { font-family: var(--mono); font-size: 11.5px; color: var(--accent); word-break: break-all; }
@@ -152,6 +164,7 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
     <div id="lasso"></div>
     <div id="hud"></div>
     <div id="tip"></div>
+    <div id="tasks"></div>
     <div id="plan"></div>
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
   </div>
@@ -186,6 +199,7 @@ async function load() {
   if (list.length) await open($("pick").value);
   // ?open=<group>,<group>: open groups as a double-click would (d:<folder>, f:<file>)
   for (const k of (qp.get("open") || "").split(",").filter(Boolean)) { opened.add(k); layout(); draw(true); }
+  if (qp.get("task")) showTask(+qp.get("task"));   // ?task=<id>: open a task's panel and region
   // ?follow: start in follow mode, on the agent's last step
   if (qp.has("follow")) { setFollow(true); const last = [...feed].reverse().find((r) => TOUCH.has(r.kind) && r.ids.length); if (last) followTo(last.ids); }
 }
@@ -199,7 +213,7 @@ async function open(v, keep) {
   for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
   const m = doc.meta || {};
   $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks` + (doc.static ? ` · ${m.files || "?"} files` : ` · ${m.calls || "?"} calls traced · ${m.weapon || ""}`);
-  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; opened = new Set(); }
+  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; opened = new Set(); shownTask = null; }
   await loadCollab();
   if (!keep) { feed = collab.activity.map(feedRow); cursor = null; renderSessions(); renderFeed(); }
   // "cross-language only" only means something when a map spans languages
@@ -375,12 +389,22 @@ function marksInfo(u) {
   if (locked) parts.push(one ? "locked" : locked + " locked");
   if (notes) parts.push(notes + (notes === 1 ? " note" : " notes"));
   if (edited) parts.push(one ? "edited" : edited + " edited");
+  const drift = activeTask != null ? (() => { const t = tasks.find((x) => x.id === activeTask); return t ? driftOf(t).filter((id) => m.includes(id)).length : 0; })() : 0;
+  if (drift) parts.push(one ? "drift" : drift + " drift");
+  const ts = [...new Set(m.flatMap((id) => (taskOf.get(id) || []).map((t) => t.id)))];
+  if (ts.length) parts.unshift(ts.slice(0, 3).map((x) => "#" + x).join(" "));
   if (stale) parts.push(one ? "stale" : stale + " stale");
   else if (sums) parts.push(one ? "summary" : sums + "/" + m.length + " sum");
   const onlySum = parts.length === 1 && !stale && sums && !locked && !notes && !edited;
   return { text: parts.join(" · "), color: onlySum ? "#5fb36b" : "#e0913c" };
 }
 const GRANK = { reading: 1, editing: 2, denied: 3 };
+// the active task's colour wins; otherwise the first open task anchored here
+function taskTint(u) {
+  let best = null;
+  for (const id of u.members) for (const t of taskOf.get(id) || []) { if (t.id === activeTask) return taskColor(t.id); best = best || taskColor(t.id); }
+  return best;
+}
 function syncScene(animate, sceneChanged) {
   const selU = selected ? unitOf(selected) : null;
   const on = hotIds ? new Set([...hotIds].map(unitOf))
@@ -412,7 +436,7 @@ function syncScene(animate, sceneChanged) {
       sub: sub.length > 21 ? "…" + sub.slice(-20) : sub,
       cnt: u.group ? u.members.length + " blocks ▸" : "×" + u.block.calls,
       marks: mk.text, marksColor: mk.color,
-      look: { color, group: !!u.group, fill: isLocked ? "#1d1414" : u.group ? "#1d2227" : "#181c20", border,
+      look: { color, group: !!u.group, fill: isLocked ? "#1d1414" : u.group ? "#1d2227" : "#181c20", border, task: taskTint(u),
               dim: on && !on.has(u.id) && !gl ? 0.14 : 1, glow: gl ? gl.kind : null } });
   }
   FlowGPU.syncScene({ units,
@@ -491,6 +515,7 @@ function showTrace(t) {
     <div style="margin-top:10px">${rows}</div>${t.calls.length >= 60 ? `<div class="modl">…truncated</div>` : ""}</div>`;
 }
 async function select(id) {
+  shownTask = null;
   if (id.startsWith("g:")) {
     selected = id; hotIds = null;
     document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
@@ -638,6 +663,103 @@ $("ask").onclick = async () => {
     body: JSON.stringify({ mod: current.mod, name: current.name, ids: [...picked], request: "summarize" }) });
   $("selinfo").textContent = `${picked.size} handed to the agent: ask it to summarize the selection`;
 };
+// ── tasks: the work graph, on the map ─────────────────────────────────────
+// The strip across the top: active first, then review, blocked, planned,
+// proposed. Tiles carry the colour of the tasks anchored on them (planned or
+// touched); edits outside the active task's plan are marked as drift.
+let tasks = [], activeTask = null, taskOf = new Map(), shownTask = null;
+const OPEN = ["active", "review", "blocked", "planned", "proposed"];
+const STATE_COL = { proposed: "#858c93", planned: "#7fb2e0", active: "#d9a441", review: "#b48ee0", blocked: "#e05050", done: "#5fb36b", dropped: "#5d646b" };
+const taskColor = (id) => `hsl(${(id * 67) % 360} 65% 60%)`;
+async function loadTasks() {
+  if (!current) return;
+  try {
+    const r = await (await fetch(`/api/flow/tasks?${qs()}`)).json();
+    tasks = r.tasks || []; activeTask = r.active;
+  } catch (_) { tasks = []; }
+  taskOf = new Map();
+  for (const t of tasks) {
+    if (!OPEN.includes(t.state)) continue;
+    for (const id of new Set([...t.planned, ...Object.keys(t.touched)])) (taskOf.get(id) || taskOf.set(id, []).get(id)).push(t);
+  }
+  renderStrip();
+  if (shownTask != null) { const t = tasks.find((x) => x.id === shownTask); if (t && selected == null) taskPanel(t); }
+}
+const editedOf = (t) => Object.keys(t.touched).filter((id) => t.touched[id].e);
+const driftOf = (t) => t.planned.length ? editedOf(t).filter((id) => !t.planned.includes(id)) : [];
+function renderStrip() {
+  const open = tasks.filter((t) => OPEN.includes(t.state)).sort((a, b) => (a.id === activeTask ? -1 : b.id === activeTask ? 1 : 0) || OPEN.indexOf(a.state) - OPEN.indexOf(b.state) || b.updated - a.updated);
+  const done = tasks.filter((t) => t.state === "done").length;
+  $("tasks").innerHTML = open.slice(0, 8).map((t) => {
+    const ck = t.checks.length ? ` <span class="ck">${t.checks.filter((c) => c.done).length}/${t.checks.length}</span>` : "";
+    const dr = driftOf(t).length ? ` <span class="dr" title="edited outside the plan">drift ${driftOf(t).length}</span>` : "";
+    return `<span class="chip ${t.id === activeTask ? "act" : ""} ${shownTask === t.id ? "shown" : ""}" data-id="${t.id}" title="${esc(t.state)}: ${esc(t.why || t.title)}">
+      <i style="background:${taskColor(t.id)}"></i><b style="color:${STATE_COL[t.state]}">${esc(t.state)}</b> #${t.id} ${esc(t.title.length > 34 ? t.title.slice(0, 33) + "…" : t.title)}${ck}${dr}</span>`;
+  }).join("") + (open.length > 8 ? `<span class="chip more">+${open.length - 8}</span>` : "")
+    + (done ? `<span class="chip more" title="finished tasks are also in the map's flow/TASKS.md">${done} done</span>` : "")
+    + `<span class="chip add" id="addTask" title="a task for this map (selected blocks become its plan)">+ task</span>`;
+  for (const el of document.querySelectorAll("#tasks .chip[data-id]")) el.onclick = () => showTask(+el.dataset.id);
+  $("addTask").onclick = newTaskInline;
+}
+function newTaskInline() {
+  const el = $("addTask");
+  el.outerHTML = `<input id="taskTitle" placeholder="what needs doing? (enter)" style="width:260px">`;
+  const inp = $("taskTitle"); inp.focus();
+  inp.onkeydown = async (e) => {
+    if (e.key === "Escape") return renderStrip();
+    if (e.key !== "Enter" || !inp.value.trim()) return;
+    const t = await post("/api/flow/task", { op: "new", by: "operator", title: inp.value.trim(), mod: current.mod, name: current.name, planned: [...picked], state: picked.size ? "planned" : "proposed" });
+    if (t && t.id) { picked = new Set(); updateSel(); shownTask = t.id; }
+  };
+  inp.onblur = () => setTimeout(() => { if ($("taskTitle")) renderStrip(); }, 200);
+}
+// a task's region on the map: what it plans plus what it touched
+function showTask(id) {
+  const t = tasks.find((x) => x.id === id); if (!t) return;
+  shownTask = id; selected = null;
+  const region = new Set([...t.planned, ...Object.keys(t.touched)].filter((x) => doc.byId[x]));
+  hotIds = region.size ? region : null;
+  applyHighlight(); renderStrip(); taskPanel(t);
+  const first = [...region].map(unitOf).find((u) => pos[u]);
+  if (first) { const q = pos[first], r = $("canvas").getBoundingClientRect(); glideTo(r.width / 2 - (q.x + W / 2) * view.k, r.height / 2 - (q.y + H / 2) * view.k, view.k); }
+}
+function taskPanel(t) {
+  const byId = Object.fromEntries(tasks.map((x) => [x.id, x]));
+  const tlink = (id) => byId[id] ? `<a onclick="showTask(${id})">#${id} ${esc(byId[id].title)}</a>` : `#${id}`;
+  const blk = (id) => `<a onclick="select('${esc(id)}')">${esc(short(id))}</a>`;
+  const children = tasks.filter((x) => x.parent === t.id);
+  const back = tasks.flatMap((x) => x.links.filter((l) => l.to === t.id).map((l) => ({ from: x.id, type: l.type })));
+  const LINKWORD = { blocks: "blocks", found_while: "found while doing", replaces: "replaces", relates: "relates to" };
+  const BACKWORD = { blocks: "blocked by", found_while: "led to", replaces: "replaced by", relates: "relates to" };
+  const touched = Object.entries(t.touched).sort((a, b) => (b[1].e - a[1].e) || (b[1].r - a[1].r));
+  const drift = driftOf(t);
+  $("det").innerHTML = `<div class="det">
+    <div class="id" style="color:${taskColor(t.id)}">#${t.id} ${esc(t.title)}</div>
+    <div class="modl"><b style="color:${STATE_COL[t.state]}">${esc(t.state)}</b>${t.id === activeTask ? " · active: the agent's reads and edits land here" : ""} · ${esc(t.owner)} · ${esc(t.mod ? t.mod + "/" + t.name : "no map yet")}</div>
+    ${t.why ? `<div class="doc">${esc(t.why)}</div>` : ""}
+    <div><select id="tState">${["proposed", "planned", "active", "review", "blocked", "done", "dropped"].map((s) => `<option ${s === t.state ? "selected" : ""}>${s}</option>`).join("")}</select>
+      ${t.id !== activeTask ? `<button onclick="taskSet(${t.id}, { activate: true })">make active</button>` : ""}
+      ${t.state !== "done" ? `<button onclick="taskSet(${t.id}, { state: 'done' })">done</button>` : ""}</div>
+    <h2 style="margin:10px 0 2px">Checks</h2>
+    ${t.checks.map((c, i) => `<label style="display:block;font-size:12px"><input type="checkbox" ${c.done ? "checked" : ""} onchange="taskSet(${t.id}, { check: ${i}, done: this.checked })"> ${esc(c.text)}</label>`).join("") || `<div class="modl">none yet</div>`}
+    <input id="tCheck" placeholder="add a check (enter)" style="width:100%;margin-top:4px">
+    ${(t.parent || children.length || t.links.length || back.length) ? `<h2 style="margin:10px 0 2px">Related</h2><div class="links" style="font-size:12px">
+      ${t.parent ? `<div>part of ${tlink(t.parent)}</div>` : ""}
+      ${children.map((c) => `<div>subtask ${tlink(c.id)} <span style="color:${STATE_COL[c.state]}">${c.state}</span></div>`).join("")}
+      ${t.links.map((l) => `<div>${LINKWORD[l.type]} ${tlink(l.to)}</div>`).join("")}
+      ${back.map((l) => `<div>${BACKWORD[l.type]} ${tlink(l.from)}</div>`).join("")}</div>` : ""}
+    <input id="tSub" placeholder="new subtask (enter)" style="width:100%;margin-top:6px">
+    <h2 style="margin:10px 0 2px">Planned (${t.planned.length})</h2><div class="links">${t.planned.map(blk).join("") || `<span class="modl">no plan: select blocks, then "+ task", or the agent plans</span>`}</div>
+    <h2 style="margin:10px 0 2px">Touched (${touched.length})</h2>
+    ${touched.slice(0, 40).map(([id, c]) => `<div style="font-size:11.5px">${blk(id)} <span style="color:var(--dim)">${c.e ? c.e + " edits" : ""}${c.e && c.r ? ", " : ""}${c.r ? c.r + " reads" : ""}</span>${drift.includes(id) ? ` <span style="color:#e0913c">outside the plan</span>` : ""}</div>`).join("") || `<div class="modl">nothing yet</div>`}
+    ${t.evidence.length ? `<h2 style="margin:10px 0 2px">Evidence</h2>${t.evidence.map((e) => `<div style="font-size:12px"><b style="color:var(--muted)">${esc(e.kind)}</b> ${esc(e.text)}</div>`).join("")}` : ""}
+  </div>`;
+  $("tState").onchange = () => taskSet(t.id, { state: $("tState").value });
+  $("tCheck").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) taskSet(t.id, { addChecks: [e.target.value.trim()] }); };
+  $("tSub").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) post("/api/flow/task", { op: "new", by: "operator", title: e.target.value.trim(), parent: t.id, mod: t.mod || current.mod, name: t.name || current.name }); };
+}
+function taskSet(id, change) { return post("/api/flow/task", { op: "update", by: "operator", id, ...change }); }
+
 // ── follow mode: the camera goes where the agent works ────────────────────
 // On each read/edit the camera opens what it must (folder, file), glides to the
 // block, zooms to reading size and shows its code. Groups it opened close again
@@ -702,6 +824,7 @@ const qs = () => `mod=${encodeURIComponent(current.mod)}&name=${encodeURICompone
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
 async function loadCollab() {
   try { collab = await (await fetch(`/api/flow/collab?${qs()}`)).json(); } catch (_) {}
+  await loadTasks();
   renderPlan();
 }
 function marksOf(n) {
@@ -869,9 +992,15 @@ function collabPanel(id) {
     <h2 style="margin:10px 0 2px">Notes to the agent</h2>
     ${notes.map((x) => `<div class="noteitem ${x.done ? "done" : ""}">${esc(x.text)}
       <div class="st">#${x.id} · ${x.done ? "done" : x.delivered ? "delivered: the agent has it" : "waiting for the agent's next step"}</div>
-      ${x.reply ? `<div class="r">agent: ${esc(x.reply)}</div>` : ""}</div>`).join("")}
+      ${x.reply ? `<div class="r">agent: ${esc(x.reply)}</div>` : ""}
+      ${x.done ? "" : `<a style="color:var(--link);cursor:pointer;font-size:11px" onclick="noteToTask(${x.id})">make it a task</a>`}</div>`).join("")}
     <textarea id="noteText" placeholder="Ask for a change, or tell the agent something about this block. It arrives on the agent's next step."></textarea>
     <button onclick="sendNote('${esc(id)}')">send to agent</button>`;
+}
+async function noteToTask(nid) {
+  const n = collab.notes.find((x) => x.id === nid); if (!n) return;
+  const t = await post("/api/flow/task", { op: "new", by: "operator", title: n.text.slice(0, 120), why: n.text.length > 120 ? n.text : "", mod: n.mod, name: n.name, planned: [n.node], state: "planned" });
+  if (t && t.id) await post("/api/flow/notes", { id: nid, reply: "(became task #" + t.id + ")", done: true });
 }
 async function toggleLock(id, on) { await post("/api/flow/lock", { mod: current.mod, name: current.name, node: id, locked: on }); }
 async function sendNote(id) {
@@ -902,6 +1031,7 @@ function connect() {
       await loadCollab(); draw();
       if (selected) { await select(selected); if (typing != null && $("noteText")) $("noteText").value = typing; }
     } else if (e.type === "listening") setListening(e.n);
+    else if (e.type === "tasks") { await loadTasks(); draw(); }
     else if (e.type === "summaries" && here) open(current.mod + "|" + current.name, true);
     else if (e.type === "regen" && here) $("liveState").textContent = "· rebuilding the map";
     else if (e.type === "reload" && here) {

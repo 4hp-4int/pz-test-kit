@@ -135,10 +135,11 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
         ? `- your plan was REJECTED${p.answer ? ": " + p.answer : ""}. Do not start it; ask the operator.`
         : `- your plan was approved${p.removed.length ? `, except these blocks, now locked: ${p.removed.join(", ")}` : ""}${p.answer ? ". Operator: " + p.answer : ""}.`);
     }
+    if (state.taskMsgs && state.taskMsgs.length) { lines.push(...state.taskMsgs); state.taskMsgs = []; }
     if (!lines.length) return null;
     save();
     broadcast({ type: "collab" });
-    return "SousVide Flow, from the operator watching the flow chart (answer notes with the flow_notes tool, reply + done):\n" + lines.join("\n");
+    return "SousVide Flow, from the operator watching the flow chart (answer notes with the flow_notes tool, reply + done; tasks with task_update):\n" + lines.join("\n");
   }
   const lockedIn = (hits) => {
     const out = [];
@@ -230,7 +231,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
             permissionDecisionReason: `The operator has locked these blocks in the SousVide Flow chart: ${why}. Leave them as they are, or ask the operator to unlock them.` } };
         }
       }
-      if (hits.length) note({ type: "activity", kind: isEdit ? "editing" : "reading", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h) });
+      if (hits.length) { note({ type: "activity", kind: isEdit ? "editing" : "reading", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask }); if (!isEdit) taskTouch(hits, "reading"); }
       return null;
     }
     if (ev === "PostToolUse") {
@@ -246,12 +247,111 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
           }
           scheduleRegen(h);
         }
-        note({ type: "activity", kind: "edited", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h) });
+        note({ type: "activity", kind: "edited", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask });
+        taskTouch(hits, "edited");
       }
       const ctx = pendingContext();
       return ctx ? { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: ctx } } : null;
     }
     return null;
+  }
+
+  // ── tasks: a graph of work tied to the code ──────────────────────────────
+  // A task has a state, typed links to other tasks, and ANCHORS in a map:
+  // planned blocks (what it means to touch) and touched blocks (filled in by
+  // the hooks while it is the active task). touched - planned = scope drift.
+  // Operator changes reach the agent the way notes do. A task that reaches
+  // done is appended to <map root>/flow/TASKS.md.
+  const TASK_STATES = ["proposed", "planned", "active", "review", "blocked", "done", "dropped"];
+  const LINK_TYPES = ["blocks", "found_while", "replaces", "relates"];
+  state.tasks = state.tasks || []; state.nextTask = state.nextTask || 1;
+  state.activeTask = state.activeTask ?? null; state.taskMsgs = state.taskMsgs || [];
+  const taskById = (id) => state.tasks.find((t) => t.id === Number(id));
+  let taskTimer = null;
+  const tasksChanged = () => { save(); clearTimeout(taskTimer); taskTimer = setTimeout(() => broadcast({ type: "tasks" }), 120); };
+  function taskTouch(hits, kind) {
+    const t = state.activeTask != null && taskById(state.activeTask);
+    if (!t) return;
+    let any = false;
+    for (const h of hits) {
+      if (t.mod && (h.mod !== t.mod || h.name !== t.name)) continue;
+      if (!t.mod) { t.mod = h.mod; t.name = h.name; }
+      for (const id of h.ids) {
+        const c = t.touched[id] || (t.touched[id] = { r: 0, e: 0 });
+        if (kind === "edited") c.e++; else if (kind === "reading") c.r++;
+        any = true;
+      }
+    }
+    if (any) { t.updated = Date.now(); tasksChanged(); }
+  }
+  function logDone(t) {
+    const loc = t.mod && flykeLocation(t.mod, t.name);
+    if (!loc) return;
+    const file = path.join(loc.root, "flow", "TASKS.md");
+    const touched = Object.keys(t.touched), edited = touched.filter((id) => t.touched[id].e);
+    const drift = t.planned.length ? edited.filter((id) => !t.planned.includes(id)) : [];
+    const checks = t.checks.length ? ` · checks ${t.checks.filter((c) => c.done).length}/${t.checks.length}` : "";
+    const lines = [
+      `## #${t.id} ${t.title}`,
+      `${new Date(t.doneAt).toISOString().slice(0, 10)} · ${t.owner}${checks} · edited ${edited.length} blocks, read ${touched.length - edited.length}${drift.length ? ` · ${drift.length} outside the plan` : ""}`,
+      t.why ? `\n${t.why}` : "",
+      edited.length ? `\nEdited: ${edited.map((id) => "`" + id + "`").join(", ")}` : "",
+      t.links.length ? `\nLinks: ${t.links.map((l) => `${l.type} #${l.to}`).join(", ")}` : "",
+      t.evidence.length ? "\n" + t.evidence.map((e) => `- ${e.kind}: ${e.text}`).join("\n") : "",
+      "",
+    ].filter((x) => x !== "").join("\n");
+    try {
+      const head = fs.existsSync(file) ? "" : "# Tasks\n\nFinished SousVide Flow tasks, newest last (written by the dashboard).\n\n";
+      fs.appendFileSync(file, head + lines + "\n\n");
+    } catch (_) {}
+  }
+  function taskOp(b) {
+    const by = b.by === "operator" ? "operator" : "agent";
+    const tell = (msg) => { if (by === "operator") state.taskMsgs.push(msg); };
+    const now = Date.now();
+    if (b.op === "new") {
+      if (!String(b.title || "").trim()) return { error: "title" };
+      const t = { id: state.nextTask++, title: String(b.title).trim().slice(0, 200), why: String(b.why || "").slice(0, 1000),
+        state: TASK_STATES.includes(b.state) ? b.state : "proposed", owner: b.owner || by, parent: b.parent ? Number(b.parent) : null,
+        links: [], mod: b.mod || null, name: b.name || null, planned: Array.isArray(b.planned) ? b.planned : [],
+        touched: {}, checks: (b.checks || []).map((c) => ({ text: String(c).slice(0, 300), done: false })), evidence: [], created: now, updated: now };
+      if (b.found_while) t.links.push({ type: "found_while", to: Number(b.found_while) });
+      state.tasks.push(t);
+      tell(`- the operator created task #${t.id}: ${t.title}${t.why ? " (" + t.why + ")" : ""}`);
+      if (b.activate) state.activeTask = t.id, t.state = "active";
+      tasksChanged(); return t;
+    }
+    const t = taskById(b.id);
+    if (!t) return { error: "no such task" };
+    if (b.op === "update") {
+      if (b.title) t.title = String(b.title).slice(0, 200);
+      if (b.why != null) t.why = String(b.why).slice(0, 1000);
+      if (b.owner) t.owner = b.owner;
+      if (b.parent !== undefined) t.parent = b.parent ? Number(b.parent) : null;
+      if (Array.isArray(b.planned)) t.planned = b.planned;
+      if (Array.isArray(b.addPlanned)) for (const id of b.addPlanned) if (!t.planned.includes(id)) t.planned.push(id);
+      if (b.mod) { t.mod = b.mod; t.name = b.name; }
+      for (const c of b.addChecks || []) t.checks.push({ text: String(c).slice(0, 300), done: false });
+      if (b.check != null && t.checks[b.check]) { t.checks[b.check].done = b.done !== false; tell(`- the operator ${t.checks[b.check].done ? "ticked" : "unticked"} a check on task #${t.id}: ${t.checks[b.check].text}`); }
+      if (b.evidence) t.evidence.push({ kind: String(b.evidence.kind || "note").slice(0, 30), text: String(b.evidence.text || "").slice(0, 600), at: now });
+      if (b.state && TASK_STATES.includes(b.state) && b.state !== t.state) {
+        const was = t.state; t.state = b.state;
+        if (b.state === "active") state.activeTask = t.id;
+        else if (state.activeTask === t.id) state.activeTask = null;
+        if (b.state === "done") { t.doneAt = now; logDone(t); }
+        tell(`- the operator moved task #${t.id} "${t.title}" from ${was} to ${b.state}${b.reason ? ": " + b.reason : ""}`);
+      }
+      if (b.activate) { state.activeTask = t.id; if (["proposed", "planned", "blocked", "review"].includes(t.state)) t.state = "active"; tell(`- the operator made task #${t.id} "${t.title}" the active task`); }
+      t.updated = now; tasksChanged(); return t;
+    }
+    if (b.op === "link" || b.op === "unlink") {
+      if (!LINK_TYPES.includes(b.type) || !taskById(b.to) || Number(b.to) === t.id) return { error: "type must be " + LINK_TYPES.join("|") + " and to an existing other task" };
+      t.links = t.links.filter((l) => !(l.type === b.type && l.to === Number(b.to)));
+      if (b.op === "link") t.links.push({ type: b.type, to: Number(b.to) });
+      t.updated = now; tasksChanged(); return t;
+    }
+    if (b.op === "delete") { state.tasks = state.tasks.filter((x) => x.id !== t.id); if (state.activeTask === t.id) state.activeTask = null; tasksChanged(); return { deleted: t.id }; }
+    return { error: "op: new | update | link | unlink | delete" };
   }
 
   // ── HTTP ──────────────────────────────────────────────────────────────────
@@ -269,6 +369,19 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       waiters.push(res);
       req.on("close", () => { const i = waiters.indexOf(res); if (i >= 0) { waiters.splice(i, 1); listening(); } });
       listening();
+      return true;
+    }
+    if (p === "/api/flow/tasks") {
+      const mod = url.searchParams.get("mod"), name = url.searchParams.get("name");
+      const list = mod ? state.tasks.filter((t) => !t.mod || (t.mod === mod && t.name === name)) : state.tasks;
+      json(res, 200, { tasks: list, active: state.activeTask, states: TASK_STATES, links: LINK_TYPES });
+      return true;
+    }
+    if (p === "/api/flow/task" && req.method === "POST") {
+      const b = await readBody(req);
+      const out = taskOp(b);
+      if (b.by === "operator" && !out.error) flushWaiters();
+      json(res, out.error ? 400 : 200, out);
       return true;
     }
     if (p === "/api/flow/listening") { json(res, 200, { n: waiters.length }); return true; }

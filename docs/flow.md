@@ -98,6 +98,25 @@ Project settings come from the folder Claude Code starts in: a session
 started inside a submodule needs the same block in that submodule's settings,
 or in the user settings.
 
+## Tasks
+
+A graph of work tied to the code, kept by the dashboard
+(`dashboard/.cache/flow-collab.json`, local, not in any repo). A task has a
+state (proposed, planned, active, review, blocked, done, dropped), an owner,
+a parent, typed links to other tasks (`blocks`, `found_while`, `replaces`,
+`relates`), acceptance checks, evidence (commit, test, probe, note), and
+anchors in a map: **planned** blocks, and **touched** blocks recorded by the
+hooks while it is the active task. Edits outside the plan are **drift**.
+
+- The agent: MCP `task_list`, `task_new`, `task_update`, `task_link`.
+- The operator: the strip across the top of the map (active first; `+ task`
+  turns the selected blocks into a plan), the task panel (state, make active,
+  checks, subtasks, links both ways, planned, touched, evidence), and "make it
+  a task" on any note. Operator changes reach the agent like notes do.
+- Tiles show the tasks anchored on them (a coloured bar, `#id` marks) and
+  drift; folders and files roll it up.
+- A task that reaches done is appended to `<map root>/flow/TASKS.md`.
+
 ## Endpoints
 
 | Endpoint | |
@@ -110,3 +129,4 @@ or in the user settings.
 | `GET /api/flow/events` | live event stream for the viewer |
 | `GET /api/flow/collab?mod&name` | notes, locks, edits, plan, recent activity |
 | `POST /api/flow/note`, `/api/flow/notes`, `/api/flow/lock`, `/api/flow/plan` | operator and agent actions |
+| `GET /api/flow/tasks[?mod&name]`, `POST /api/flow/task {op: new\|update\|link\|unlink\|delete}` | tasks |

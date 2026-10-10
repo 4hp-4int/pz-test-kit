@@ -146,6 +146,42 @@ const TOOLS = [
     run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/plan", { mod: a.mod, name: a.name, ids: a.ids, note: a.note }); },
   },
   {
+    name: "task_list",
+    description: "SousVide Flow tasks: the work graph the operator watches beside the flow chart. Lists tasks (state, links, planned blocks, blocks touched while active, checks, evidence) and which one is active. Filter to one map with mod + name.",
+    inputSchema: { type: "object", properties: { mod: { type: "string" }, name: { type: "string" } } },
+    run: async (a) => { await ensureDashboard(); return request("GET", "/api/flow/tasks" + (a.mod ? `?mod=${encodeURIComponent(a.mod)}&name=${encodeURIComponent(a.name || "")}` : "")); },
+  },
+  {
+    name: "task_new",
+    description: "SousVide Flow: create a task. Give it the map (mod + name) and the block ids you plan to touch (planned) so drift shows; acceptance checks as short sentences; found_while = the task id you were on when you found this. activate: true makes it the active task, and every block you then read or edit is recorded on it.",
+    inputSchema: { type: "object", properties: {
+      title: { type: "string" }, why: { type: "string" }, mod: { type: "string" }, name: { type: "string" },
+      planned: { type: "array", items: { type: "string" } }, checks: { type: "array", items: { type: "string" } },
+      parent: { type: "number" }, found_while: { type: "number" }, state: { type: "string", enum: ["proposed", "planned", "active", "review", "blocked", "done", "dropped"] },
+      activate: { type: "boolean" },
+    }, required: ["title"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/task", { op: "new", by: "agent", ...a }); },
+  },
+  {
+    name: "task_update",
+    description: "SousVide Flow: change a task. state (proposed|planned|active|review|blocked|done|dropped; done appends it to the map's flow/TASKS.md), activate, title, why, planned / addPlanned (block ids), addChecks, check (index) + done, evidence { kind: commit|test|probe|note, text }, parent.",
+    inputSchema: { type: "object", properties: {
+      id: { type: "number" }, state: { type: "string" }, activate: { type: "boolean" }, title: { type: "string" }, why: { type: "string" },
+      planned: { type: "array", items: { type: "string" } }, addPlanned: { type: "array", items: { type: "string" } },
+      addChecks: { type: "array", items: { type: "string" } }, check: { type: "number" }, done: { type: "boolean" },
+      evidence: { type: "object", properties: { kind: { type: "string" }, text: { type: "string" } } }, parent: { type: "number" },
+    }, required: ["id"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/task", { op: "update", by: "agent", ...a }); },
+  },
+  {
+    name: "task_link",
+    description: "SousVide Flow: link two tasks. type: blocks (id must finish before to), found_while (id was found while doing to), replaces (id supersedes to), relates. unlink: true removes it.",
+    inputSchema: { type: "object", properties: {
+      id: { type: "number" }, type: { type: "string", enum: ["blocks", "found_while", "replaces", "relates"] }, to: { type: "number" }, unlink: { type: "boolean" },
+    }, required: ["id", "type", "to"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/task", { op: a.unlink ? "unlink" : "link", by: "agent", id: a.id, type: a.type, to: a.to }); },
+  },
+  {
     name: "flow_notes",
     description: "SousVide Flow: notes the operator pinned on blocks of the flow chart. Without arguments, lists the open ones. With id, answers one: reply (shown under the note) and/or done: true. Notes also arrive on their own as context after your tool calls.",
     inputSchema: { type: "object", properties: {
