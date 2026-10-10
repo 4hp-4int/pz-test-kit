@@ -106,6 +106,11 @@ pre.code .ln { color: var(--dim); user-select: none; display: inline-block; widt
 .det .lockbar.on { color: #e05050; }
 pre.diff { font-family: var(--mono); font-size: 11px; background: #0b0d0f; border: 1px solid var(--line); padding: 6px 8px; overflow: auto; max-height: 260px; margin: 4px 0; white-space: pre-wrap; }
 pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
+#hud { position: absolute; right: 10px; bottom: 10px; font: 10.5px var(--mono); color: var(--dim); background: rgba(14,16,18,.8); padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; pointer-events: none; }
+#tip { position: absolute; display: none; max-width: 360px; font-size: 12px; color: var(--text); background: #1b1f23; border: 1px solid var(--line2); border-radius: 5px; padding: 6px 9px; pointer-events: none; z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+#tip b { font-family: var(--mono); font-size: 11.5px; color: var(--accent); word-break: break-all; }
+#tip div { color: var(--muted); margin-top: 3px; }
+#canvas canvas { position: absolute; inset: 0; }
 .legend { position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: var(--muted); background: rgba(21,24,27,.9); padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; }
 </style>
 </head>
@@ -140,13 +145,17 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
       <div id="feed"><div class="ev" style="color:var(--dim);cursor:default">Nothing yet. Blocks light up here as an agent reads and edits them.</div></div></div>
     <h2 id="tlHead">Entry points, in order</h2><div id="tl"></div>
   </div>
-  <div id="canvas"><svg id="svg"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b747d"></path></marker></defs><marker id="tarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#f0e6c8"></path></marker><g id="vp"><g id="halos"></g><g id="edges"></g><g id="trail"></g><g id="nodes"></g><g id="steps"></g></g></svg>
+  <div id="canvas">
     <div id="lasso"></div>
+    <div id="hud"></div>
+    <div id="tip"></div>
     <div id="plan"></div>
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
   </div>
   <div id="side"><h2>Block</h2><div id="det"><div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div></div></div>
 </main>
+<script src="/flow/vendor/pixi.min.js"></script>
+<script src="/flow/gpu.js"></script>
 <script>
 const W = 230, H = 50, GX = 110, GY = 16;
 let doc = null, pos = {}, view = { x: 20, y: 20, k: 0.8 }, selected = null, hotIds = null;
@@ -171,7 +180,9 @@ async function load() {
   const qp = new URLSearchParams(location.search), want = qp.get("f");
   if (qp.get("level")) $("level").value = qp.get("level");
   if (want) $("pick").value = want;
-  if (list.length) open($("pick").value);
+  if (list.length) await open($("pick").value);
+  // ?open=<group>,<group>: open groups as a double-click would (d:<folder>, f:<file>)
+  for (const k of (qp.get("open") || "").split(",").filter(Boolean)) { opened.add(k); layout(); draw(true); }
 }
 async function open(v, keep) {
   const [mod, name] = v.split("|");
@@ -317,7 +328,11 @@ function layout() {
   }
   const cols = {};
   for (const u of ids) (cols[depth[u]] ||= []).push(u);
-  const rowOf = {}, ROWS = 16, lab = (u) => unitLabel(V.units.get(u)).toLowerCase();
+  // wrap tall columns so the whole map comes out about the canvas's shape
+  // (a fixed wrap turned 1252 blocks into a strip 80 columns wide)
+  const cr = $("canvas").getBoundingClientRect(), aspect = Math.max(0.8, (cr.width || 1600) / (cr.height || 900));
+  const ROWS = Math.max(8, Math.round(Math.sqrt(ids.length * (W + GX) / ((H + GY) * aspect))));
+  const rowOf = {}, lab = (u) => unitLabel(V.units.get(u)).toLowerCase();
   let x = 0;
   for (const c of Object.keys(cols).map(Number).sort((a, b) => a - b)) {
     const list = cols[c];
@@ -328,106 +343,92 @@ function layout() {
     x += Math.ceil(list.length / ROWS);
   }
 }
-function marksOfUnit(u) {
-  if (u.block) return marksOf(u.block);
+// ── rendering: changes are batched and flushed once per GPU frame ──────────
+// draw(animate) = the scene changed (layout, units, marks); applyHighlight() =
+// only looks changed. Both just mark dirty; FlowGPU calls flush() before it
+// renders, so a burst of agent events costs one frame.
+const dirty = { scene: false, style: false, trail: false, animate: false };
+let prevMember = new Map(), prevUnits = new Map(), prevPos = {};
+function draw(animate) { dirty.scene = dirty.style = dirty.trail = true; if (animate) dirty.animate = true; FlowGPU.invalidate(); }
+function applyHighlight() { dirty.style = true; FlowGPU.invalidate(); }
+FlowGPU.beforeFrame = () => {
+  if (!doc) return;
+  const t0 = performance.now();
+  if (dirty.scene || dirty.style) syncScene(dirty.animate, dirty.scene);
+  if (dirty.trail) drawTrail();
+  if (dirty.scene || dirty.style) lastFlush = performance.now() - t0;
+  dirty.scene = dirty.style = dirty.trail = dirty.animate = false;
+};
+let lastFlush = 0;
+function marksInfo(u) {
   const m = u.members, parts = [];
   const locked = m.filter((id) => collab.locks[id]).length;
   const notes = collab.notes.filter((x) => !x.done && m.includes(x.node)).length;
   const edited = m.filter((id) => collab.edits[id]).length;
   const sums = m.filter((id) => doc.byId[id].ai).length, stale = m.filter((id) => doc.byId[id].aiStale).length;
-  if (locked) parts.push(locked + " locked");
+  const one = !u.group;
+  if (locked) parts.push(one ? "locked" : locked + " locked");
   if (notes) parts.push(notes + (notes === 1 ? " note" : " notes"));
-  if (edited) parts.push(edited + " edited");
-  if (stale) parts.push(stale + " stale");
-  else if (sums) parts.push(sums + "/" + m.length + " sum");
-  return parts.length ? `<text class="marks" x="${W - 8}" y="16" text-anchor="end">${esc(parts.join(" · "))}</text>` : "";
+  if (edited) parts.push(one ? "edited" : edited + " edited");
+  if (stale) parts.push(one ? "stale" : stale + " stale");
+  else if (sums) parts.push(one ? "summary" : sums + "/" + m.length + " sum");
+  const onlySum = parts.length === 1 && !stale && sums && !locked && !notes && !edited;
+  return { text: parts.join(" · "), color: onlySum ? "#5fb36b" : "#e0913c" };
 }
-function toggleOpen(key) {
-  opened.has(key) ? opened.delete(key) : opened.add(key);
-  layout(); draw();
-}
-function draw() {
-  const eg = $("edges"), ng = $("nodes");
-  eg.innerHTML = ""; ng.innerHTML = "";
-  const maxC = Math.max(1, ...V.edges.map((e) => e.count));
-  for (const e of V.edges) {
-    const a = pos[e.from], b = pos[e.to];
-    if (!a || !b) continue;
-    const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2;
-    let d;
-    if (x2 > x1) { const mx = (x1 + x2) / 2; d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; }
-    else { d = `M${x1},${y1} C${x1 + 80},${y1 - 60} ${x2 - 80},${y2 - 60} ${x2},${y2}`; }
-    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    p.setAttribute("d", d); p.setAttribute("class", "edge" + (e.kind ? " k-" + e.kind : ""));
-    if (e.kind !== "mirror") p.setAttribute("marker-end", "url(#arrow)");
-    p.setAttribute("stroke-width", (0.8 + 3 * Math.log1p(e.count) / Math.log1p(maxC)).toFixed(2));
-    p.dataset.from = e.from; p.dataset.to = e.to;
-    if (doc.newEdges && e.raw.some((r) => doc.newEdges.has(`${r.from}|${r.to}|${r.kind || "call"}`))) p.classList.add("new");
-    const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
-    t.textContent = `${e.kind || "call"}: ${e.from.replace(/^g:/, "")} → ${e.to.replace(/^g:/, "")} ×${e.count}` + (e.raw.length > 1 ? ` (${e.raw.length} links)` : "") + (e.data.length ? "\n" + e.data.join("\n") : "");
-    p.appendChild(t); eg.appendChild(p);
-  }
+const GRANK = { reading: 1, editing: 2, denied: 3 };
+function syncScene(animate, sceneChanged) {
+  const selU = selected ? unitOf(selected) : null;
+  const on = hotIds ? new Set([...hotIds].map(unitOf))
+    : selU ? new Set([selU, ...(V.out[selU] || []).map((e) => e.to), ...(V.inn[selU] || []).map((e) => e.from)]) : null;
+  const plan = collab.plan && collab.plan.status === "proposed" ? new Set(collab.plan.ids) : null;
+  const units = [];
   for (const u of V.units.values()) {
     const q = pos[u.id]; if (!q) continue;
-    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    g.setAttribute("class", "node" + (u.group ? " grp" : "")); g.setAttribute("transform", `translate(${q.x},${q.y})`); g.dataset.id = u.id;
-    const c = unitColor(u), label = unitLabel(u);
+    let gl = null;
+    for (const id of u.members) { const x = glow[id]; if (x && (!gl || GRANK[x.kind] > GRANK[gl.kind])) gl = x; }
+    const color = unitColor(u);
+    const isSel = u.id === selU, isPicked = u.members.some((id) => picked.has(id));
+    const isPlanned = !!plan && u.members.some((id) => plan.has(id));
+    const isEdited = u.members.some((id) => collab.edits[id]), isLocked = u.members.some((id) => collab.locks[id]);
+    const border = gl && gl.kind === "denied" ? { color: "#e05050", width: 3 }
+      : isSel ? { color: "#d9a441", width: 2.6 }
+      : isPicked ? { color: "#ffffff", width: 2.2, dash: [5, 3] }
+      : isPlanned ? { color: "#d9a441", width: 2.2, dash: [8, 4] }
+      : isEdited ? { color: "#e0913c", width: 2 }
+      : { color, width: 1.2 };
     const nFiles = u.group && u.group.startsWith("d:") ? new Set(u.members.map((id) => doc.byId[id].file)).size : 0;
     const sub = u.group
       ? (nFiles ? `${folderCtx(u.group.slice(2)) || Object.keys(u.langs).filter(Boolean).join("+")} · ${nFiles} files`
                 : `${Object.keys(u.langs).filter(Boolean).join("+")} · ${base(dirOf(u.group.slice(2)))}`)
       : (u.block.kind === "entry" ? "entry point" : (u.block.lang ? u.block.lang + " / " : "") + String(u.block.module || "").split("/").slice(-1)[0]);
-    g.innerHTML = `${u.group ? `<rect x="4" y="4" width="${W}" height="${H}" fill="#14171a" stroke="${c}" stroke-opacity=".45"></rect>` : ""}
-      <rect width="${W}" height="${H}" fill="${u.group ? "#1d2227" : "#181c20"}" stroke="${c}"></rect>
-      <rect width="5" height="${H}" fill="${c}" stroke="none"></rect>
-      <text x="12" y="20">${esc(label.length > 28 ? label.slice(0, 27) + "…" : label)}</text>
-      <text class="mod" x="12" y="37">${esc(sub.length > 21 ? "…" + sub.slice(-20) : sub)}</text>
-      <text class="cnt" x="${W - 8}" y="37" text-anchor="end">${u.group ? u.members.length + " blocks ▸" : "×" + u.block.calls}</text>
-      ${marksOfUnit(u)}`;
-    g.onclick = (ev) => {
-      ev.stopPropagation();
-      if (ev.shiftKey) {
-        const all = u.members.every((id) => picked.has(id));
-        for (const id of u.members) all ? picked.delete(id) : picked.add(id);
-        updateSel(); return;
-      }
-      select(u.id);
-    };
-    g.ondblclick = (ev) => {
-      ev.stopPropagation();
-      if (u.group) toggleOpen(u.group);
-      else { const k = groupKey(u.block); if (k != null && opened.has(k)) toggleOpen(k); }   // a block closes its file
-      centerOn(unitOf(u.members[0]));
-    };
-    ng.appendChild(g);
+    const label = unitLabel(u), mk = marksInfo(u);
+    units.push({ id: u.id, x: q.x, y: q.y,
+      label: label.length > 28 ? label.slice(0, 27) + "…" : label,
+      sub: sub.length > 21 ? "…" + sub.slice(-20) : sub,
+      cnt: u.group ? u.members.length + " blocks ▸" : "×" + u.block.calls,
+      marks: mk.text, marksColor: mk.color,
+      look: { color, group: !!u.group, fill: isLocked ? "#1d1414" : u.group ? "#1d2227" : "#181c20", border,
+              dim: on && !on.has(u.id) && !gl ? 0.14 : 1, glow: gl ? gl.kind : null } });
   }
-  applyHighlight();
-  drawTrail();
+  FlowGPU.syncScene({ units,
+    // a new unit grows out of whatever held its first block before; a removed
+    // one shrinks into whatever holds its first block now
+    from: (id) => { const u = V.units.get(id); const was = u && prevMember.get(u.members[0]); return was && prevPos[was] ? prevPos[was] : null; },
+    into: (id) => { const m = prevUnits.get(id); const now = m && unitOf(m[0]); return now && pos[now] ? pos[now] : null; } }, animate);
+  if (sceneChanged) {
+    const maxC = Math.max(1, ...V.edges.map((e) => e.count));
+    FlowGPU.setEdges(V.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, w: 0.8 + 3 * Math.log1p(e.count) / Math.log1p(maxC) })));
+    prevMember = new Map(); prevUnits = new Map();
+    for (const u of V.units.values()) { prevUnits.set(u.id, u.members); for (const id of u.members) prevMember.set(id, u.id); }
+    prevPos = { ...pos };
+  }
+  const hot = on ? new Set(V.edges.filter((e) => on.has(e.from) && on.has(e.to) && (hotIds || e.from === selU || e.to === selU)).map((e) => `${e.from}|${e.to}|${e.kind || "call"}`)) : null;
+  const fresh = doc.newEdges ? new Set(V.edges.filter((e) => e.raw.some((r) => doc.newEdges.has(`${r.from}|${r.to}|${r.kind || "call"}`))).map((e) => `${e.from}|${e.to}|${e.kind || "call"}`)) : null;
+  FlowGPU.setHighlight(hot, fresh);
 }
-const GRANK = { reading: 1, editing: 2, denied: 3 };
-function applyHighlight() {
-  const selU = selected ? unitOf(selected) : null;
-  const on = hotIds ? new Set([...hotIds].map(unitOf))
-    : selU ? new Set([selU, ...(V.out[selU] || []).map((e) => e.to), ...(V.inn[selU] || []).map((e) => e.from)]) : null;
-  const plan = collab.plan && collab.plan.status === "proposed" ? new Set(collab.plan.ids) : null;
-  for (const g of document.querySelectorAll(".node")) {
-    const u = V.units.get(g.dataset.id); if (!u) continue;
-    let gl = null;
-    for (const id of u.members) { const x = glow[id]; if (x && (!gl || GRANK[x.kind] > GRANK[gl.kind])) gl = x; }
-    g.classList.toggle("dim", !!on && !on.has(u.id) && !gl);
-    g.classList.toggle("sel", u.id === selU);
-    g.classList.toggle("picked", u.members.some((id) => picked.has(id)));
-    g.classList.toggle("reading", !!gl && gl.kind === "reading");
-    g.classList.toggle("editing", !!gl && gl.kind === "editing");
-    g.classList.toggle("denied", !!gl && gl.kind === "denied");
-    g.classList.toggle("edited", !gl && u.members.some((id) => collab.edits[id]));
-    g.classList.toggle("planned", !!plan && u.members.some((id) => plan.has(id)));
-    g.classList.toggle("locked", u.members.some((id) => collab.locks[id]));
-  }
-  for (const p of document.querySelectorAll(".edge")) {
-    const hot = on && on.has(p.dataset.from) && on.has(p.dataset.to) && (hotIds || p.dataset.from === selU || p.dataset.to === selU);
-    p.classList.toggle("hot", !!hot); p.classList.toggle("dim", !!on && !hot);
-  }
+function toggleOpen(key) {
+  opened.has(key) ? opened.delete(key) : opened.add(key);
+  layout(); draw(true);
 }
 function groupPanel(u) {
   const link = (ids) => ids.map((x) => `<a onclick="select('${esc(x)}')">${esc(x.replace(/^g:/, ""))}</a>`).join("");
@@ -456,7 +457,8 @@ function openFile(f) {
   const n = doc.nodes.find((x) => x.file === f); if (!n) return;
   const c = chainOf(n);
   for (const k of c.slice(0, -1)) opened.add(k);
-  layout(); draw();
+  layout();
+  draw(true);
   const id = c.length ? "g:" + c[c.length - 1] : n.id;
   select(id); centerOn(id);
 }
@@ -492,7 +494,7 @@ async function select(id) {
     return;
   }
   const n = doc.byId[id]; if (!n) return;
-  if (visible(n) && openChain(n)) { layout(); draw(); centerOn(id); }
+  if (visible(n) && openChain(n)) { layout(); draw(true); centerOn(id); }
   selected = id; hotIds = null;
   document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
   applyHighlight();
@@ -524,61 +526,99 @@ async function select(id) {
     } catch (_) { $("code").textContent = n.external ? "(source lives outside this repo: " + n.file + ")" : "(source not available)"; }
   }
 }
-// pan / zoom
-function apply() { $("vp").setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`); }
+// pan / zoom / pick: the GPU canvas is hit-tested here (tiles are rectangles)
+function apply() { FlowGPU.setView(view); }
 function fit() {
   const xs = Object.values(pos); if (!xs.length) return;
   const maxX = Math.max(...xs.map((p) => p.x)) + W, maxY = Math.max(...xs.map((p) => p.y)) + H;
   const r = $("canvas").getBoundingClientRect();
   view.k = Math.min(1.2, (r.width - 40) / maxX, (r.height - 40) / maxY); view.x = 20; view.y = 20; apply();
 }
-const cv = $("canvas"); let drag = null;
-let lasso = null;
+const cv = $("canvas");
+let press = null, lasso = null;
+const local = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 cv.onmousedown = (e) => {
-  if (e.shiftKey) {
-    const r = cv.getBoundingClientRect();
-    lasso = { x0: e.clientX - r.left, y0: e.clientY - r.top, x1: e.clientX - r.left, y1: e.clientY - r.top, moved: false };
-    return;
-  }
-  drag = { x: e.clientX - view.x, y: e.clientY - view.y }; cv.classList.add("drag");
+  if (e.button !== 0) return;
+  const p = local(e);
+  if (e.shiftKey && !FlowGPU.hit(p.x, p.y)) { lasso = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false }; return; }
+  press = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false, shift: e.shiftKey, at: p };
 };
-window.onmouseup = () => {
+window.addEventListener("mousemove", (e) => {
   if (lasso) {
-    const L = $("lasso"); L.style.display = "none";
-    if (lasso.moved) {
-      // screen -> chart coordinates through the view transform
-      const toChart = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
-      const a = toChart(Math.min(lasso.x0, lasso.x1), Math.min(lasso.y0, lasso.y1));
-      const b = toChart(Math.max(lasso.x0, lasso.x1), Math.max(lasso.y0, lasso.y1));
-      for (const [id, q] of Object.entries(pos)) {
-        if (q.x + W >= a.x && q.x <= b.x && q.y + H >= a.y && q.y <= b.y) for (const m of (V.units.get(id) || { members: [id] }).members) picked.add(m);
-      }
-      updateSel();
-    }
-    lasso = null; suppressClick = true;
-  }
-  drag = null; cv.classList.remove("drag");
-};
-window.onmousemove = (e) => {
-  if (lasso) {
-    const r = cv.getBoundingClientRect();
-    lasso.x1 = e.clientX - r.left; lasso.y1 = e.clientY - r.top; lasso.moved = true;
+    const p = local(e);
+    lasso.x1 = p.x; lasso.y1 = p.y; lasso.moved = true;
     const L = $("lasso");
     L.style.display = "block";
     L.style.left = Math.min(lasso.x0, lasso.x1) + "px"; L.style.top = Math.min(lasso.y0, lasso.y1) + "px";
     L.style.width = Math.abs(lasso.x1 - lasso.x0) + "px"; L.style.height = Math.abs(lasso.y1 - lasso.y0) + "px";
     return;
   }
-  if (drag) { view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; apply(); }
+  if (press) {
+    const dx = e.clientX - press.x, dy = e.clientY - press.y;
+    if (!press.moved && Math.hypot(dx, dy) > 4) { press.moved = true; cv.classList.add("drag"); hideTip(); }
+    if (press.moved) { view.x = press.vx + dx; view.y = press.vy + dy; apply(); }
+    return;
+  }
+  if (e.target === FlowGPU.app?.canvas) hover(local(e), e);
+});
+window.addEventListener("mouseup", () => {
+  if (lasso) {
+    $("lasso").style.display = "none";
+    if (lasso.moved) {
+      const a = FlowGPU.screenToWorld(Math.min(lasso.x0, lasso.x1), Math.min(lasso.y0, lasso.y1));
+      const b = FlowGPU.screenToWorld(Math.max(lasso.x0, lasso.x1), Math.max(lasso.y0, lasso.y1));
+      for (const [id, q] of Object.entries(pos))
+        if (q.x + W >= a.x && q.x <= b.x && q.y + H >= a.y && q.y <= b.y) for (const m of (V.units.get(id) || { members: [id] }).members) picked.add(m);
+      updateSel();
+    }
+    lasso = null; return;
+  }
+  if (!press) return;
+  const p = press; press = null; cv.classList.remove("drag");
+  if (p.moved) return;
+  const id = FlowGPU.hit(p.at.x, p.at.y);
+  if (!id) { selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); return; }
+  const u = V.units.get(id);
+  if (p.shift && u) {
+    const all = u.members.every((m) => picked.has(m));
+    for (const m of u.members) all ? picked.delete(m) : picked.add(m);
+    updateSel(); return;
+  }
+  select(id);
+});
+cv.ondblclick = (e) => {
+  const p = local(e), id = FlowGPU.hit(p.x, p.y); if (!id) return;
+  const u = V.units.get(id); if (!u) return;
+  if (u.group) toggleOpen(u.group);
+  else { const k = groupKey(u.block); if (k != null && opened.has(k)) toggleOpen(k); }   // a block closes its file
 };
-let suppressClick = false;
-cv.onwheel = (e) => {
+cv.addEventListener("wheel", (e) => {
   e.preventDefault();
-  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-  const k = Math.max(0.15, Math.min(3, view.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
-  view.x = mx - (mx - view.x) * (k / view.k); view.y = my - (my - view.y) * (k / view.k); view.k = k; apply();
+  const p = local(e);
+  const k = Math.max(0.08, Math.min(3, view.k * Math.exp(-e.deltaY * 0.0015)));
+  view.x = p.x - (p.x - view.x) * (k / view.k); view.y = p.y - (p.y - view.y) * (k / view.k); view.k = k; apply();
+}, { passive: false });
+// hover: the full name (tiles truncate) and a pointer over anything clickable
+let tipFor = null;
+function hover(p, e) {
+  const id = FlowGPU.hit(p.x, p.y);
+  cv.style.cursor = id ? "pointer" : "grab";
+  if (id === tipFor) { if (id) placeTip(p); return; }
+  tipFor = id;
+  if (!id) return hideTip();
+  const u = V.units.get(id); if (!u) return hideTip();
+  const name = u.group ? u.group.slice(2) + (u.group.startsWith("d:") ? "/" : "") : u.block.id;
+  const extra = u.group ? `${u.members.length} blocks · double-click to open` : (u.block.ai || u.block.summary || "");
+  $("tip").innerHTML = `<b>${esc(name)}</b>${extra ? `<div>${esc(extra.length > 220 ? extra.slice(0, 219) + "…" : extra)}</div>` : ""}`;
+  $("tip").style.display = "block"; placeTip(p);
+}
+function placeTip(p) { const t = $("tip"); t.style.left = Math.min(p.x + 14, cv.clientWidth - t.offsetWidth - 8) + "px"; t.style.top = (p.y + 16) + "px"; }
+function hideTip() { tipFor = null; $("tip").style.display = "none"; }
+cv.addEventListener("mouseleave", hideTip);
+// the meter: how long a frame takes, how often frames come
+FlowGPU.onStats = (st, busy) => {
+  $("hud").textContent = `GPU · ${st.fps && busy ? st.fps + " fps · " : ""}render ${st.ms.toFixed(1)} ms · model ${lastFlush.toFixed(1)} ms · ${st.units} tiles · ${st.edges} edges${view.k < 0.45 ? " · far (text off)" : ""}`;
 };
-cv.onclick = () => { if (suppressClick) { suppressClick = false; return; } selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); };
 function updateSel() {
   const n = picked.size;
   $("selinfo").textContent = n ? `${n} selected` : "shift-click or shift-drag to select";
@@ -657,39 +697,34 @@ function renderSessions() {
   $("sess").value = [...$("sess").options].some((o) => o.value === was) ? was : "auto";
 }
 function drawTrail() {
-  const hg = $("halos"), tg = $("trail"), sg = $("steps");
-  hg.innerHTML = ""; tg.innerHTML = ""; sg.innerHTML = "";
   const steps = allSteps();
   const shown = cursor == null ? steps.length : Math.min(cursor, steps.length);
   $("scrub").max = steps.length; $("scrub").value = shown;
   $("scrubAt").textContent = !steps.length ? "no steps yet" : cursor == null ? `live · ${steps.length} steps`
     : `step ${shown}/${steps.length} · ${shown ? clock(steps[shown - 1].at) : "start"}`;
   markFeed(steps, shown);
-  if (!$("trailOn").checked || !shown) return;
+  if (!$("trailOn").checked || !shown) { FlowGPU.setTrail(null); return; }
   const N = +$("trailN").value, from = Math.max(0, shown - N), win = steps.slice(from, shown);
   const fresh = (i) => (i + 1) / win.length;            // 1 = the newest step
-  const svg = (tag, attrs) => { const el = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
-  // onion skin: each block keeps the tint of its latest touch, fading with age
+  // onion skin: each unit keeps the tint of its latest touch, fading with age
   const last = {};
   win.forEach((s, i) => { for (const id of new Set(s.ids.map(unitOf))) last[id] = { i, kind: s.kind, n: from + i + 1 }; });
+  const halos = [], badges = [], paths = [];
   for (const [id, t] of Object.entries(last)) {
-    const q = pos[id]; if (!q) continue;
+    if (!pos[id]) continue;
     const f = fresh(t.i);
-    hg.appendChild(svg("rect", { x: q.x - 7, y: q.y - 7, width: W + 14, height: H + 14, rx: 11, fill: KCOL[t.kind], opacity: (0.06 + 0.42 * f).toFixed(2) }));
-    const g = svg("g", { class: "tstep", opacity: (0.35 + 0.65 * f).toFixed(2) });
-    g.appendChild(svg("circle", { cx: q.x, cy: q.y, r: 9, fill: KCOL[t.kind] }));
-    const tx = svg("text", { x: q.x, y: q.y + 3 }); tx.textContent = t.n; g.appendChild(tx);
-    sg.appendChild(g);
+    halos.push({ id, color: KCOL[t.kind], alpha: +(0.06 + 0.42 * f).toFixed(2) });
+    badges.push({ id, n: t.n, color: KCOL[t.kind], alpha: +(0.35 + 0.65 * f).toFixed(2) });
   }
   // the path the agent took, step to step
-  const at = (s) => { const id = s.ids.map(unitOf).find((x) => pos[x]); return id && { x: pos[id].x + W / 2, y: pos[id].y + H / 2 }; };
+  const at = (s) => s.ids.map(unitOf).find((x) => pos[x]);
   for (let i = 1; i < win.length; i++) {
     const a = at(win[i - 1]), b = at(win[i]);
-    if (!a || !b || (a.x === b.x && a.y === b.y)) continue;
-    const f = fresh(i), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - Math.min(80, Math.abs(b.x - a.x) * 0.15 + 20);
-    tg.appendChild(svg("path", { class: "tpath", d: `M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}`, "stroke-width": (1 + 2.2 * f).toFixed(1),
-      opacity: (0.1 + 0.8 * f).toFixed(2), "marker-end": "url(#tarrow)" }));
+    if (!a || !b || a === b) continue;
+    const f = fresh(i);
+    paths.push({ a, b, alpha: 0.1 + 0.8 * f, width: 1 + 2.2 * f });
   }
+  FlowGPU.setTrail({ halos, paths, badges });
 }
 function renderFeed() {
   const ag = sessAgent();
@@ -815,7 +850,7 @@ $("leaves").onchange = () => { layout(); draw(); fit(); };
 $("level").onchange = () => { opened = new Set(); layout(); draw(); fit(); };
 $("xlang").onchange = () => { layout(); draw(); fit(); };
 $("fit").onclick = fit;
-load();
+FlowGPU.init($("canvas")).then(() => { apply(); load(); });
 </script>
 </body>
 </html>

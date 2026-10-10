@@ -450,6 +450,12 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return fs.createReadStream(path.join(HERE, "flow.html")).pipe(res);
     }
+    // the viewer's GPU renderer and its vendored PixiJS (MIT, vendor/pixi.LICENSE)
+    const FLOW_FILES = { "/flow/gpu.js": "flow-gpu.js", "/flow/vendor/pixi.min.js": "vendor/pixi.min.js" };
+    if (FLOW_FILES[url.pathname]) {
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": url.pathname.includes("vendor") ? "max-age=86400" : "no-store" });
+      return fs.createReadStream(path.join(HERE, FLOW_FILES[url.pathname])).pipe(res);
+    }
     // FLOW SELECTION + SUMMARIES: the programmer selects blocks in the viewer;
     // an agent reads the selection (with its code and its boundary) over MCP
     // and writes summaries back. Summaries live beside the map in

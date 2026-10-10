@@ -22,6 +22,22 @@ Call edges inside one language come from name matching, so they can be wrong
 (a `.get(...)` matched to an unrelated `get`). Contract edges are literal
 matches.
 
+## The viewer
+
+Drawn on the GPU (`dashboard/flow-gpu.js`, PixiJS v8 vendored in
+`dashboard/vendor/`, MIT). The scene is kept, not rebuilt: a change patches
+the tiles it touches, changes are batched into one frame, and frames are drawn
+only while something moves (a tween, the agent's glow). Below 45% zoom text is
+switched off; off-screen tiles are culled. The meter at the bottom right shows
+render and model time per frame.
+
+Big maps open at folders (more than 40 files) or files (more than 200
+blocks): double-click a folder to open it into its files, a file into its
+blocks, a block to close its file; opening animates out of the tile that held
+them. URL options: `?f=<mod>|<name>`, `?level=folder|file|block`,
+`?open=d:<folder>,f:<file>`, `?nolive` (no event stream, for headless
+screenshots).
+
 ## Selection and summaries
 
 Shift-click or shift-drag to select blocks, then **summarize selection**. The
