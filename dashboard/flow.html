@@ -146,6 +146,15 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 .step details summary { color: var(--dim); font-size: 11px; cursor: pointer; margin-top: 4px; }
 .jev { font-size: 11.5px; padding: 1px 0; word-break: break-all; }
 #tasks .chip.cap { cursor: default; max-width: 60%; overflow: hidden; text-overflow: ellipsis; border-color: #7fb2e0; }
+#loading { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; gap: 12px; background: rgba(14,16,18,.72); z-index: 5; font-size: 13px; color: var(--muted); }
+#loading.on { display: flex; }
+.spin { width: 18px; height: 18px; border: 2px solid var(--line2); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#toast { position: absolute; right: 10px; top: 44px; display: none; background: #1b1f23; border: 1px solid var(--line2); border-radius: 5px; padding: 5px 10px; font-size: 12px; color: var(--muted); z-index: 4; }
+#toast.on { display: block; }
+#crumbs { font-size: 12.5px; color: var(--muted); max-width: 42vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#crumbs a { color: var(--text); cursor: pointer; }
+#crumbs a:hover { color: var(--accent); }
 #hud { position: absolute; right: 10px; bottom: 10px; font: 10.5px var(--mono); color: var(--dim); background: rgba(14,16,18,.8); padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; pointer-events: none; }
 #tip { position: absolute; display: none; max-width: 360px; font-size: 12px; color: var(--text); background: #1b1f23; border: 1px solid var(--line2); border-radius: 5px; padding: 6px 9px; pointer-events: none; z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
 #tip b { font-family: var(--mono); font-size: 11.5px; color: var(--accent); word-break: break-all; }
@@ -161,8 +170,8 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
   <label title="hide blocks that call nothing"><input type="checkbox" id="leaves"> hide leaves</label>
   <label id="rolesWrap" style="display:none" title="tests and checks (teal, purple) and tools (grey) on the map">show <input type="checkbox" id="showTests" checked> tests <input type="checkbox" id="showTools" checked> tools</label>
   <label id="xlangWrap" style="display:none"><input type="checkbox" id="xlang" checked> cross-language</label>
-  <label title="how much to show at once: big maps start at whole files">zoom <select id="level">
-    <option value="auto">auto</option><option value="folder">folders</option><option value="file">files</option><option value="block">functions</option></select></label>
+  <span id="crumbs" title="where you are: click a level to go back to it (Esc goes up one)"></span>
+  <label title="up close, edges between functions show only for the card you point at or select"><input type="checkbox" id="allEdges"> all edges</label>
   <button id="fit">fit</button>
   <span id="selinfo" title="shift-click or shift-drag to select">shift: select</span>
   <button id="ask" disabled title="Hand the selected blocks to your agent: it reads them with flow_selection and writes summaries with flow_summarize">summarize</button>
@@ -194,6 +203,8 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
   <div id="canvas">
     <div id="lasso"></div>
     <div id="hud"></div>
+    <div id="loading"><div class="spin"></div><span id="loadingText"></span></div>
+    <div id="toast"></div>
     <div id="tip"></div>
     <div id="tasks"></div>
     <div id="dock" style="display:none"></div>
@@ -205,7 +216,7 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 <script src="/flow/vendor/pixi.min.js"></script>
 <script src="/flow/gpu.js"></script>
 <script>
-const W = 230, H = 50, GX = 110, GY = 16;
+const W = 300, H = 88, GX = 110, GY = 22;   // cards: title, code name, two lines of purpose
 let doc = null, pos = {}, view = { x: 20, y: 20, k: 0.8 }, selected = null, hotIds = null;
 let picked = new Set(), current = null;
 // live collaboration: what the server knows (notes, locks, diffs, plan) and
@@ -228,28 +239,36 @@ async function load() {
   const list = await (await fetch("/api/flyke")).json();
   $("pick").innerHTML = list.map((f) => `<option value="${esc(f.mod)}|${esc(f.name)}">${esc(f.mod)} / ${esc(f.name)}</option>`).join("");
   const qp = new URLSearchParams(location.search), want = qp.get("f");
-  if (qp.get("level")) $("level").value = qp.get("level");
+
   if (want) $("pick").value = want;
   if (list.length) await open($("pick").value);
   // ?open=<group>,<group>: open groups as a double-click would (d:<folder>, f:<file>)
-  for (const k of (qp.get("open") || "").split(",").filter(Boolean)) { opened.add(k); layout(); draw(true); }
+  for (const k of (qp.get("open") || "").split(",").filter(Boolean)) zoomToGroup(k);   // ?open=<group>: zoom to it
   if (qp.get("task")) showTask(+qp.get("task"));
   if (qp.get("focus")) { await select(qp.get("focus")); const q = pos[unitOf(qp.get("focus"))], r = $("canvas").getBoundingClientRect();
-    if (q) { view.k = 1; view.x = r.width / 2 - (q.x + W / 2); view.y = r.height / 2 - (q.y + H / 2); apply(); } }   // ?focus=<id>: that block, at reading size   // ?task=<id>: open a task's panel and region
+    if (q) { view.k = 1; view.x = r.width / 2 - (q.x + q.w / 2); view.y = r.height / 2 - (q.y + q.h / 2); apply(); } }   // ?focus=<id>: that block, at reading size   // ?task=<id>: open a task's panel and region
   // ?follow: start in follow mode, on the agent's last step
   if (qp.has("follow")) { setFollow(true); const last = [...feed].reverse().find((r) => TOUCH.has(r.kind) && r.ids.length); if (last) followTo(last.ids); }
 }
+function showLoading(msg) { $("loadingText").textContent = msg; $("loading").classList.add("on"); }
+function hideLoading() { $("loading").classList.remove("on"); }
+function toast(msg) { const t = $("toast"); if (!msg) { t.classList.remove("on"); return; } t.textContent = msg; t.classList.add("on"); }
 async function open(v, keep) {
   const [mod, name] = v.split("|");
   current = { mod, name };
-  doc = await (await fetch(`/api/flyke?mod=${encodeURIComponent(mod)}&name=${encodeURIComponent(name)}`)).json();
+  // a refresh in place (summaries, a rebuild) keeps the board; switching boards says so
+  if (!keep) showLoading(`Opening ${mod} / ${name}…`);
+  try {
+    doc = await (await fetch(`/api/flyke?mod=${encodeURIComponent(mod)}&name=${encodeURIComponent(name)}`)).json();
+  } catch (e) { showLoading(`Could not open ${mod} / ${name}: ${e}`); return; }
+  if (!keep) $("loadingText").textContent = `Laying out ${doc.nodes.length} blocks…`;
   doc.mod = mod; sketchSig = "";
   doc.byId = Object.fromEntries(doc.nodes.map((n) => [n.id, n]));
   doc.out = {}; doc.inn = {};
   for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
   const m = doc.meta || {};
   $("meta").textContent = `${doc.name} · ${doc.nodes.length} blocks` + (doc.static ? ` · ${m.files || "?"} files` : ` · ${m.calls || "?"} calls traced · ${m.weapon || ""}`);
-  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; opened = new Set(); shownTask = null; }
+  if (!keep) { selected = null; hotIds = null; picked = new Set(); glow = {}; doc.newEdges = null; collapsed = new Set(); shownTask = null; }
   await loadCollab();
   if (!keep) { feed = collab.activity.map(feedRow); cursor = null; renderSessions(); renderFeed(); }
   // "cross-language only" only means something when a map spans languages
@@ -268,6 +287,7 @@ async function open(v, keep) {
   renderTimeline(); layout(); draw();
   if (!keep) fit(); else apply();
   updateSel();
+  hideLoading();
   if (keep) { if (selected) select(selected); return; }
   $("det").innerHTML = `<div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div>`;
 }
@@ -288,42 +308,170 @@ function visible(n) {
   return n.kind === "entry" || (doc.out[n.id] || []).length > 0;
 }
 function edgeVisible(e) { return !(doc.static && $("xlang").checked && e.kind === "call"); }
-// ── zoom levels: a big map shows whole files (or folders) until you open one ──
-// The view is built from units: a unit is a block, or a closed group of blocks
-// (a file or a folder). Edges are aggregated onto units. Everything that names
-// blocks (glow, trail, notes, picks, plan) is mapped through unitOf.
-let opened = new Set(), V = { units: new Map(), edges: [], out: {}, inn: {} };
-function effLevel() {
-  const v = $("level").value; if (v !== "auto") return v;
-  const files = new Set(doc.nodes.map((n) => n.file).filter(Boolean)).size;
-  return files > 40 ? "folder" : doc.nodes.length > 200 ? "file" : "block";
-}
+// ── the nested map: areas hold files, files hold blocks; zoom reveals them ──
+// The whole tree is laid out ONCE (nothing moves when you zoom). What is
+// shown depends on the zoom: a container opens when it is big enough on
+// screen for its children to be read, and is on screen; until then it is one
+// card with its title and purpose. Everything that names blocks (glow, trail,
+// notes, picks, plan) maps through unitOf: the deepest unit shown.
+let collapsed = new Set(), T = null, VIS = { units: new Map(), unitOfBlock: {} }, visSig = "";
+let V = { units: new Map(), edges: [], out: {}, inn: {} }, allEdges = false, hoverId = null;
+const PAD = 18, GAP = 22;
 const dirOf = (f) => f.split("/").slice(0, -1).join("/") || ".";
-// the groups a block sits in, outermost first: open one to see the next
+// the agent's named areas (flow/<name>.areas.json): concept groups of files
+function areaOf(file) {
+  if (!doc.areaByFile) { doc.areaByFile = {}; for (const a of doc.areas || []) for (const f of a.files) doc.areaByFile[f] = a; }
+  return doc.areaByFile[file] || null;
+}
+const groupInfo = (g) => (doc.groups || {})[g] || null;
+// the containers a block sits in, outermost first
 function chainOf(n) {
-  const lv = effLevel();
-  if (lv === "block" || !n.file || n.kind === "entry") return [];   // contract/data nodes stand alone
-  return lv === "file" ? ["f:" + n.file] : ["d:" + dirOf(n.file), "f:" + n.file];
+  if (!n.file) return ["x:other"];                      // data files, entry points: one group of their own
+  const a = areaOf(n.file);
+  if (!a) return ["d:" + dirOf(n.file), "f:" + n.file];
+  // an area sits inside the folder its files share (Genome holds its six areas)
+  return [areaDir(a) ? "d:" + areaDir(a) : null, "a:" + a.key, "f:" + n.file].filter(Boolean);
 }
-function groupKey(n) { const c = chainOf(n); return c.length ? c[c.length - 1] : null; }
-function unitOf(id) {
-  const n = doc.byId[id]; if (!n) return id;
-  for (const k of chainOf(n)) if (!opened.has(k)) return "g:" + k;
-  return id;
+function areaDir(a) {
+  if (a._dir !== undefined) return a._dir;
+  const dirs = [...new Set(a.files.map(dirOf))];
+  return (a._dir = dirs.length === 1 ? dirs[0] : null);
 }
-function openChain(n) { let changed = false; for (const k of chainOf(n)) if (!opened.has(k)) { opened.add(k); changed = true; } return changed; }
-function buildView() {
-  const units = new Map();
+function groupKey(n) { const c = chainOf(n); return c[c.length - 1]; }
+function unitOf(id) { return VIS.unitOfBlock[id] || id; }
+
+function buildTree() {
+  const groups = new Map(), roots = [];
+  const kindOf = (k) => k[0] === "f" ? "file" : k[0] === "a" ? "area" : k[0] === "x" ? "other" : "dir";
   for (const n of doc.nodes) {
     if (!visible(n)) continue;
-    const u = unitOf(n.id);
-    if (u === n.id) { units.set(u, { id: u, block: n, members: [n.id] }); continue; }
-    const g = units.get(u) || { id: u, group: u.slice(2), members: [], langs: {} };
-    g.members.push(n.id); g.langs[n.lang || ""] = (g.langs[n.lang || ""] || 0) + 1;
-    g.roles = g.roles || {}; g.roles[n.role || "source"] = (g.roles[n.role || "source"] || 0) + 1;
-    units.set(u, g);
+    let parent = null;
+    for (const k of chainOf(n)) {
+      if (!groups.has(k)) {
+        groups.set(k, { key: k, id: "g:" + k, kind: kindOf(k), parent, kids: [], blocks: [], members: [], langs: {}, roles: {} });
+        if (parent) groups.get(parent).kids.push(k); else roots.push(k);
+      }
+      const g = groups.get(k);
+      g.members.push(n.id);
+      g.langs[n.lang || ""] = (g.langs[n.lang || ""] || 0) + 1;
+      g.roles[n.role || "source"] = (g.roles[n.role || "source"] || 0) + 1;
+      parent = k;
+    }
+    groups.get(parent).blocks.push(n.id);
   }
-  const agg = new Map();
+  T = { groups, roots };
+}
+// order items so callers come before what they call (left to right, top to
+// bottom), using the map's edges between the blocks they hold
+function flowOrder(items, itemOfBlock) {
+  const out = {}, inDeg = {};
+  for (const it of items) { out[it.id] = new Set(); inDeg[it.id] = 0; }
+  for (const e of doc.edges) {
+    if (e.kind === "mirror") continue;
+    const a = itemOfBlock[e.from], b = itemOfBlock[e.to];
+    if (a && b && a !== b && !out[a].has(b)) { out[a].add(b); inDeg[b]++; }
+  }
+  const depth = {};
+  let frontier = items.filter((it) => !inDeg[it.id]).map((it) => it.id);
+  if (!frontier.length && items.length) frontier = [items[0].id];
+  frontier.forEach((id) => (depth[id] = 0));
+  while (frontier.length) {
+    const next = [];
+    for (const id of frontier) for (const b of out[id]) if (depth[b] == null) { depth[b] = depth[id] + 1; next.push(b); }
+    frontier = next;
+  }
+  return items.slice().sort((x, y) => ((depth[x.id] ?? 99) - (depth[y.id] ?? 99)) || (y.w * y.h - x.w * x.h) || x.label.localeCompare(y.label));
+}
+// rows of items, each row as wide as fits `width`
+function shelf(items, width) {
+  let x = 0, y = 0, rowH = 0, maxW = 0;
+  for (const it of items) {
+    if (x > 0 && x + it.w > width) { x = 0; y += rowH + GAP; rowH = 0; }
+    it.rx = x; it.ry = y; x += it.w + GAP; rowH = Math.max(rowH, it.h); maxW = Math.max(maxW, x - GAP);
+  }
+  return { w: maxW, h: y + rowH };
+}
+const headerOf = (g) => g.kind === "file" ? 124 : Math.max(118, Math.min(380, g.w * 0.075));
+function layoutTree() {
+  pos = {};
+  const cr = $("canvas").getBoundingClientRect(), aspect = Math.max(1, (cr.width || 1600) / (cr.height || 900));
+  const size = (g) => {
+    const items = [];
+    const itemOfBlock = {};
+    for (const k of g.kids) {
+      const c = T.groups.get(k); size(c);
+      items.push({ id: c.id, w: c.w, h: c.h, label: groupName(k), g: c });
+      for (const b of c.members) itemOfBlock[b] = c.id;
+    }
+    // blocks: source order inside a file, flow order otherwise
+    const blocks = g.blocks.map((id) => doc.byId[id]).filter(Boolean);
+    const bItems = blocks.map((n) => ({ id: n.id, w: W, h: H, label: n.id, line: n.line || 0 }));
+    for (const it of bItems) itemOfBlock[it.id] = it.id;
+    const ordered = g.kind === "file" ? bItems.sort((a, b) => a.line - b.line || a.id.localeCompare(b.id))
+                                      : flowOrder([...items, ...bItems], itemOfBlock);
+    const all = g.kind === "file" ? bItems : ordered;
+    const area = all.reduce((s, it) => s + (it.w + GAP) * (it.h + GAP), 0);
+    const width = Math.max(...all.map((it) => it.w), Math.sqrt(area * (g.kind === "file" ? 1.6 : 1.5)));
+    const box = shelf(all, width);
+    g.items = all;
+    g.w = Math.max(box.w + 2 * PAD, 340);
+    g.hh = headerOf(g);
+    g.h = g.hh + box.h + PAD;
+  };
+  const top = T.roots.map((k) => T.groups.get(k));
+  top.forEach(size);
+  const itemOfBlock = {};
+  for (const g of top) for (const b of g.members) itemOfBlock[b] = g.id;
+  const roleRank = (g) => { const n = g.members.length || 1, src = (g.roles.source || 0) / n; return g.kind === "other" ? 3 : src >= 0.5 ? 0 : (g.roles.test || 0) + (g.roles.check || 0) >= (g.roles.tool || 0) ? 1 : 2; };
+  const items = flowOrder(top.map((g) => ({ id: g.id, w: g.w, h: g.h, label: groupName(g.key), g })), itemOfBlock)
+    .map((it, i) => ({ it, i })).sort((a, b) => roleRank(a.it.g) - roleRank(b.it.g) || a.i - b.i).map((x) => x.it);
+  const area = items.reduce((s, it) => s + (it.w + GAP * 3) * (it.h + GAP * 3), 0);
+  const saved = GAP;
+  const width = Math.max(...items.map((it) => it.w), Math.sqrt(area * aspect));
+  // the top level breathes more
+  let x = 0, y = 0, rowH = 0;
+  for (const it of items) {
+    if (x > 0 && x + it.w > width) { x = 0; y += rowH + saved * 4; rowH = 0; }
+    it.rx = x; it.ry = y; x += it.w + saved * 4; rowH = Math.max(rowH, it.h);
+  }
+  const place = (g, ox, oy) => {
+    pos[g.id] = { x: ox, y: oy, w: g.w, h: g.h, hh: g.hh };
+    for (const it of g.items) {
+      const ax = ox + PAD + it.rx, ay = oy + g.hh + it.ry;
+      if (it.g) place(it.g, ax, ay); else pos[it.id] = { x: ax, y: ay, w: W, h: H };
+    }
+  };
+  for (const it of items) place(it.g, it.rx, it.ry);
+}
+// is a container open on screen right now?
+function onScreen(r, margin) {
+  const cr = $("canvas").getBoundingClientRect();
+  const x = r.x * view.k + view.x, y = r.y * view.k + view.y, w = r.w * view.k, h = r.h * view.k;
+  return x + w > -margin && y + h > -margin && x < cr.width + margin && y < cr.height + margin;
+}
+function isOpen(g) {
+  if (collapsed.has(g.key)) return false;
+  const sw = g.w * view.k, sh = g.h * view.k, cr = $("canvas").getBoundingClientRect();
+  if (g.kind === "file") { if (view.k < 0.42 || (sw < 320 && sh < 260)) return false; }   // its blocks must be readable
+  else if (sw < Math.min(560, cr.width * 0.4) && sh < cr.height * 0.45) return false;    // its files must be readable
+  return onScreen(pos[g.id], 300);
+}
+function computeVisible() {
+  const units = new Map(), unitOfBlock = {};
+  const visit = (key) => {
+    const g = T.groups.get(key);
+    const open = isOpen(g);
+    units.set(g.id, { id: g.id, group: key, open, members: g.members, langs: g.langs, roles: g.roles, kind: g.kind });
+    if (!open) { for (const b of g.members) unitOfBlock[b] = g.id; return; }
+    for (const k of g.kids) visit(k);
+    for (const b of g.blocks) { units.set(b, { id: b, block: doc.byId[b], members: [b] }); unitOfBlock[b] = b; }
+  };
+  T.roots.forEach(visit);
+  VIS = { units, unitOfBlock };
+}
+// edges between the units shown (open containers are never ends: their children are)
+function buildView() {
+  const units = VIS.units, agg = new Map();
   for (const e of doc.edges) {
     if (!edgeVisible(e)) continue;
     const a = unitOf(e.from), b = unitOf(e.to);
@@ -336,6 +484,47 @@ function buildView() {
   V = { units, edges: [...agg.values()], out: {}, inn: {} };
   for (const e of V.edges) { (V.out[e.from] ||= []).push(e); (V.inn[e.to] ||= []).push(e); }
 }
+// the full rebuild: a new map, a filter change
+function layout() {
+  buildTree(); layoutTree(); computeVisible(); buildView();
+  visSig = [...VIS.units.keys()].join("|");
+}
+// the cheap one, on every view change: did what is shown change?
+let visPending = false;
+function refreshVisible() {
+  if (visPending || !T) return;
+  visPending = true;
+  requestAnimationFrame(() => {
+    visPending = false;
+    computeVisible();
+    const sig = [...VIS.units.keys()].join("|");
+    if (sig !== visSig) { visSig = sig; buildView(); draw(); }
+    renderCrumbs();
+  });
+}
+// where the view is: the deepest open container under the centre of the screen
+function renderCrumbs() {
+  const el = $("crumbs"); if (!el || !T) return;
+  const cr = $("canvas").getBoundingClientRect();
+  const cx = (cr.width / 2 - view.x) / view.k, cy = (cr.height / 2 - view.y) / view.k;
+  const path = [];
+  let level = T.roots;
+  for (;;) {
+    const hit = level.find((k) => { const r = pos["g:" + k]; return r && cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h && VIS.units.get("g:" + k)?.open; });
+    if (!hit) break;
+    path.push(hit); level = T.groups.get(hit).kids;
+  }
+  const html = `<a onclick="fit()">${esc(current ? current.mod : "map")}</a>` + path.map((k) => ` ▸ <a onclick="zoomToGroup('${esc(k)}')">${esc(groupName(k))}</a>`).join("");
+  if (html !== el._html) { el._html = html; el.innerHTML = html; }
+}
+// glide so a rectangle fills the screen
+function zoomToRect(r, maxK) {
+  const cr = $("canvas").getBoundingClientRect();
+  const k = Math.min(maxK || 1.2, (cr.width - 60) / r.w, (cr.height - 120) / r.h);
+  glideTo(cr.width / 2 - (r.x + r.w / 2) * k, (cr.height + 60) / 2 - (r.y + r.h / 2) * k, k);
+}
+function zoomToGroup(key) { const r = pos["g:" + key]; if (r) zoomToRect(r); }
+function toggleCollapse(key) { collapsed.has(key) ? collapsed.delete(key) : collapsed.add(key); computeVisible(); visSig = [...VIS.units.keys()].join("|"); buildView(); draw(); }
 const base = (p) => String(p || "").split("/").slice(-1)[0];
 // folders read relative to what they share (media/lua/... is noise)
 function folderName(dir) {
@@ -346,7 +535,11 @@ function folderName(dir) {
   const keep = parts.slice(0, Math.max(0, parts.length - 1)).join("/");   // keep one shared segment for context
   return keep && dir.startsWith(keep + "/") ? dir.slice(keep.length + 1) : dir;
 }
-function groupName(g) { return base(g.slice(2)) + (g.startsWith("d:") ? "/" : ""); }
+function groupName(g) {
+  if (g.startsWith("a:")) { const a = (doc.areas || []).find((x) => x.key === g.slice(2)); return a ? a.title : g.slice(2); }
+  const info = groupInfo(g);
+  return info && info.title ? info.title : base(g.slice(2)) + (g.startsWith("d:") ? "/" : "");
+}
 // where a folder sits, without the part every folder shares
 function folderCtx(dir) { const f = folderName(dir).split("/"); return f.slice(0, -1).join("/"); }
 function unitLabel(u) {
@@ -355,84 +548,24 @@ function unitLabel(u) {
   if (n.kind === "entry") return n.id;
   if (n.id.startsWith("file ")) return n.id.slice(5);          // a data file: its name, not its extension
   if (n.sketch) return n.fn;
+  if (n.aiTitle) return n.aiTitle;                              // the purpose, when the agent has written it
   const reg = /^(.+?)\("(.*)"\)$/.exec(short(n.id).replace(/@\d+$/, ""));
   if (reg) return `"${reg[2]}"`;                                // it("...") / registerSync("..."): the string names it
   return n.id.includes("::") ? short(n.id) : n.id.split(".").slice(-1)[0];   // static path::name / traced module.fn
 }
 function unitColor(u) {
   if (u.block) return colorOf(u.block);
+  if (u.group && u.group.startsWith("a:")) return `hsl(${hue(u.group)} 50% 62%)`;   // each area its own colour
   const rs = Object.keys(u.roles || {});
   if (rs.length === 1 && ROLE_COL[rs[0]]) return ROLE_COL[rs[0]];   // a folder of tests reads as tests
   const top = Object.entries(u.langs).sort((a, b) => b[1] - a[1])[0];
   return top && LANG[top[0]] ? LANG[top[0]] : `hsl(${hue(u.group)} 45% 55%)`;
 }
-function layout() {
-  buildView();
-  pos = {};
-  const ids = [...V.units.keys()], depth = {};
-  if (effLevel() === "block" && !doc.static) {
-    for (const id of ids) depth[id] = V.units.get(id).block.column || 0;   // traced: call depth from the event
-  } else {
-    // columns by who calls whom: breadth-first from the units nothing calls,
-    // so a unit sits one column right of its NEAREST caller (the deepest
-    // caller stretched a single chain of files across the whole screen)
-    const callers = (u) => (V.inn[u] || []).filter((e) => e.kind !== "mirror");
-    let frontier = ids.filter((u) => !callers(u).length);
-    if (!frontier.length && ids.length) frontier = [ids[0]];
-    for (const u of frontier) depth[u] = 0;
-    while (frontier.length) {
-      const next = [];
-      for (const u of frontier) for (const e of V.out[u] || []) {
-        if (e.kind === "mirror" || depth[e.to] != null) continue;
-        depth[e.to] = depth[u] + 1; next.push(e.to);
-      }
-      frontier = next;
-    }
-    for (const u of ids) if (depth[u] == null) depth[u] = 0;   // only reachable through a cycle
-    const lone = ids.filter((u) => !(V.inn[u] || []).length && !(V.out[u] || []).length);
-    const maxD = Math.max(0, ...ids.filter((u) => !lone.includes(u)).map((u) => depth[u]));
-    for (const u of lone) depth[u] = maxD + 1;    // unconnected units: one column at the end
-  }
-  // a sketch sits in its block's column, right under it (twice: a sketch may sit by a sketch)
-  const nearOf = {};
-  for (const u of ids) {
-    const b = V.units.get(u).block;
-    if (b && b.sketch && b.sketch.near) { const nu = unitOf(b.sketch.near); if (V.units.has(nu) && nu !== u) nearOf[u] = nu; }
-  }
-  for (let pass = 0; pass < 2; pass++) for (const u in nearOf) depth[u] = depth[nearOf[u]];
-  // pins sit above their tile: reserve that room so they never cover the tile above
-  const pinRows = pinPlan().rows, PIN_H = 22;
-  const cols = {};
-  for (const u of ids) (cols[depth[u]] ||= []).push(u);
-  // wrap tall columns so the whole map comes out about the canvas's shape
-  // (a fixed wrap turned 1252 blocks into a strip 80 columns wide)
-  const cr = $("canvas").getBoundingClientRect(), aspect = Math.max(0.8, (cr.width || 1600) / (cr.height || 900));
-  const ROWS = Math.max(8, Math.round(Math.sqrt(ids.length * (W + GX) / ((H + GY) * aspect))));
-  const rowOf = {}, lab = (u) => unitLabel(V.units.get(u)).toLowerCase();
-  let x = 0;
-  for (const c of Object.keys(cols).map(Number).sort((a, b) => a - b)) {
-    const list = cols[c];
-    // order by the average row of a unit's callers (fewer crossings), then by name
-    const bary = (u) => { const r = (V.inn[u] || []).map((e) => rowOf[e.from]).filter((v) => v != null); return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 1e9; };
-    list.sort((a, b) => (bary(a) - bary(b)) || lab(a).localeCompare(lab(b)));
-    const sk = list.filter((u) => nearOf[u] && list.includes(nearOf[u]));
-    for (const u of sk) list.splice(list.indexOf(u), 1);
-    for (const u of sk) { let k = list.indexOf(nearOf[u]) + 1; while (k < list.length && nearOf[list[k]] === nearOf[u]) k++; list.splice(k, 0, u); }
-    let y = 0;
-    list.forEach((u, i) => {
-      if (i % ROWS === 0) y = 0;
-      y += (pinRows[u] != null ? pinRows[u] + 1 : 0) * PIN_H;
-      pos[u] = { x: (x + Math.floor(i / ROWS)) * (W + GX), y }; rowOf[u] = i % ROWS;
-      y += H + GY;
-    });
-    x += Math.ceil(list.length / ROWS);
-  }
-}
 // ── rendering: changes are batched and flushed once per GPU frame ──────────
 // draw(animate) = the scene changed (layout, units, marks); applyHighlight() =
 // only looks changed. Both just mark dirty; FlowGPU calls flush() before it
 // renders, so a burst of agent events costs one frame.
-const dirty = { scene: false, style: false, trail: false, animate: false };
+const dirty = { scene: false, style: false, trail: false, animate: false, edges: false };
 let prevMember = new Map(), prevUnits = new Map(), prevPos = {};
 function draw(animate) { dirty.scene = dirty.style = dirty.trail = true; if (animate) dirty.animate = true; FlowGPU.invalidate(); }
 function applyHighlight() { dirty.style = true; FlowGPU.invalidate(); }
@@ -440,9 +573,10 @@ FlowGPU.beforeFrame = () => {
   if (!doc) return;
   const t0 = performance.now();
   if (dirty.scene || dirty.style) syncScene(dirty.animate, dirty.scene);
+  else if (dirty.edges) FlowGPU.setEdges(edgesForRender(selected ? unitOf(selected) : null));
   if (dirty.trail) drawTrail();
   if (dirty.scene || dirty.style) lastFlush = performance.now() - t0;
-  dirty.scene = dirty.style = dirty.trail = dirty.animate = false;
+  dirty.scene = dirty.style = dirty.trail = dirty.animate = dirty.edges = false;
 };
 let lastFlush = 0;
 function marksInfo(u) {
@@ -460,7 +594,7 @@ function marksInfo(u) {
   const ts = [...new Set(m.flatMap((id) => (taskOf.get(id) || []).map((t) => t.id)))];
   if (ts.length) parts.unshift(ts.slice(0, 3).map((x) => "#" + x).join(" "));
   if (stale) parts.push(one ? "stale" : stale + " stale");
-  else if (sums) parts.push(one ? "summary" : sums + "/" + m.length + " sum");
+  else if (sums) parts.push(one ? "summary" : sums + "/" + m.length + " summarized");
   const onlySum = parts.length === 1 && !stale && sums && !locked && !notes && !edited;
   return { text: parts.join(" · "), color: onlySum ? "#5fb36b" : "#e0913c" };
 }
@@ -479,6 +613,7 @@ function syncScene(animate, sceneChanged) {
   const units = [];
   for (const u of V.units.values()) {
     const q = pos[u.id]; if (!q) continue;
+    const kind = u.block ? "card" : u.open ? "frame" : "closed";
     let gl = null;
     for (const id of u.members) { const x = glow[id]; if (x && (!gl || GRANK[x.kind] > GRANK[gl.kind])) gl = x; }
     const color = unitColor(u);
@@ -493,31 +628,46 @@ function syncScene(animate, sceneChanged) {
       : isPlanned ? { color: "#d9a441", width: 2.2, dash: [8, 4] }
       : isEdited ? { color: "#e0913c", width: 2 }
       : { color, width: 1.2 };
-    const nFiles = u.group && u.group.startsWith("d:") ? new Set(u.members.map((id) => doc.byId[id].file)).size : 0;
+    const nFiles = u.group && /^[da]:/.test(u.group) ? new Set(u.members.map((id) => doc.byId[id].file)).size : 0;
+    const gInfo = u.group ? groupInfo(u.group) : null;
     const sub = u.group
-      ? (nFiles ? `${folderCtx(u.group.slice(2)) || Object.keys(u.langs).filter(Boolean).join("+")} · ${nFiles} files`
-                : `${Object.keys(u.langs).filter(Boolean).join("+")} · ${base(dirOf(u.group.slice(2)))}`)
+      ? (u.group.startsWith("x:") ? `outside the code · ${u.members.length} blocks`
+         : u.group.startsWith("f:") ? `${base(u.group.slice(2))} · ${u.members.length} blocks`
+         : u.group.startsWith("a:") ? `area · ${nFiles} files · ${u.members.length} blocks`
+         : nFiles ? `${folderCtx(u.group.slice(2)) || Object.keys(u.langs).filter(Boolean).join("+")} · ${nFiles} files`
+         : (gInfo && gInfo.title ? base(u.group.slice(2)) + " · " : "") + `${Object.keys(u.langs).filter(Boolean).join("+")} · ${base(dirOf(u.group.slice(2)))}`)
+      : u.block.aiTitle ? `${short(u.block.id)} · ${base(u.block.file || u.block.module)}`
       : u.block.sketch ? `sketch · ${u.block.sketch.kind}${u.block.sketch.temp ? " · temporary" : ""}`
       : (u.block.kind === "entry" ? "entry point"
          : (() => { const reg = /^(.+?)\("/.exec(short(u.block.id)); const who = reg ? reg[1].split(/[.:]/).slice(-1)[0] + " · " : "";
                     return who + (u.block.role ? u.block.role + " · " : u.block.lang ? u.block.lang + " / " : "") + String(u.block.module || "").split("/").slice(-1)[0]; })());
     const label = unitLabel(u), mk = marksInfo(u);
-    units.push({ id: u.id, x: q.x, y: q.y,
-      label: label.length > 28 ? label.slice(0, 27) + "…" : label,
-      sub: sub.length > 21 ? "…" + sub.slice(-20) : sub,
-      cnt: u.group ? u.members.length + " blocks ▸" : "×" + u.block.calls,
+    // what it is for: the agent's summary, else the doc comment (code's own words)
+    let body = u.group ? (u.group.startsWith("a:") ? ((doc.areas || []).find((x) => x.key === u.group.slice(2)) || {}).text || (gInfo && gInfo.text) : gInfo && gInfo.text)
+                       : (u.block.ai || (u.block.summary && u.block.summary !== "Top-level code of the file." ? u.block.summary : ""));
+    body = String(body || "");
+    const lim = kind === "card" ? 92 : 320;
+    if (body.length > lim) body = body.slice(0, lim - 1).replace(/\s+\S*$/, "") + "…";
+    // a closed container: the outlines of what it holds (its shape before you zoom in)
+    const kids = kind === "closed" && T.groups.get(u.group) ? (T.groups.get(u.group).items || []).slice(0, 240).map((it) => {
+      const r = pos[it.id]; return r ? [Math.round(r.x - q.x), Math.round(r.y - q.y), Math.round(r.w), Math.round(it.g ? Math.min(r.h, r.h) : r.h)] : null; }).filter(Boolean) : null;
+    units.push({ id: u.id, kind, x: q.x, y: q.y, w: q.w || W, h: q.h || H, hh: q.hh, kids,
+      chev: u.group ? (u.open ? "▾" : "▸") : "",
+      label: kind === "card" && label.length > 34 ? label.slice(0, 33) + "…" : label,
+      sub: kind === "card" ? (sub.length > 44 ? "…" + sub.slice(-43) : sub) : sub + (mk.text ? "  ·  " + mk.text : ""),
+      body,
+      cnt: u.group ? (nFiles && u.group.startsWith("a:") ? u.members.length + " blocks ▸" : u.members.length + " blocks ▸") : "×" + u.block.calls,
       marks: mk.text, marksColor: mk.color,
       look: { color, group: !!u.group, ghost, fill: isLocked ? "#1d1414" : ghost ? "#121417" : u.group ? "#1d2227" : "#181c20", border, task: taskTint(u),
-              dim: on && !on.has(u.id) && !gl ? 0.14 : 1, glow: gl ? gl.kind : null } });
+              dim: kind === "frame" ? 1 : on && !on.has(u.id) && !gl ? 0.14 : 1, glow: gl ? gl.kind : null } });
   }
   FlowGPU.syncScene({ units,
     // a new unit grows out of whatever held its first block before; a removed
     // one shrinks into whatever holds its first block now
     from: (id) => { const u = V.units.get(id); const was = u && prevMember.get(u.members[0]); return was && prevPos[was] ? prevPos[was] : null; },
     into: (id) => { const m = prevUnits.get(id); const now = m && unitOf(m[0]); return now && pos[now] ? pos[now] : null; } }, animate);
+  FlowGPU.setEdges(edgesForRender(selU));
   if (sceneChanged) {
-    const maxC = Math.max(1, ...V.edges.map((e) => e.count));
-    FlowGPU.setEdges(V.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, w: 0.8 + 3 * Math.log1p(e.count) / Math.log1p(maxC) })));
     prevMember = new Map(); prevUnits = new Map();
     for (const u of V.units.values()) { prevUnits.set(u.id, u.members); for (const id of u.members) prevMember.set(id, u.id); }
     prevPos = { ...pos };
@@ -527,20 +677,35 @@ function syncScene(animate, sceneChanged) {
   FlowGPU.setHighlight(hot, fresh);
   pinsAndDock();
 }
-function toggleOpen(key) {
-  opened.has(key) ? opened.delete(key) : opened.add(key);
-  layout(); draw(true);
+// edges by level: between containers always (bundled: one per pair); between
+// functions only around what you point at, select, or are shown (all edges: every one)
+function edgesForRender(selU) {
+  const focus = new Set();
+  if (selU) focus.add(selU);
+  if (hoverId) focus.add(hoverId);
+  if (hotIds) for (const id of hotIds) focus.add(unitOf(id));
+  const keep = V.edges.filter((e) => {
+    const cardA = !e.from.startsWith("g:"), cardB = !e.to.startsWith("g:");
+    if (!(cardA && cardB) || allEdges) return true;
+    return focus.has(e.from) || focus.has(e.to) || e.kind && e.kind !== "call";
+  });
+  const maxC = Math.max(1, ...keep.map((e) => e.count));
+  const near = (e) => focus.has(e.from) || focus.has(e.to);
+  return keep.map((e) => ({ from: e.from, to: e.to, kind: e.kind, w: 0.8 + 3.4 * Math.log1p(e.count) / Math.log1p(maxC),
+                            faint: (e.from.startsWith("g:") || e.to.startsWith("g:")) && !near(e) && !(e.kind && e.kind !== "call") }));
 }
 function groupPanel(u) {
   const link = (ids) => ids.map((x) => `<a onclick="select('${esc(x)}')">${esc(x.replace(/^g:/, ""))}</a>`).join("");
   const ins = [...new Set((V.inn[u.id] || []).map((e) => e.from))], outs = [...new Set((V.out[u.id] || []).map((e) => e.to))];
   const blocks = u.members.map((id) => doc.byId[id]).sort((a, b) => (a.line || 0) - (b.line || 0));
-  const isDir = u.group.startsWith("d:");
+  const isDir = /^[da]:/.test(u.group);
   const files = isDir ? [...new Set(blocks.map((n) => n.file))].sort() : [];
   $("det").innerHTML = `<div class="det">
-    <div class="id">${esc(u.group.slice(2))}${isDir ? "/" : ""}</div>
-    <div class="modl">${isDir ? files.length + " files · " : ""}${u.members.length} blocks · ${esc(Object.keys(u.langs).filter(Boolean).join(", "))} · double-click it on the chart to open</div>
-    <button onclick="toggleOpen('${esc(u.group)}')">open into its ${isDir ? "files" : "blocks"}</button>
+    <div class="id">${esc(groupName(u.group))}</div>
+    ${(() => { const a = u.group.startsWith("a:") ? (doc.areas || []).find((x) => x.key === u.group.slice(2)) : null; const t = a ? a.text : (groupInfo(u.group) || {}).text; return t ? `<div class="ai"><b>What it is for</b>${esc(t)}</div>` : ""; })()}
+    <div class="modl">${isDir ? files.length + " files · " : ""}${u.members.length} blocks · ${esc(Object.keys(u.langs).filter(Boolean).join(", "))}</div>
+    <button onclick="zoomToGroup('${esc(u.group)}')">zoom in</button>
+    <button onclick="toggleCollapse('${esc(u.group)}')">${collapsed.has(u.group) ? "expand" : "collapse"}</button>
     ${isDir ? `<h2 style="margin:10px 0 2px">Files</h2>${files.map((f) => {
         const ms = blocks.filter((n) => n.file === f), sums = ms.filter((n) => n.ai).length;
         return `<div style="margin:2px 0"><a style="color:var(--link);cursor:pointer;font-family:var(--mono);font-size:11.5px" onclick="openFile('${esc(f)}')">${esc(base(f))}</a>
@@ -554,19 +719,11 @@ function groupPanel(u) {
   </div>`;
 }
 // from a folder's panel: open the folder, then show the file
-function openFile(f) {
-  const n = doc.nodes.find((x) => x.file === f); if (!n) return;
-  const c = chainOf(n);
-  for (const k of c.slice(0, -1)) opened.add(k);
-  layout();
-  draw(true);
-  const id = c.length ? "g:" + c[c.length - 1] : n.id;
-  select(id); centerOn(id);
-}
+function openFile(f) { zoomToGroup("f:" + f); }
 function centerOn(id) {
   const q = pos[id]; if (!q) return;
   const r = $("canvas").getBoundingClientRect();
-  view.x = r.width / 2 - (q.x + W / 2) * view.k; view.y = r.height / 2 - (q.y + H / 2) * view.k; apply();
+  view.x = r.width / 2 - (q.x + q.w / 2) * view.k; view.y = r.height / 2 - (q.y + Math.min(q.h, 200) / 2) * view.k; apply();
 }
 function renderTimeline() {
   $("tl").innerHTML = doc.timeline.map((t, i) => `<div class="tl" data-i="${i}"><div class="s">${esc(t.step)}</div>
@@ -592,11 +749,12 @@ async function select(id) {
     selected = id; hotIds = null;
     document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
     applyHighlight();
-    const u = V.units.get(id); if (u) groupPanel(u);
+    const u = V.units.get(id) || (T && T.groups.get(id.slice(2)) && { id, group: id.slice(2), members: T.groups.get(id.slice(2)).members, langs: T.groups.get(id.slice(2)).langs });
+    if (u) groupPanel(u);
     return;
   }
   const n = doc.byId[id]; if (!n) return;
-  if (visible(n) && openChain(n)) { layout(); draw(true); centerOn(id); }
+  if (visible(n) && unitOf(id) !== id) { const q = pos[id]; if (q) zoomToRect({ x: q.x - 260, y: q.y - 180, w: q.w + 520, h: q.h + 360 }, 1); }
   if (n.sketch) { selected = id; hotIds = null; applyHighlight(); return sketchPanel(n); }
   selected = id; hotIds = null;
   document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
@@ -630,10 +788,20 @@ async function select(id) {
   }
 }
 // pan / zoom / pick: the GPU canvas is hit-tested here (tiles are rectangles)
-function apply() { FlowGPU.setView(view); }
+function apply() { FlowGPU.setView(view); refreshVisible(); }
+// the farthest out you can zoom: the whole map fits with room to spare (the
+// map's size sets it, not a constant: a big codebase lays out very large)
+function minZoom() {
+  if (!T) return 0.08;
+  const rs = T.roots.map((k) => pos["g:" + k]).filter(Boolean); if (!rs.length) return 0.08;
+  const maxX = Math.max(...rs.map((p) => p.x + p.w)), maxY = Math.max(...rs.map((p) => p.y + p.h));
+  const r = $("canvas").getBoundingClientRect();
+  return Math.min(0.08, 0.5 * Math.min(r.width / maxX, r.height / maxY));
+}
 function fit() {
-  const xs = Object.values(pos); if (!xs.length) return;
-  const maxX = Math.max(...xs.map((p) => p.x)) + W, maxY = Math.max(...xs.map((p) => p.y)) + H;
+  if (!T) return;
+  const rs = T.roots.map((k) => pos["g:" + k]).filter(Boolean); if (!rs.length) return;
+  const maxX = Math.max(...rs.map((p) => p.x + p.w)), maxY = Math.max(...rs.map((p) => p.y + p.h));
   const r = $("canvas").getBoundingClientRect();
   const top = 84;   // the task strip and the pins above the top row
   view.k = Math.min(1.2, (r.width - 40) / maxX, (r.height - top - 20) / maxY); view.x = 20; view.y = top; apply();
@@ -672,7 +840,7 @@ window.addEventListener("mouseup", () => {
       const a = FlowGPU.screenToWorld(Math.min(lasso.x0, lasso.x1), Math.min(lasso.y0, lasso.y1));
       const b = FlowGPU.screenToWorld(Math.max(lasso.x0, lasso.x1), Math.max(lasso.y0, lasso.y1));
       for (const [id, q] of Object.entries(pos))
-        if (q.x + W >= a.x && q.x <= b.x && q.y + H >= a.y && q.y <= b.y) for (const m of (V.units.get(id) || { members: [id] }).members) picked.add(m);
+        if (V.units.has(id) && !V.units.get(id).open && q.x + q.w >= a.x && q.x <= b.x && q.y + q.h >= a.y && q.y <= b.y) for (const m of V.units.get(id).members) picked.add(m);
       updateSel();
     }
     lasso = null; return;
@@ -681,6 +849,14 @@ window.addEventListener("mouseup", () => {
   const p = press; press = null; cv.classList.remove("drag");
   if (p.moved) return;
   const id = FlowGPU.hit(p.at.x, p.at.y);
+  if (id && id.startsWith("g:") && !p.shift) {
+    const key = id.slice(2);
+    if (FlowGPU.lastPart === "chevron") { toggleCollapse(key); if (!collapsed.has(key)) zoomToGroup(key); return; }
+    select(id);
+    const u = V.units.get(id);
+    if (!(u && u.open && FlowGPU.lastPart !== "header")) zoomToGroup(key);   // a closed one, or an open one's header: zoom to it
+    return;
+  }
   if (!id) { selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); return; }
   const u = V.units.get(id);
   if (p.shift && u) {
@@ -691,16 +867,20 @@ window.addEventListener("mouseup", () => {
   select(id);
 });
 cv.ondblclick = (e) => {
-  const p = local(e), id = FlowGPU.hit(p.x, p.y); if (!id) return;
-  const u = V.units.get(id); if (!u) return;
-  if (u.group) toggleOpen(u.group);
-  else { const k = groupKey(u.block); if (k != null && opened.has(k)) toggleOpen(k); }   // a block closes its file
+  const p = local(e), id = FlowGPU.hit(p.x, p.y);
+  if (id && !id.startsWith("g:")) { const q = pos[id]; if (q) zoomToRect({ x: q.x - 200, y: q.y - 150, w: q.w + 400, h: q.h + 300 }, 1.4); }
 };
+// Esc: up one level (the container around the one you are in)
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+  const links = [...document.querySelectorAll("#crumbs a")];
+  if (links.length >= 2) links[links.length - 2].click(); else fit();
+});
 cv.addEventListener("wheel", (e) => {
   e.preventDefault();
   stopGlide(); pauseFollow();
   const p = local(e);
-  const k = Math.max(0.08, Math.min(3, view.k * Math.exp(-e.deltaY * 0.0015)));
+  const k = Math.max(minZoom(), Math.min(3, view.k * Math.exp(-e.deltaY * 0.0015)));
   view.x = p.x - (p.x - view.x) * (k / view.k); view.y = p.y - (p.y - view.y) * (k / view.k); view.k = k; apply();
 }, { passive: false });
 // hover: the full name (tiles truncate) and a pointer over anything clickable
@@ -708,12 +888,14 @@ let tipFor = null;
 function hover(p, e) {
   const id = FlowGPU.hit(p.x, p.y);
   cv.style.cursor = id ? "pointer" : "grab";
+  const hv = id && !id.startsWith("g:") ? id : null;
+  if (hv !== hoverId) { hoverId = hv; dirty.edges = true; FlowGPU.invalidate(); }
   if (id === tipFor) { if (id) placeTip(p); return; }
   tipFor = id;
   if (!id) return hideTip();
   const u = V.units.get(id); if (!u) return hideTip();
-  const name = u.group ? u.group.slice(2) + (u.group.startsWith("d:") ? "/" : "") : u.block.id;
-  const extra = u.group ? `${u.members.length} blocks · double-click to open` : (u.block.ai || u.block.summary || "");
+  const name = u.group ? groupName(u.group) : u.block.id;
+  const extra = u.group ? (((doc.areas || []).find((x) => "a:" + x.key === u.group) || {}).text || (groupInfo(u.group) || {}).text || "") + ` (${u.members.length} blocks · double-click to open)` : (u.block.ai || u.block.summary || "");
   $("tip").innerHTML = `<b>${esc(name)}</b>${extra ? `<div>${esc(extra.length > 220 ? extra.slice(0, 219) + "…" : extra)}</div>` : ""}`;
   $("tip").style.display = "block"; placeTip(p);
 }
@@ -862,8 +1044,8 @@ function pinPlan() {
       if (!doc.byId[real] || !visible(doc.byId[real])) continue;
       const u = unitOf(real); if (V.units.has(u)) count[u] = (count[u] || 0) + 1;
     }
-    const best = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
-    if (!best) { dock.push(t); continue; }
+    const best = Object.entries(count).filter(([u]) => !u.startsWith("g:")).sort((a, b) => b[1] - a[1])[0];
+    if (!best) { if (!Object.keys(count).length) dock.push(t); continue; }
     const row = rows[best[0]] = (rows[best[0]] ?? -1) + 1;
     pins.push({ id: best[0], row, color: taskColor(t.id), active: t.id === activeTask,
                 text: `#${t.id} ${t.title.length > 38 ? t.title.slice(0, 37) + "…" : t.title}`, task: t.id });
@@ -889,6 +1071,11 @@ const STEP_ICON = { open: ["▸", "#7fb2e0"], done: ["✓", "#5fb36b"], failed: 
 async function loadSteps() {
   try { const r = await (await fetch("/api/flow/steps")).json(); steps = r.steps || []; openStep = r.open; } catch (_) { steps = []; }
   renderTaskList(); renderStrip();
+  if (follow.on && !follow.paused && doc) {
+    const st = openStep != null && steps.find((x) => x.id === openStep);
+    const ids = st ? Object.keys(st.blocks || {}).filter((id) => doc.byId[id]) : [];
+    if (ids.length) { hotIds = new Set(ids); applyHighlight(); }
+  }
   if (shownTask != null && selected == null) { const t = tasks.find((x) => x.id === shownTask); if (t) taskPanel(t); }
 }
 const ago = (t) => { if (!t) return ""; const s = Math.max(0, (Date.now() - t) / 1000); return s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.round(s / 60) + "m" : s < 86400 ? Math.round(s / 3600) + "h" : Math.round(s / 86400) + "d"; };
@@ -989,17 +1176,11 @@ function queueFollow(ids) {
 }
 function followTo(ids) {
   const id = ids.find((x) => doc.byId[x] && visible(doc.byId[x])); if (!id) return;
-  const n = doc.byId[id], chain = chainOf(n);
-  let changed = false;
-  // close what follow opened that this block does not need
-  for (const k of [...follow.auto]) if (!chain.includes(k)) { opened.delete(k); follow.auto.delete(k); changed = true; }
-  for (const k of chain) if (!opened.has(k)) { opened.add(k); follow.auto.add(k); changed = true; }
-  if (changed) { layout(); draw(true); }
   select(id);
-  const q = pos[unitOf(id)]; if (!q) return;
+  const q = pos[id]; if (!q) return;
   const r = $("canvas").getBoundingClientRect();
   const k = Math.min(1.15, Math.max(view.k, 0.95));
-  glideTo(r.width / 2 - (q.x + W / 2) * k, r.height / 2 - (q.y + H / 2) * k, k);
+  glideTo(r.width / 2 - (q.x + q.w / 2) * k, r.height / 2 - (q.y + q.h / 2) * k, k);
 }
 // a camera move, eased; manual input cancels it
 function glideTo(x, y, k, ms = 450) {
@@ -1261,9 +1442,10 @@ function connect() {
     else if (e.type === "tasks") { await loadCollab(); draw(); }
     else if (e.type === "steps") await loadSteps();
     else if (e.type === "summaries" && here) open(current.mod + "|" + current.name, true);
-    else if (e.type === "regen" && here) $("liveState").textContent = "· rebuilding the map";
+    else if (e.type === "regen" && here) { $("liveState").textContent = "· rebuilding the map"; toast("Rebuilding the map from the code…"); }
     else if (e.type === "reload" && here) {
       $("liveState").textContent = e.ok ? "· map rebuilt" : "· map rebuild FAILED";
+      toast(e.ok ? "" : "The map rebuild failed: " + (e.error || "see the dashboard log"));
       await open(current.mod + "|" + current.name, true);
       doc.newEdges = new Set(e.added.map((x) => `${x.from}|${x.to}|${x.kind}`));
       for (const x of e.added) feed.push({ kind: "added", at: Date.now(), ids: [x.from, x.to], text: `${x.kind}: ${short(x.from)} → ${short(x.to)}` });
@@ -1276,10 +1458,12 @@ function connect() {
 if (!new URLSearchParams(location.search).has("nolive")) connect();
 $("pick").onchange = () => { follow.auto = new Set(); open($("pick").value); };
 $("leaves").onchange = () => { layout(); draw(); fit(); };
-$("level").onchange = () => { opened = new Set(); layout(); draw(); fit(); };
+$("allEdges").onchange = () => { allEdges = $("allEdges").checked; applyHighlight(); };
 $("xlang").onchange = () => { layout(); draw(); fit(); };
 $("showTests").onchange = $("showTools").onchange = () => { layout(); draw(); fit(); };
 $("fit").onclick = fit;
+FlowGPU.W = W; FlowGPU.H = H;
+showLoading("Starting the renderer…");
 FlowGPU.init($("canvas")).then(() => { apply(); load(); });
 </script>
 </body>

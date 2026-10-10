@@ -379,6 +379,11 @@ function codeSlice(root, n) {
     return lines.slice(a - 1, b).join("\n");
   } catch (_) { return null; }
 }
+const textHash = (t) => require("crypto").createHash("sha1").update(String(t).replace(/\r/g, "")).digest("hex").slice(0, 12);
+// named areas: concept groups of files the agent writes beside the map
+// (flow/<name>.areas.json: { areas: [{ key, title, text, files: [...] }] })
+function areasPath(loc) { return loc.file.replace(/\.flyke$/, ".areas.json"); }
+function readAreas(loc) { try { return JSON.parse(fs.readFileSync(areasPath(loc), "utf8")).areas || []; } catch (_) { return []; } }
 function codeHash(root, n) {
   const code = codeSlice(root, n);
   return code == null ? null : require("crypto").createHash("sha1").update(code).digest("hex").slice(0, 12);
@@ -481,15 +486,34 @@ const server = http.createServer(async (req, res) => {
       const store = readSummaries(loc);
       let wrote = 0;
       const unknown = [];
-      for (const [id, text] of Object.entries(body.summaries || {})) {
-        const n = byId[id];
-        if (!n || typeof text !== "string" || !text.trim()) { unknown.push(id); continue; }
-        store[id] = { text: text.trim(), hash: codeHash(loc.root, n), by: body.by || "agent", at: new Date().toISOString().slice(0, 10) };
+      for (const [id, val] of Object.entries(body.summaries || {})) {
+        const text = typeof val === "string" ? val : val && val.text;
+        const title = val && typeof val === "object" && val.title ? String(val.title).trim().slice(0, 60) : undefined;
+        if (typeof text !== "string" || !text.trim()) { unknown.push(id); continue; }
+        // a block: keyed to its code; a file (f:path): to the file's text; a
+        // folder (d:path) or an area (a:key): never stale
+        let hash;
+        if (byId[id]) hash = codeHash(loc.root, byId[id]);
+        else if (id.startsWith("f:")) { const src = blockSource(loc.root, id.slice(2)); if (src == null) { unknown.push(id); continue; } hash = textHash(src); }
+        else if (id.startsWith("d:") || id.startsWith("a:")) hash = null;
+        else { unknown.push(id); continue; }
+        store[id] = { text: text.trim(), title, hash, by: body.by || "agent", at: new Date().toISOString().slice(0, 10) };
         wrote++;
       }
       fs.writeFileSync(loc.summaries, JSON.stringify(sortKeys(store), null, 1) + "\n");
       collab.broadcast({ type: "summaries", mod: body.mod, name: body.name, ids: Object.keys(body.summaries || {}) });
       return json(res, 200, { wrote, unknown });
+    }
+    if (url.pathname === "/api/flow/areas" && req.method === "POST") {
+      const body = await readBody(req);
+      const loc = flykeLocation(body.mod, body.name);
+      if (!loc) return json(res, 404, { error: "no such .flyke" });
+      const clean = (body.areas || []).filter((a) => a && a.key && a.title && Array.isArray(a.files)).map((a) => ({
+        key: String(a.key).replace(/[^\w.-]/g, "_").slice(0, 40), title: String(a.title).slice(0, 60), text: String(a.text || "").slice(0, 400),
+        files: [...new Set(a.files.map(String))].sort() }));
+      fs.writeFileSync(areasPath(loc), JSON.stringify({ areas: clean }, null, 1) + "\n");
+      collab.broadcast({ type: "summaries", mod: body.mod, name: body.name, ids: [] });
+      return json(res, 200, { wrote: clean.length });
     }
     if (url.pathname === "/api/flow/version") {
       const loc = flykeLocation(url.searchParams.get("mod"), url.searchParams.get("name"));
@@ -522,9 +546,17 @@ const server = http.createServer(async (req, res) => {
       for (const n of doc.nodes) {
         const sm = store[n.id];
         if (!sm) continue;
-        n.ai = sm.text; n.aiBy = sm.by; n.aiAt = sm.at;
+        n.ai = sm.text; n.aiBy = sm.by; n.aiAt = sm.at; if (sm.title) n.aiTitle = sm.title;
         if (sm.hash && sm.hash !== codeHash(doc.root, n)) n.aiStale = true;
       }
+      doc.groups = {};
+      for (const [k, sm] of Object.entries(store)) {
+        if (!/^[fda]:/.test(k)) continue;
+        let stale = false;
+        if (k.startsWith("f:") && sm.hash) { const src = blockSource(doc.root, k.slice(2)); stale = src != null && textHash(src) !== sm.hash; }
+        doc.groups[k] = { title: sm.title, text: sm.text, by: sm.by, at: sm.at, stale };
+      }
+      doc.areas = loc ? readAreas(loc) : [];
       return json(res, 200, doc);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {

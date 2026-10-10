@@ -126,11 +126,11 @@ const TOOLS = [
   },
   {
     name: "flow_summarize",
-    description: "SousVide Flow: write summaries onto blocks of a flow chart (one plain sentence each: what data comes in, what the block does with it, what goes out). Stored beside the map in flow/<name>.summaries.json, keyed to a hash of each block's code, so a summary goes stale when its code changes. The viewer shows them live.",
+    description: "SousVide Flow: write what things are FOR onto a flow chart, the text its cards show without a click. Keys: a block id, f:<file path> (a file), d:<folder path> or a:<area key>. Value: a sentence, or { title, text }: title = a short phrase naming its purpose (\"Stir action executor\"), text = one or two plain sentences (what comes in, what it does, what goes out). Block and file summaries are keyed to a hash of their code, so they go stale when it changes. Write them for the region you are about to work in.",
     inputSchema: { type: "object", properties: {
       mod: { type: "string", description: "the map's folder, as flow_selection returns it (e.g. vps-leaderboard)" },
       name: { type: "string", description: "the map's name (e.g. system)" },
-      summaries: { type: "object", description: "{ blockId: sentence }", additionalProperties: { type: "string" } },
+      summaries: { type: "object", description: "{ key: sentence | { title, text } }" },
       by: { type: "string", description: "who wrote them (default: agent)" },
     }, required: ["mod", "name", "summaries"] },
     run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/summaries", { mod: a.mod, name: a.name, summaries: a.summaries, by: a.by || "agent" }); },
@@ -144,6 +144,15 @@ const TOOLS = [
       note: { type: "string", description: "one or two sentences: what you will change and why" },
     }, required: ["mod", "name", "ids", "note"] },
     run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/plan", { mod: a.mod, name: a.name, ids: a.ids, note: a.note }); },
+  },
+  {
+    name: "flow_areas",
+    description: "SousVide Flow: name the AREAS of a map, the concept groups an operator reads it by (\"Running effects\", \"A weapon's life\"). Each area: key, title (a few words), text (one sentence: what this part of the system is for), files (paths as the map has them). Replaces the map's areas (flow/<name>.areas.json). The viewer shows areas as the top level, above files, for the files they hold.",
+    inputSchema: { type: "object", properties: {
+      mod: { type: "string" }, name: { type: "string" },
+      areas: { type: "array", items: { type: "object", properties: { key: { type: "string" }, title: { type: "string" }, text: { type: "string" }, files: { type: "array", items: { type: "string" } } }, required: ["key", "title", "files"] } },
+    }, required: ["mod", "name", "areas"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/areas", a); },
   },
   {
     name: "flow_step",

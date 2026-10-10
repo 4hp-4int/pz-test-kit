@@ -1,17 +1,19 @@
 // SousVide Flow: the GPU renderer (PixiJS v8, WebGL). flow.html owns the model
-// (units, edges, positions, styles, the trail); this only draws it.
+// (the nested layout, what is shown at this zoom, styles, the trail); this
+// only draws it.
 //
-// - Retained, keyed scene: one display object per unit and it is PATCHED on
-//   change (position, text, border), never rebuilt. A layout change tweens
-//   units to their new places; new units grow out of the unit that held them
-//   and removed ones shrink into the unit that now holds them.
-// - On-demand frames: nothing renders while nothing changes. Tweens and the
-//   agent's glow keep frames coming only while they run.
-// - Level of detail: below LOD_K zoom, text is hidden (tiles become blocks).
-// - Culling: units off screen are skipped (CullerPlugin).
+// - Retained, keyed scene: one display object per unit, PATCHED on change
+//   (position, size, text, border), never rebuilt. A layout change tweens.
+// - Three kinds of unit: a CARD (a block, world-sized text), a FRAME (an open
+//   container: area or file, drawn under everything with its header), and a
+//   CLOSED container (one card standing for all it holds). Container headers
+//   keep a readable size on screen at any zoom (counter-scaled text).
+// - On-demand frames: nothing renders while nothing changes.
+// - Level of detail: below LOD_K zoom, card text is hidden; culling skips
+//   off-screen units.
 /* global PIXI */
 (function () {
-  const LOD_K = 0.45, TWEEN_MS = 240;
+  const LOD_K = 0.38, TWEEN_MS = 240;
   const toHex = (c) => {
     if (typeof c === "number") return c;
     c = String(c).trim();
@@ -25,12 +27,12 @@
   const ease = (t) => 1 - Math.pow(1 - t, 3);
 
   const G = {
-    app: null, W: 230, H: 50, view: { x: 0, y: 0, k: 1 }, lod: true,
-    units: new Map(),      // id -> { box, bg, ring, texts, x, y, tw, style, data }
-    dying: new Map(),      // id -> obj, shrinking away
+    app: null, W: 300, H: 88, view: { x: 0, y: 0, k: 1 }, lod: true,
+    units: new Map(),      // id -> { box, bg, ring, kind, x, y, w, h, tw, ... }
+    dying: new Map(),
     edges: [], hot: null, newEdges: null, trail: null,
     stats: { ms: 0, fps: 0, frames: 0, t0: 0, units: 0, edges: 0 },
-    scheduled: false, edgeFade: 1, onStats: null,
+    scheduled: false, edgeFade: 1, onStats: null, headK: 0,
   };
 
   G.init = async function (el) {
@@ -42,9 +44,12 @@
     app.canvas.style.display = "block";
     PIXI.BitmapFont.install({ name: "FlowMono", resolution: Math.max(2, window.devicePixelRatio || 1), padding: 4, dynamicFill: true,
       chars: [[" ", "~"], "…▸→·×▾"], style: { fontFamily: "JetBrains Mono, Cascadia Mono, Consolas, monospace", fontSize: 28, fill: 0xffffff } });
+    // headers: a proportional face, read as prose (titles and purpose lines)
+    PIXI.BitmapFont.install({ name: "FlowSans", resolution: Math.max(2, window.devicePixelRatio || 1), padding: 4, dynamicFill: true,
+      chars: [[" ", "~"], "…▸→·×▾’—"], style: { fontFamily: "Segoe UI, system-ui, sans-serif", fontSize: 32, fill: 0xffffff } });
     const world = new PIXI.Container();
     const layer = () => { const c = new PIXI.Container(); world.addChild(c); return c; };
-    G.L = { halos: layer(), edges: layer(), hotEdges: layer(), trail: layer(), nodes: layer(), badges: layer(), pins: layer() };
+    G.L = { frames: layer(), halos: layer(), edges: layer(), hotEdges: layer(), trail: layer(), nodes: layer(), badges: layer(), pins: layer() };
     G.pinPool = []; G.pins = [];
     G.edgeG = new PIXI.Graphics(); G.L.edges.addChild(G.edgeG);
     G.hotG = new PIXI.Graphics(); G.L.hotEdges.addChild(G.hotG);
@@ -67,30 +72,26 @@
   // ── per-frame ───────────────────────────────────────────────────────────
   G.frame = function (now) {
     G.scheduled = false;
-    if (G.beforeFrame) G.beforeFrame();          // flow.html flushes its batched model changes here
+    if (G.beforeFrame) G.beforeFrame();
+    if (G.headersDirty) { G.headersDirty = false; G.headK = G.view.k; for (const u of G.units.values()) if (u.kind !== "card") layHeader(u); }
     let busy = false;
-    // tweens
     for (const map of [G.units, G.dying]) for (const [id, u] of map) {
       if (!u.tw) continue;
       const t = Math.min(1, (now - u.tw.t0) / TWEEN_MS), e = ease(t);
       u.box.x = u.tw.x0 + (u.tw.x1 - u.tw.x0) * e;
       u.box.y = u.tw.y0 + (u.tw.y1 - u.tw.y0) * e;
-      const s = u.tw.s0 + (u.tw.s1 - u.tw.s0) * e;
-      u.box.scale.set(s);
       u.fade = u.tw.a0 + (u.tw.a1 - u.tw.a0) * e;
       u.box.alpha = u.fade * (u.dim ?? 1);
       if (t >= 1) { u.tw = null; if (map === G.dying) { u.box.destroy({ children: true }); G.dying.delete(id); } }
       else busy = true;
     }
-    // edges fade back in after a layout move
     if (G.edgeFade < 1) {
       const anyTween = [...G.units.values()].some((u) => u.tw);
       if (!anyTween) { G.edgeFade = Math.min(1, G.edgeFade + 0.12); if (G.edgeFade < 1) busy = true; if (G.edgesDirty) G.drawEdges(); }
       else busy = true;
-      G.L.edges.alpha = G.edgeFade * (G.hot ? 0.07 : 1);
+      G.L.edges.alpha = G.edgeFade * (G.hot ? 0.12 : 1);
       G.L.hotEdges.alpha = G.edgeFade; G.L.trail.alpha = G.edgeFade;
     }
-    // the agent's glow pulses
     for (const u of G.units.values()) {
       if (!u.ring.visible) continue;
       const speed = u.glow === "editing" ? 0.011 : u.glow === "denied" ? 0.016 : 0.006;
@@ -113,32 +114,101 @@
     if (!G.world) return;
     G.world.position.set(v.x, v.y); G.world.scale.set(v.k);
     const lod = v.k >= LOD_K;
-    if (lod !== G.lod) { G.lod = lod; for (const u of G.units.values()) for (const t of u.texts) t.visible = lod; G.badgeTexts.forEach((t) => (t.visible = lod)); }
+    if (lod !== G.lod) {
+      G.lod = lod;
+      for (const u of G.units.values()) if (u.kind === "card") for (const t of u.texts) t.visible = lod;
+      G.badgeTexts.forEach((t) => (t.visible = lod));
+    }
+    // container headers keep their screen size: re-set them when the zoom moved
+    if (Math.abs(v.k - G.headK) / Math.max(G.headK, 0.001) > 0.03) G.headersDirty = true;   // laid out once, in the frame
     G.layoutPins();
     G.invalidate();
   };
   G.screenToWorld = (sx, sy) => ({ x: (sx - G.view.x) / G.view.k, y: (sy - G.view.y) / G.view.k });
+  // the deepest unit under the point (a card over the frame that holds it),
+  // and whether the point is on a container's collapse chevron
   G.hit = function (sx, sy) {
     const p = G.screenToWorld(sx, sy);
-    for (const [id, u] of G.units) if (p.x >= u.x && p.x <= u.x + G.W && p.y >= u.y && p.y <= u.y + G.H) return id;
-    return null;
+    let best = null, bestA = Infinity;
+    for (const [id, u] of G.units) {
+      if (p.x < u.x || p.x > u.x + u.w || p.y < u.y || p.y > u.y + u.h) continue;
+      const a = u.w * u.h;
+      if (a < bestA) { best = id; bestA = a; }
+    }
+    G.lastPart = null;
+    const u = best && G.units.get(best);
+    if (u && u.kind !== "card") {
+      const s = Math.max(1, 1 / G.view.k), cw = 34 * s;
+      if (p.x > u.x + u.w - cw && p.y < u.y + cw) G.lastPart = "chevron";
+      else if (u.kind === "frame" && p.y < u.y + (u.hh || 100)) G.lastPart = "header";
+    }
+    return best;
   };
 
   // ── scene: units ────────────────────────────────────────────────────────
-  function makeText(size, color) {
-    const t = new PIXI.BitmapText({ text: "", style: { fontFamily: "FlowMono", fontSize: size } });
+  function makeText(size, color, font) {
+    const t = new PIXI.BitmapText({ text: "", style: { fontFamily: font || "FlowMono", fontSize: size } });
     t.tint = color; t.visible = G.lod;
     return t;
   }
-  function makeUnit() {
+  function makeCard() {
     const box = new PIXI.Container();
-    box.cullable = true; box.cullArea = new PIXI.Rectangle(-10, -10, G.W + 20, G.H + 20);
+    box.cullable = true;
     const ring = new PIXI.Graphics(); ring.visible = false;
     const bg = new PIXI.Graphics();
-    const label = makeText(11, 0xd5d8db), sub = makeText(9.5, 0x858c93), cnt = makeText(9.5, 0x5d646b), marks = makeText(9.5, 0xe0913c);
-    label.position.set(12, 9); sub.position.set(12, 28); cnt.y = 28; marks.y = 6;
-    box.addChild(ring, bg, label, sub, cnt, marks);
-    return { box, bg, ring, texts: [label, sub, cnt, marks], label, sub, cnt, marks, x: 0, y: 0, tw: null, fade: 1, dim: 1, key: "" };
+    const label = makeText(13, 0xe6e9ec, "FlowSans"), sub = makeText(9.5, 0x6b737b), cnt = makeText(9.5, 0x5d646b), marks = makeText(9.5, 0xe0913c);
+    const body = new PIXI.BitmapText({ text: "", style: { fontFamily: "FlowSans", fontSize: 11, wordWrap: true, wordWrapWidth: G.W - 26, lineHeight: 14 } });
+    body.tint = 0xa4abb2; body.visible = G.lod;
+    label.position.set(12, 7); sub.position.set(12, 25); body.position.set(12, 40); cnt.y = G.H - 15; marks.y = 7;
+    box.addChild(ring, bg, label, sub, body, cnt, marks);
+    return { kind: "card", box, bg, ring, texts: [label, sub, body, cnt, marks], label, sub, body, cnt, marks, x: 0, y: 0, w: G.W, h: G.H, tw: null, fade: 1, dim: 1, key: "" };
+  }
+  // a container: its header (title, what kind and how big, purpose) keeps a
+  // readable size on screen; a chevron collapses or expands it
+  function makeContainer(kind) {
+    const box = new PIXI.Container();
+    box.cullable = true;
+    const ring = new PIXI.Graphics(); ring.visible = false;
+    const bg = new PIXI.Graphics();
+    const label = makeText(16, 0xeef0f2, "FlowSans"), sub = makeText(10.5, 0x7b838b), marks = makeText(10.5, 0xe0913c), chev = makeText(16, 0x9aa3ab, "FlowSans");
+    const body = new PIXI.BitmapText({ text: "", style: { fontFamily: "FlowSans", fontSize: 13, wordWrap: true, wordWrapWidth: 300, lineHeight: 17 } });
+    body.tint = 0xb0b7be;
+    for (const t of [label, sub, marks, chev, body]) t.visible = true;
+    box.addChild(ring, bg, label, sub, body, marks, chev);
+    return { kind, box, bg, ring, texts: [label, sub, body, marks, chev], label, sub, body, marks, chev, x: 0, y: 0, w: 1, h: 1, tw: null, fade: 1, dim: 1, key: "", hs: 0 };
+  }
+  // a label never leaves its box: measured at its scale, cut with "…", or dropped
+  // (t.width already includes the text's scale in Pixi v8)
+  function fit(t, full, maxW) {
+    t.text = full;
+    if (t.width <= maxW) return true;
+    let n = Math.floor(full.length * maxW / t.width) - 1;
+    for (let i = 0; i < 4 && n > 2; i++) {
+      t.text = full.slice(0, n).trimEnd() + "…";
+      if (t.width <= maxW) return true;
+      n -= Math.max(1, Math.ceil(n * 0.12));
+    }
+    t.text = ""; return false;
+  }
+  function layHeader(u) {
+    const k = G.view.k, s = Math.max(1, 1 / k);
+    const screenW = u.w * k;
+    const show = screenW > 54;
+    for (const t of u.texts) { t.visible = show; t.scale.set(s); }
+    u.marks.visible = false;                                   // folded into the meta line
+    if (!show) return;
+    const pad = 14 * s, chevW = 30 * s, inner = u.w - pad - chevW;   // world units the header may use
+    u.label.position.set(pad, 10 * s);
+    u.sub.position.set(pad, 33 * s);
+    u.chev.position.set(u.w - 24 * s, 9 * s);
+    u.chev.visible = screenW > 120;
+    fit(u.label, u.fullLabel || u.label.text, inner, s);
+    u.sub.visible = screenW > 150 && fit(u.sub, u.fullSub || u.sub.text, u.w - 2 * pad, s);
+    const wrap = Math.max(60, screenW - 2 * 14 - 8);
+    if (Math.abs((u.body.style.wordWrapWidth || 0) - wrap) > 4) u.body.style.wordWrapWidth = wrap;
+    u.body.position.set(pad, 54 * s);
+    const room = u.kind === "closed" ? u.h : (u.hh || 100);
+    u.body.visible = screenW > 170 && (54 * s + u.body.height) < room - 6 * s;
   }
   function dashedRect(g, x, y, w, h, dash, gap) {
     const side = (x0, y0, x1, y1) => {
@@ -147,25 +217,33 @@
     };
     side(x, y, x + w, y); side(x + w, y, x + w, y + h); side(x + w, y + h, x, y + h); side(x, y + h, x, y);
   }
-  // look: { color, group, fill, border:{color,width,dash}, dim, glow }
+  // look: { color, fill, border:{color,width,dash}, dim, glow, task, ghost }
   function paint(u, look) {
-    const key = JSON.stringify(look);
+    const key = JSON.stringify(look) + u.w + "x" + u.h + u.kidsKey;
     if (key === u.key) return;
     u.key = key;
-    const W = G.W, H = G.H, c = toHex(look.color), g = u.bg;
+    const W = u.w, H = u.h, c = toHex(look.color), g = u.bg;
     g.clear();
-    if (look.group) g.roundRect(4, 4, W, H, 6).fill(0x14171a).stroke({ width: 1.2, color: c, alpha: 0.45 });
-    g.roundRect(0, 0, W, H, 6).fill(toHex(look.fill));
-    const b = look.border;
-    if (b.dash) { if (!look.ghost) g.roundRect(0, 0, W, H, 6).stroke({ width: 1.2, color: c }); dashedRect(g, 0, 0, W, H, b.dash[0], b.dash[1]); g.stroke({ width: b.width, color: toHex(b.color) }); }
-    else g.roundRect(0, 0, W, H, 6).stroke({ width: b.width, color: toHex(b.color) });
-    g.rect(0, 0, 5, H).fill(c);
-    if (look.task) g.rect(5, 0, W - 5, 3).fill(toHex(look.task));   // the task anchored here
+    const r = u.kind === "card" ? 6 : 10;
+    if (u.kind === "frame") {
+      // an open container: a quiet frame under its contents, a header band on top
+      g.roundRect(0, 0, W, H, r).fill({ color: 0x111417, alpha: 0.92 }).stroke({ width: look.border.width + 0.6, color: toHex(look.border.color), alpha: 0.85 });
+      g.roundRect(0, 0, W, Math.min(H, u.hh || 100), r).fill({ color: c, alpha: 0.10 });
+      g.rect(0, 0, 6, H).fill({ color: c, alpha: 0.9 });
+    } else {
+      g.roundRect(0, 0, W, H, r).fill(toHex(look.fill));
+      if (u.kids) for (const [kx, ky, kw, kh] of u.kids) g.roundRect(kx, ky, kw, kh, 6).fill({ color: c, alpha: 0.03 }).stroke({ width: 1, color: c, alpha: 0.13 });
+      const b = look.border;
+      if (b.dash) { if (!look.ghost) g.roundRect(0, 0, W, H, r).stroke({ width: 1.2, color: c }); dashedRect(g, 0, 0, W, H, b.dash[0], b.dash[1]); g.stroke({ width: b.width, color: toHex(b.color) }); }
+      else g.roundRect(0, 0, W, H, r).stroke({ width: u.kind === "closed" ? b.width + 1 : b.width, color: toHex(b.color) });
+      g.rect(0, 0, u.kind === "closed" ? 8 : 5, H).fill(c);
+    }
+    if (look.task) g.rect(6, 0, W - 6, u.kind === "card" ? 3 : 5).fill(toHex(look.task));
     u.glow = look.glow;
     u.ring.clear();
     if (look.glow) {
       const gc = { reading: 0x7fb2e0, editing: 0xe0913c, denied: 0xe05050 }[look.glow];
-      u.ring.roundRect(-5, -5, W + 10, H + 10, 10).stroke({ width: 5, color: gc });
+      u.ring.roundRect(-5, -5, W + 10, H + 10, r + 4).stroke({ width: u.kind === "card" ? 5 : 8, color: gc });
       u.ring.visible = true;
     } else u.ring.visible = false;
     u.dim = look.dim;
@@ -173,34 +251,42 @@
   }
   function setText(t, s) { if (t.text !== s) t.text = s; }
 
-  // scene = { units: [{ id, x, y, label, sub, cnt, marks, marksColor, look }], from(id) -> {x,y}|null, into(id) -> {x,y}|null }
+  // scene = { units: [{ id, kind, x, y, w, h, hh, label, sub, body, cnt, marks, marksColor, chev, look }], from(id), into(id) }
   G.syncScene = function (scene, animate) {
     const now = performance.now();
     const seen = new Set();
     for (const s of scene.units) {
       seen.add(s.id);
       let u = G.units.get(s.id);
+      if (u && u.kind !== s.kind) { u.box.destroy({ children: true }); G.units.delete(s.id); u = null; }   // opened or closed: a new body
       const born = !u;
       if (born) {
         u = G.dying.get(s.id);
-        if (u) { G.dying.delete(s.id); } else { u = makeUnit(); G.L.nodes.addChild(u.box); }
+        if (u && u.kind === s.kind) G.dying.delete(s.id);
+        else { u = s.kind === "card" ? makeCard() : makeContainer(s.kind); (s.kind === "frame" ? G.L.frames : G.L.nodes).addChild(u.box); }
         G.units.set(s.id, u);
       }
-      setText(u.label, s.label); setText(u.sub, s.sub); setText(u.cnt, s.cnt); setText(u.marks, s.marks || "");
-      u.cnt.x = G.W - 8 - u.cnt.width; u.marks.x = G.W - 8 - u.marks.width; u.marks.tint = toHex(s.marksColor || "#e0913c");
+      u.w = s.w; u.h = s.h; u.hh = s.hh; u.kids = s.kids || null;
+      u.kidsKey = u.kids ? u.kids.length + ":" + (u.kids[0] || []).join(",") : "";
+      u.box.cullArea = new PIXI.Rectangle(-12, -12, s.w + 24, s.h + 24);
+      setText(u.label, s.label); setText(u.sub, s.sub); setText(u.body, s.body || ""); setText(u.marks, s.marks || "");
+      u.marks.tint = toHex(s.marksColor || "#e0913c");
+      if (u.kind === "card") { setText(u.cnt, s.cnt); u.cnt.x = G.W - 8 - u.cnt.width; u.marks.x = G.W - 8 - u.marks.width;
+        fit(u.label, s.label, G.W - 24 - (s.marks ? u.marks.width + 8 : 0), 1); fit(u.sub, s.sub, G.W - 24 - u.cnt.width - 8, 1); }
+      else { u.fullLabel = s.label; u.fullSub = s.sub; setText(u.chev, s.chev || ""); layHeader(u); }
       paint(u, s.look);
       const moved = u.x !== s.x || u.y !== s.y;
       if (animate && (born || moved)) {
         const src = born ? (scene.from(s.id) || { x: s.x, y: s.y }) : { x: u.box.x, y: u.box.y };
-        u.tw = { t0: now, x0: src.x, y0: src.y, x1: s.x, y1: s.y, s0: born ? 0.25 : u.box.scale.x, s1: 1, a0: born ? 0 : u.fade, a1: 1 };
-      } else if (!u.tw) { u.box.position.set(s.x, s.y); u.box.scale.set(1); u.fade = 1; u.box.alpha = u.dim; }
+        u.tw = { t0: now, x0: src.x, y0: src.y, x1: s.x, y1: s.y, a0: born ? 0 : u.fade, a1: 1 };
+      } else if (!u.tw) { u.box.position.set(s.x, s.y); u.fade = 1; u.box.alpha = u.dim; }
       u.x = s.x; u.y = s.y;
     }
     for (const [id, u] of G.units) {
       if (seen.has(id)) continue;
       G.units.delete(id);
       const dst = animate && scene.into(id);
-      if (dst) { u.tw = { t0: now, x0: u.box.x, y0: u.box.y, x1: dst.x, y1: dst.y, s0: u.box.scale.x, s1: 0.25, a0: u.fade, a1: 0 }; G.dying.set(id, u); }
+      if (dst) { u.tw = { t0: now, x0: u.box.x, y0: u.box.y, x1: dst.x, y1: dst.y, a0: u.fade, a1: 0 }; G.dying.set(id, u); }
       else u.box.destroy({ children: true });
     }
     G.stats.units = G.units.size;
@@ -209,13 +295,18 @@
   };
 
   // ── edges ───────────────────────────────────────────────────────────────
-  const EDGE = { call: [0x4a525a, null], http: [0x7fb2e0, [7, 4]], sql: [0x5fb36b, null], file: [0xb8c0c8, [2, 4]], mirror: [0xd9a441, [3, 3]], sketch: [0x9aa3ab, [4, 4]] };
+  const EDGE = { call: [0x58616a, null], http: [0x7fb2e0, [7, 4]], sql: [0x5fb36b, null], file: [0xb8c0c8, [2, 4]], mirror: [0xd9a441, [3, 3]], sketch: [0x9aa3ab, [4, 4]] };
   function curve(e) {
     const a = G.units.get(e.from), b = G.units.get(e.to);
     if (!a || !b) return null;
-    const W = G.W, H = G.H, x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2;
-    if (x2 > x1) { const mx = (x1 + x2) / 2; return [x1, y1, mx, y1, mx, y2, x2, y2]; }
-    return [x1, y1, x1 + 80, y1 - 60, x2 - 80, y2 - 60, x2, y2];
+    const ay = a.y + Math.min(a.h / 2, 44), by = b.y + Math.min(b.h / 2, 44);
+    // leave from the side facing the other end
+    if (b.x >= a.x + a.w) { const x1 = a.x + a.w, x2 = b.x, mx = (x1 + x2) / 2; return [x1, ay, mx, ay, mx, by, x2, by]; }
+    if (b.x + b.w <= a.x) { const x1 = a.x, x2 = b.x + b.w, mx = (x1 + x2) / 2; return [x1, ay, mx, ay, mx, by, x2, by]; }
+    // stacked: leave from the bottom, arrive at the top (or the other way)
+    const ax = a.x + a.w / 2, bx = b.x + b.w / 2;
+    if (b.y >= a.y + a.h) { const y1 = a.y + a.h, y2 = b.y, my = (y1 + y2) / 2; return [ax, y1, ax, my, bx, my, bx, y2]; }
+    const y1 = a.y, y2 = b.y + b.h, my = (y1 + y2) / 2; return [ax, y1, ax, my, bx, my, bx, y2];
   }
   function bez(c, t) {
     const u = 1 - t;
@@ -227,7 +318,7 @@
     if (!dash) g.moveTo(c[0], c[1]).bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]).stroke({ width, color, alpha });
     else {
       const N = 48, pts = []; for (let i = 0; i <= N; i++) pts.push(bez(c, i / N));
-      let carry = 0, on = true, left = dash[0];
+      let on = true, left = dash[0];
       for (let i = 1; i < pts.length; i++) {
         let [ax, ay] = pts[i - 1]; const [bx, by] = pts[i];
         let seg = Math.hypot(bx - ax, by - ay);
@@ -245,39 +336,36 @@
       g.poly([c[6], c[7], c[6] - s * Math.cos(ang - 0.45), c[7] - s * Math.sin(ang - 0.45), c[6] - s * Math.cos(ang + 0.45), c[7] - s * Math.sin(ang + 0.45)]).fill({ color, alpha });
     }
   }
-  // edges = [{ from, to, kind, w }]
+  // edges = [{ from, to, kind, w, faint }]
   G.setEdges = function (edges) { G.edges = edges; G.stats.edges = edges.length; G.edgesDirty = true; if (G.edgeFade >= 1) G.drawEdges(); G.invalidate(); };
   G.drawEdges = function () {
     G.edgesDirty = false;
     const g = G.edgeG; g.clear();
-    for (const e of G.edges) { const [col, dash] = EDGE[e.kind || "call"] || EDGE.call; strokeEdge(g, e, col, e.w, 1, dash, e.kind !== "mirror"); }
+    for (const e of G.edges) { const [col, dash] = EDGE[e.kind || "call"] || EDGE.call; strokeEdge(g, e, col, e.w, e.faint ? 0.35 : 1, dash, e.kind !== "mirror"); }
     G.drawHot();
   };
-  // hot = Set of "from|to|kind" to draw bright (selection), fresh = same for new edges (green)
   G.setHighlight = function (hot, fresh) { G.hot = hot; G.newEdges = fresh; G.drawHot(); G.invalidate(); };
   G.drawHot = function () {
     const g = G.hotG; g.clear();
-    G.L.edges.alpha = G.edgeFade * (G.hot ? 0.07 : 1);
+    G.L.edges.alpha = G.edgeFade * (G.hot ? 0.12 : 1);
     for (const e of G.edges) {
       const k = `${e.from}|${e.to}|${e.kind || "call"}`;
       if (G.newEdges && G.newEdges.has(k)) strokeEdge(g, e, 0x5fb36b, e.w + 1.4, 1, null, true);
-      else if (G.hot && G.hot.has(k)) { const dash = (EDGE[e.kind || "call"] || EDGE.call)[1]; strokeEdge(g, e, 0xd9a441, e.w + 0.4, 0.95, dash, e.kind !== "mirror"); }
+      else if (G.hot && G.hot.has(k)) { const dash = (EDGE[e.kind || "call"] || EDGE.call)[1]; strokeEdge(g, e, 0xd9a441, e.w + 0.6, 0.95, dash, e.kind !== "mirror"); }
     }
   };
 
   // ── trail ───────────────────────────────────────────────────────────────
-  // trail = { halos: [{ id, color, alpha }], paths: [{ a, b, alpha, width }], badges: [{ id, n, color, alpha }] }
   G.setTrail = function (trail) {
     G.trail = trail;
     const hg = G.haloG, tg = G.trailG, bg = G.badgeG;
     hg.clear(); tg.clear(); bg.clear();
-    const W = G.W, H = G.H;
     let used = 0;
     if (trail) {
-      for (const h of trail.halos) { const u = G.units.get(h.id); if (u) hg.roundRect(u.x - 7, u.y - 7, W + 14, H + 14, 11).fill({ color: toHex(h.color), alpha: h.alpha }); }
+      for (const h of trail.halos) { const u = G.units.get(h.id); if (u) hg.roundRect(u.x - 7, u.y - 7, u.w + 14, Math.min(u.h, 400) + 14, 11).fill({ color: toHex(h.color), alpha: h.alpha * (u.kind === "card" ? 1 : 0.6) }); }
       for (const p of trail.paths) {
         const a = G.units.get(p.a), b = G.units.get(p.b); if (!a || !b || a === b) continue;
-        const ax = a.x + W / 2, ay = a.y + H / 2, bx = b.x + W / 2, by = b.y + H / 2;
+        const ax = a.x + a.w / 2, ay = a.y + Math.min(a.h / 2, 44), bx = b.x + b.w / 2, by = b.y + Math.min(b.h / 2, 44);
         const mx = (ax + bx) / 2, my = (ay + by) / 2 - Math.min(80, Math.abs(bx - ax) * 0.15 + 20);
         tg.moveTo(ax, ay).quadraticCurveTo(mx, my, bx, by).stroke({ width: p.width, color: 0xf0e6c8, alpha: p.alpha, cap: "round" });
         const ang = Math.atan2(by - my, bx - mx), s = 5 + p.width;
@@ -296,14 +384,10 @@
     G.invalidate();
   };
 
-  // ── pins: task labels over their main tile, the same size at every zoom ──
-  // pins = [{ id (unit), row, text, color, active }]
+  // ── pins: task labels over their main unit, the same size at every zoom ──
   G.setPins = function (pins) { G.pins = pins || []; G.layoutPins(); G.invalidate(); };
   G.layoutPins = function () {
     if (!G.L) return;
-    // world size up close (the layout reserved that room above the tile); a
-    // little larger far out to stay legible; where two would overlap, the
-    // earlier pin (the active task first) wins and the later one hides
     const s = Math.min(2.5, Math.max(1, 1 / G.view.k));
     const placed = [];
     let used = 0;
