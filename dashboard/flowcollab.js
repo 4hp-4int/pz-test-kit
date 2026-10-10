@@ -268,7 +268,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
   state.activeTask = state.activeTask ?? null; state.taskMsgs = state.taskMsgs || [];
   const taskById = (id) => state.tasks.find((t) => t.id === Number(id));
   let taskTimer = null;
-  const tasksChanged = () => { save(); clearTimeout(taskTimer); taskTimer = setTimeout(() => broadcast({ type: "tasks" }), 120); };
+  const tasksChanged = () => { if (typeof sweepSketches === "function") sweepSketches(); save(); clearTimeout(taskTimer); taskTimer = setTimeout(() => broadcast({ type: "tasks" }), 120); };
   function taskTouch(hits, kind) {
     const t = state.activeTask != null && taskById(state.activeTask);
     if (!t) return;
@@ -354,6 +354,48 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     return { error: "op: new | update | link | unlink | delete" };
   }
 
+  // ── sketches: nodes the agent puts on a map that the code does not have ──
+  // A planned function, a test still to write, a CI job, an outside service.
+  // Each sits beside a real block (near), may carry edges to real blocks or
+  // other sketches, and may belong to a task. `expect` names the code it
+  // stands for: once the map has that block the sketch counts as real. A
+  // temporary sketch goes away when its task is done or dropped.
+  state.sketches = state.sketches || [];
+  const SKETCH_KINDS = ["fn", "test", "check", "job", "service", "data", "note"];
+  function sketchOp(b) {
+    const now = Date.now();
+    if (!b.mod || !b.name) return { error: "mod and name" };
+    if (b.op === "clear") { state.sketches = state.sketches.filter((x) => !(x.mod === b.mod && x.name === b.name && (!b.task || x.task === Number(b.task)))); tasksChanged(); return { ok: true }; }
+    if (b.op === "remove") { const keys = new Set(b.keys || []); state.sketches = state.sketches.filter((x) => !(x.mod === b.mod && x.name === b.name && keys.has(x.key))); tasksChanged(); return { ok: true }; }
+    const put = [];
+    for (const n of b.nodes || []) {
+      const key = String(n.key || "").replace(/[^\w.-]/g, "_").slice(0, 60);
+      if (!key || !String(n.label || "").trim()) continue;
+      const old = state.sketches.find((x) => x.mod === b.mod && x.name === b.name && x.key === key);
+      const s = Object.assign(old || { key, mod: b.mod, name: b.name, created: now, edges: [] }, {
+        label: String(n.label).slice(0, 120), kind: SKETCH_KINDS.includes(n.kind) ? n.kind : "note",
+        note: String(n.note || "").slice(0, 600), near: n.near || null, task: n.task ? Number(n.task) : null,
+        expect: n.expect || null, temp: !!n.temp, updated: now });
+      if (!old) state.sketches.push(s);
+      put.push(s);
+    }
+    for (const e of b.edges || []) {
+      const from = state.sketches.find((x) => x.mod === b.mod && x.name === b.name && ("sketch:" + x.key === e.from || x.key === e.from));
+      const host = from || state.sketches.find((x) => x.mod === b.mod && x.name === b.name && ("sketch:" + x.key === e.to || x.key === e.to));
+      if (!host) continue;
+      const norm = (v) => state.sketches.some((x) => x.mod === b.mod && x.name === b.name && x.key === v) ? "sketch:" + v : v;
+      const edge = { from: norm(e.from), to: norm(e.to), kind: e.kind || "plan", label: String(e.label || "").slice(0, 120) };
+      host.edges = host.edges.filter((x) => !(x.from === edge.from && x.to === edge.to && x.kind === edge.kind)).concat([edge]);
+    }
+    tasksChanged();
+    return { put: put.map((s) => "sketch:" + s.key) };
+  }
+  // temporary sketches leave with their task
+  const sweepSketches = () => {
+    const closed = new Set(state.tasks.filter((t) => t.state === "done" || t.state === "dropped").map((t) => t.id));
+    state.sketches = state.sketches.filter((x) => !(x.temp && x.task && closed.has(x.task)));
+  };
+
   // ── HTTP ──────────────────────────────────────────────────────────────────
   async function handle(req, res, url) {
     const p = url.pathname;
@@ -375,6 +417,11 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       const mod = url.searchParams.get("mod"), name = url.searchParams.get("name");
       const list = mod ? state.tasks.filter((t) => !t.mod || (t.mod === mod && t.name === name)) : state.tasks;
       json(res, 200, { tasks: list, active: state.activeTask, states: TASK_STATES, links: LINK_TYPES });
+      return true;
+    }
+    if (p === "/api/flow/sketch" && req.method === "POST") {
+      const out = sketchOp(await readBody(req));
+      json(res, out.error ? 400 : 200, out);
       return true;
     }
     if (p === "/api/flow/task" && req.method === "POST") {
@@ -406,6 +453,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
         // this map's events (the viewer groups them into sessions by agent)
         activity: activity.filter((e) => (e.hits || []).some((h) => h.mod === mod && h.name === name)).slice(-3000),
         changes: changes.get(`${mod}|${name}`) || null,
+        sketches: (state.sketches || []).filter((x) => x.mod === mod && x.name === name),
       });
       return true;
     }

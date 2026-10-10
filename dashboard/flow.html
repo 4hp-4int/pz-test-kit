@@ -120,6 +120,11 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 #tasks .chip.add, #tasks .chip.more { color: var(--muted); padding-left: 9px; }
 #tasks input { font: inherit; font-size: 12px; background: #0b0d0f; color: var(--text); border: 1px solid var(--accent); border-radius: 12px; padding: 2px 9px; }
 .det select, .det input:not([type]) { font: inherit; font-size: 12px; background: #0b0d0f; color: var(--text); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 6px; }
+#dock { position: absolute; right: 8px; top: 44px; z-index: 2; background: rgba(21,24,27,.92); border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px 6px; max-width: 280px; }
+#dock .dh { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 2px; }
+#dock .dk { font-size: 11.5px; cursor: pointer; padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dock .dk:hover { color: var(--accent); }
+#dock .dk i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
 #hud { position: absolute; right: 10px; bottom: 10px; font: 10.5px var(--mono); color: var(--dim); background: rgba(14,16,18,.8); padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; pointer-events: none; }
 #tip { position: absolute; display: none; max-width: 360px; font-size: 12px; color: var(--text); background: #1b1f23; border: 1px solid var(--line2); border-radius: 5px; padding: 6px 9px; pointer-events: none; z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
 #tip b { font-family: var(--mono); font-size: 11.5px; color: var(--accent); word-break: break-all; }
@@ -132,13 +137,14 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
 <header>
   <h1>⟿ SousVide Flow</h1>
   <select id="pick"></select>
-  <label><input type="checkbox" id="leaves"> hide leaf helpers</label>
-  <label id="xlangWrap" style="display:none"><input type="checkbox" id="xlang" checked> cross-language only</label>
+  <label title="hide blocks that call nothing"><input type="checkbox" id="leaves"> hide leaves</label>
+  <label id="rolesWrap" style="display:none" title="tests and checks (teal, purple) and tools (grey) on the map">show <input type="checkbox" id="showTests" checked> tests <input type="checkbox" id="showTools" checked> tools</label>
+  <label id="xlangWrap" style="display:none"><input type="checkbox" id="xlang" checked> cross-language</label>
   <label title="how much to show at once: big maps start at whole files">zoom <select id="level">
     <option value="auto">auto</option><option value="folder">folders</option><option value="file">files</option><option value="block">functions</option></select></label>
   <button id="fit">fit</button>
-  <span id="selinfo">shift-click or shift-drag to select</span>
-  <button id="ask" disabled title="Hand the selected blocks to your agent: it reads them with flow_selection and writes summaries with flow_summarize">summarize selection</button>
+  <span id="selinfo" title="shift-click or shift-drag to select">shift: select</span>
+  <button id="ask" disabled title="Hand the selected blocks to your agent: it reads them with flow_selection and writes summaries with flow_summarize">summarize</button>
   <button id="clearSel" disabled>clear</button>
   <span class="meta" id="meta"></span>
   <a href="/workbench">workbench</a>
@@ -165,6 +171,7 @@ pre.diff .del { color: #e06c6c; } pre.diff .add { color: #5fb36b; }
     <div id="hud"></div>
     <div id="tip"></div>
     <div id="tasks"></div>
+    <div id="dock" style="display:none"></div>
     <div id="plan"></div>
     <div class="legend">Blocks: functions (columns = call depth from the event). Edges: calls, thicker = more often. Click a block, or an entry point on the left.</div>
   </div>
@@ -185,6 +192,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 const LANG = { python: "#4b8bbe", javascript: "#e8c547", lua: "#8a7bd8", sql: "#5fb36b", data: "#9aa3ab", html: "#e06c4f" };
 function colorOf(n) {
+  if (n.sketch) return "#9aa3ab";
+  if (n.role && ROLE_COL[n.role]) return ROLE_COL[n.role];
   if (n.kind === "entry") return "hsl(38 70% 52%)";
   if (n.lang && LANG[n.lang]) return LANG[n.lang];
   return `hsl(${hue(n.module || "")} 45% 55%)`;
@@ -199,7 +208,9 @@ async function load() {
   if (list.length) await open($("pick").value);
   // ?open=<group>,<group>: open groups as a double-click would (d:<folder>, f:<file>)
   for (const k of (qp.get("open") || "").split(",").filter(Boolean)) { opened.add(k); layout(); draw(true); }
-  if (qp.get("task")) showTask(+qp.get("task"));   // ?task=<id>: open a task's panel and region
+  if (qp.get("task")) showTask(+qp.get("task"));
+  if (qp.get("focus")) { await select(qp.get("focus")); const q = pos[unitOf(qp.get("focus"))], r = $("canvas").getBoundingClientRect();
+    if (q) { view.k = 1; view.x = r.width / 2 - (q.x + W / 2); view.y = r.height / 2 - (q.y + H / 2); apply(); } }   // ?focus=<id>: that block, at reading size   // ?task=<id>: open a task's panel and region
   // ?follow: start in follow mode, on the agent's last step
   if (qp.has("follow")) { setFollow(true); const last = [...feed].reverse().find((r) => TOUCH.has(r.kind) && r.ids.length); if (last) followTo(last.ids); }
 }
@@ -207,7 +218,7 @@ async function open(v, keep) {
   const [mod, name] = v.split("|");
   current = { mod, name };
   doc = await (await fetch(`/api/flyke?mod=${encodeURIComponent(mod)}&name=${encodeURIComponent(name)}`)).json();
-  doc.mod = mod;
+  doc.mod = mod; sketchSig = "";
   doc.byId = Object.fromEntries(doc.nodes.map((n) => [n.id, n]));
   doc.out = {}; doc.inn = {};
   for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
@@ -217,8 +228,10 @@ async function open(v, keep) {
   await loadCollab();
   if (!keep) { feed = collab.activity.map(feedRow); cursor = null; renderSessions(); renderFeed(); }
   // "cross-language only" only means something when a map spans languages
-  const langs = new Set(doc.nodes.map((n) => n.lang).filter((l) => l && l !== "data"));
+  // (source code only: a Lua mod with Python tools is still a one-language system)
+  const langs = new Set(doc.nodes.filter((n) => !n.role && !n.sketch).map((n) => n.lang).filter((l) => l && l !== "data"));
   $("xlangWrap").style.display = doc.static && langs.size > 1 ? "" : "none";
+  $("rolesWrap").style.display = doc.nodes.some((n) => n.role) ? "" : "none";
   if (!keep) { $("xlang").checked = langs.size > 1; doc.seam = null; }
   document.body.classList.toggle("static", !!doc.static);
   // a static map's "entry points" are just every file's top level: noise
@@ -233,7 +246,11 @@ async function open(v, keep) {
   if (keep) { if (selected) select(selected); return; }
   $("det").innerHTML = `<div class="empty">Click a block to see what it does with the data, what flowed in and out, and its code.</div>`;
 }
+const ROLE_COL = { test: "#3fb6a8", check: "#c678dd", tool: "#6b747d" };
 function visible(n) {
+  if (n.sketch) return true;
+  if ((n.role === "test" || n.role === "check") && !$("showTests").checked) return false;
+  if (n.role === "tool" && !$("showTools").checked) return false;
   if (doc.static && $("xlang").checked) {
     // the seams: blocks on a non-call edge (http, sql, file, mirror)
     if (!doc.seam) {
@@ -278,6 +295,7 @@ function buildView() {
     if (u === n.id) { units.set(u, { id: u, block: n, members: [n.id] }); continue; }
     const g = units.get(u) || { id: u, group: u.slice(2), members: [], langs: {} };
     g.members.push(n.id); g.langs[n.lang || ""] = (g.langs[n.lang || ""] || 0) + 1;
+    g.roles = g.roles || {}; g.roles[n.role || "source"] = (g.roles[n.role || "source"] || 0) + 1;
     units.set(u, g);
   }
   const agg = new Map();
@@ -311,10 +329,15 @@ function unitLabel(u) {
   const n = u.block;
   if (n.kind === "entry") return n.id;
   if (n.id.startsWith("file ")) return n.id.slice(5);          // a data file: its name, not its extension
+  if (n.sketch) return n.fn;
+  const reg = /^(.+?)\("(.*)"\)$/.exec(short(n.id).replace(/@\d+$/, ""));
+  if (reg) return `"${reg[2]}"`;                                // it("...") / registerSync("..."): the string names it
   return n.id.includes("::") ? short(n.id) : n.id.split(".").slice(-1)[0];   // static path::name / traced module.fn
 }
 function unitColor(u) {
   if (u.block) return colorOf(u.block);
+  const rs = Object.keys(u.roles || {});
+  if (rs.length === 1 && ROLE_COL[rs[0]]) return ROLE_COL[rs[0]];   // a folder of tests reads as tests
   const top = Object.entries(u.langs).sort((a, b) => b[1] - a[1])[0];
   return top && LANG[top[0]] ? LANG[top[0]] : `hsl(${hue(u.group)} 45% 55%)`;
 }
@@ -419,7 +442,9 @@ function syncScene(animate, sceneChanged) {
     const isSel = u.id === selU, isPicked = u.members.some((id) => picked.has(id));
     const isPlanned = !!plan && u.members.some((id) => plan.has(id));
     const isEdited = u.members.some((id) => collab.edits[id]), isLocked = u.members.some((id) => collab.locks[id]);
+    const ghost = !!(u.block && u.block.sketch);
     const border = gl && gl.kind === "denied" ? { color: "#e05050", width: 3 }
+      : ghost && !isSel ? { color: "#9aa3ab", width: 1.6, dash: [6, 4] }
       : isSel ? { color: "#d9a441", width: 2.6 }
       : isPicked ? { color: "#ffffff", width: 2.2, dash: [5, 3] }
       : isPlanned ? { color: "#d9a441", width: 2.2, dash: [8, 4] }
@@ -429,14 +454,17 @@ function syncScene(animate, sceneChanged) {
     const sub = u.group
       ? (nFiles ? `${folderCtx(u.group.slice(2)) || Object.keys(u.langs).filter(Boolean).join("+")} · ${nFiles} files`
                 : `${Object.keys(u.langs).filter(Boolean).join("+")} · ${base(dirOf(u.group.slice(2)))}`)
-      : (u.block.kind === "entry" ? "entry point" : (u.block.lang ? u.block.lang + " / " : "") + String(u.block.module || "").split("/").slice(-1)[0]);
+      : u.block.sketch ? `sketch · ${u.block.sketch.kind}${u.block.sketch.temp ? " · temporary" : ""}`
+      : (u.block.kind === "entry" ? "entry point"
+         : (() => { const reg = /^(.+?)\("/.exec(short(u.block.id)); const who = reg ? reg[1].split(/[.:]/).slice(-1)[0] + " · " : "";
+                    return who + (u.block.role ? u.block.role + " · " : u.block.lang ? u.block.lang + " / " : "") + String(u.block.module || "").split("/").slice(-1)[0]; })());
     const label = unitLabel(u), mk = marksInfo(u);
     units.push({ id: u.id, x: q.x, y: q.y,
       label: label.length > 28 ? label.slice(0, 27) + "…" : label,
       sub: sub.length > 21 ? "…" + sub.slice(-20) : sub,
       cnt: u.group ? u.members.length + " blocks ▸" : "×" + u.block.calls,
       marks: mk.text, marksColor: mk.color,
-      look: { color, group: !!u.group, fill: isLocked ? "#1d1414" : u.group ? "#1d2227" : "#181c20", border, task: taskTint(u),
+      look: { color, group: !!u.group, ghost, fill: isLocked ? "#1d1414" : ghost ? "#121417" : u.group ? "#1d2227" : "#181c20", border, task: taskTint(u),
               dim: on && !on.has(u.id) && !gl ? 0.14 : 1, glow: gl ? gl.kind : null } });
   }
   FlowGPU.syncScene({ units,
@@ -454,6 +482,7 @@ function syncScene(animate, sceneChanged) {
   const hot = on ? new Set(V.edges.filter((e) => on.has(e.from) && on.has(e.to) && (hotIds || e.from === selU || e.to === selU)).map((e) => `${e.from}|${e.to}|${e.kind || "call"}`)) : null;
   const fresh = doc.newEdges ? new Set(V.edges.filter((e) => e.raw.some((r) => doc.newEdges.has(`${r.from}|${r.to}|${r.kind || "call"}`))).map((e) => `${e.from}|${e.to}|${e.kind || "call"}`)) : null;
   FlowGPU.setHighlight(hot, fresh);
+  pinsAndDock();
 }
 function toggleOpen(key) {
   opened.has(key) ? opened.delete(key) : opened.add(key);
@@ -525,6 +554,7 @@ async function select(id) {
   }
   const n = doc.byId[id]; if (!n) return;
   if (visible(n) && openChain(n)) { layout(); draw(true); centerOn(id); }
+  if (n.sketch) { selected = id; hotIds = null; applyHighlight(); return sketchPanel(n); }
   selected = id; hotIds = null;
   document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on"));
   applyHighlight();
@@ -562,7 +592,8 @@ function fit() {
   const xs = Object.values(pos); if (!xs.length) return;
   const maxX = Math.max(...xs.map((p) => p.x)) + W, maxY = Math.max(...xs.map((p) => p.y)) + H;
   const r = $("canvas").getBoundingClientRect();
-  view.k = Math.min(1.2, (r.width - 40) / maxX, (r.height - 40) / maxY); view.x = 20; view.y = 20; apply();
+  const top = 84;   // the task strip and the pins above the top row
+  view.k = Math.min(1.2, (r.width - 40) / maxX, (r.height - top - 20) / maxY); view.x = 20; view.y = top; apply();
 }
 const cv = $("canvas");
 let press = null, lasso = null;
@@ -652,7 +683,7 @@ FlowGPU.onStats = (st, busy) => {
 };
 function updateSel() {
   const n = picked.size;
-  $("selinfo").textContent = n ? `${n} selected` : "shift-click or shift-drag to select";
+  $("selinfo").textContent = n ? `${n} selected` : "shift: select";
   $("ask").disabled = !n; $("clearSel").disabled = !n;
   applyHighlight();
 }
@@ -758,6 +789,39 @@ function taskPanel(t) {
   $("tCheck").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) taskSet(t.id, { addChecks: [e.target.value.trim()] }); };
   $("tSub").onkeydown = (e) => { if (e.key === "Enter" && e.target.value.trim()) post("/api/flow/task", { op: "new", by: "operator", title: e.target.value.trim(), parent: t.id, mod: t.mod || current.mod, name: t.name || current.name }); };
 }
+function sketchPanel(n) {
+  const sk = n.sketch, t = sk.task && tasks.find((x) => x.id === sk.task);
+  const lnk = (x) => doc.byId[x] ? `<a onclick="select('${esc(x)}')">${esc(x.startsWith("sketch:") ? doc.byId[x].fn : short(x))}</a>` : esc(x);
+  const ins = (doc.inn[n.id] || []).map((e) => `<div>${esc(e.data)} from ${lnk(e.from)}</div>`), outs = (doc.out[n.id] || []).map((e) => `<div>${esc(e.data)} to ${lnk(e.to)}</div>`);
+  $("det").innerHTML = `<div class="det">
+    <div class="id" style="color:#c8cdd2">${esc(sk.label)}</div>
+    <div class="modl">sketch · ${esc(sk.kind)}${sk.temp ? " · temporary: leaves with its task" : ""} · not in the code${sk.expect ? ` yet (it will be <b>${esc(sk.expect)}</b>)` : ""}</div>
+    ${sk.note ? `<div class="doc">${esc(sk.note)}</div>` : ""}
+    ${t ? `<div style="margin:6px 0">for <a style="color:${taskColor(t.id)};cursor:pointer" onclick="showTask(${t.id})">#${t.id} ${esc(t.title)}</a></div>` : ""}
+    ${sk.near ? `<div class="modl">placed beside ${lnk(sk.near)}</div>` : ""}
+    ${ins.length || outs.length ? `<h2 style="margin:10px 0 2px">Links</h2><div class="links" style="font-size:12px">${[...outs, ...ins].join("")}</div>` : ""}
+  </div>`;
+}
+function pinsAndDock() {
+  const pins = [], dock = [], rows = {};
+  for (const t of tasks.filter((x) => OPEN.includes(x.state))) {
+    const count = {};
+    for (const id of new Set([...t.planned, ...Object.keys(t.touched)])) {
+      const real = doc.realSketch && doc.realSketch.get(id) || id;
+      if (!doc.byId[real] || !visible(doc.byId[real])) continue;
+      const u = unitOf(real); if (pos[u]) count[u] = (count[u] || 0) + 1;
+    }
+    const best = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+    if (!best) { dock.push(t); continue; }
+    const row = rows[best[0]] = (rows[best[0]] ?? -1) + 1;
+    pins.push({ id: best[0], row, color: taskColor(t.id), active: t.id === activeTask,
+                text: `#${t.id} ${t.title.length > 38 ? t.title.slice(0, 37) + "…" : t.title}`, task: t.id });
+  }
+  FlowGPU.setPins(pins);
+  $("dock").innerHTML = dock.length ? `<div class="dh">not on this map yet</div>` + dock.map((t) =>
+    `<div class="dk" onclick="showTask(${t.id})"><i style="background:${taskColor(t.id)}"></i>#${t.id} ${esc(t.title)}</div>`).join("") : "";
+  $("dock").style.display = dock.length ? "" : "none";
+}
 function taskSet(id, change) { return post("/api/flow/task", { op: "update", by: "operator", id, ...change }); }
 
 // ── follow mode: the camera goes where the agent works ────────────────────
@@ -822,8 +886,37 @@ function stopGlide() { follow.cam = null; }
 // ── live: the agent's activity, the operator's notes, locks and plan ───────
 const qs = () => `mod=${encodeURIComponent(current.mod)}&name=${encodeURIComponent(current.name)}`;
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+let sketchSig = "";
+// the agent's sketches become nodes and edges of the map; a sketch whose
+// `expect` the code now has is real: its edges move onto the real block
+function mergeSketches() {
+  doc.nodes = doc.nodes.filter((n) => !n.sketch); doc.edges = doc.edges.filter((e) => !e.sketch);
+  const real = new Map();
+  for (const sk of collab.sketches || []) {
+    if (!sk.expect) continue;
+    const hit = doc.nodes.find((n) => n.id === sk.expect || n.id.endsWith("::" + sk.expect));
+    if (hit) real.set("sketch:" + sk.key, hit.id);
+  }
+  for (const sk of collab.sketches || []) {
+    const id = "sketch:" + sk.key;
+    if (real.has(id)) continue;
+    const near = sk.near && doc.byId[sk.near];
+    doc.nodes.push({ id, kind: "sketch", sketch: sk, fn: sk.label, lang: "", module: "sketch", file: near ? near.file : null, line: null,
+                     role: sk.kind === "test" ? "test" : (sk.kind === "check" || sk.kind === "job") ? "check" : undefined, calls: 1, summary: sk.note });
+  }
+  doc.byId = Object.fromEntries(doc.nodes.map((n) => [n.id, n]));
+  for (const sk of collab.sketches || []) for (const e of sk.edges || []) {
+    const from = real.get(e.from) || e.from, to = real.get(e.to) || e.to;
+    if (doc.byId[from] && doc.byId[to]) doc.edges.push({ from, to, kind: "sketch", count: 1, data: e.kind + (e.label ? ": " + e.label : ""), sketch: true });
+  }
+  doc.out = {}; doc.inn = {};
+  for (const e of doc.edges) { (doc.out[e.from] ||= []).push(e); (doc.inn[e.to] ||= []).push(e); }
+  doc.realSketch = real;
+}
 async function loadCollab() {
   try { collab = await (await fetch(`/api/flow/collab?${qs()}`)).json(); } catch (_) {}
+  const sig = JSON.stringify(collab.sketches || []);
+  if (doc && sig !== sketchSig) { sketchSig = sig; mergeSketches(); if (Object.keys(pos).length) { layout(); draw(true); } }
   await loadTasks();
   renderPlan();
 }
@@ -1031,7 +1124,7 @@ function connect() {
       await loadCollab(); draw();
       if (selected) { await select(selected); if (typing != null && $("noteText")) $("noteText").value = typing; }
     } else if (e.type === "listening") setListening(e.n);
-    else if (e.type === "tasks") { await loadTasks(); draw(); }
+    else if (e.type === "tasks") { await loadCollab(); draw(); }
     else if (e.type === "summaries" && here) open(current.mod + "|" + current.name, true);
     else if (e.type === "regen" && here) $("liveState").textContent = "· rebuilding the map";
     else if (e.type === "reload" && here) {
@@ -1050,6 +1143,7 @@ $("pick").onchange = () => { follow.auto = new Set(); open($("pick").value); };
 $("leaves").onchange = () => { layout(); draw(); fit(); };
 $("level").onchange = () => { opened = new Set(); layout(); draw(); fit(); };
 $("xlang").onchange = () => { layout(); draw(); fit(); };
+$("showTests").onchange = $("showTools").onchange = () => { layout(); draw(); fit(); };
 $("fit").onclick = fit;
 FlowGPU.init($("canvas")).then(() => { apply(); load(); });
 </script>

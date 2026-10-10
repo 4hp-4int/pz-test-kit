@@ -182,6 +182,19 @@ const TOOLS = [
     run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/task", { op: a.unlink ? "unlink" : "link", by: "agent", id: a.id, type: a.type, to: a.to }); },
   },
   {
+    name: "flow_sketch",
+    description: "SousVide Flow: put nodes on a map that the code does not have (yet): a planned function, a test to write, a CI job, an outside service, a note. They show as ghost tiles beside a real block (near = a block id), with edges to real blocks or other sketches (edge from/to = a block id or a sketch key; kind e.g. plan, calls, tests, runs). task ties a sketch to a task (and it can be planned on it as 'sketch:<key>'); temp: true removes it when that task is done or dropped; expect = the block id or name the code will have, and once the map has it the sketch counts as real. op: put (default) | remove (keys) | clear (all on the map, or one task's).",
+    inputSchema: { type: "object", properties: {
+      mod: { type: "string" }, name: { type: "string" }, op: { type: "string", enum: ["put", "remove", "clear"] },
+      nodes: { type: "array", items: { type: "object", properties: {
+        key: { type: "string" }, label: { type: "string" }, kind: { type: "string", enum: ["fn", "test", "check", "job", "service", "data", "note"] },
+        near: { type: "string" }, task: { type: "number" }, expect: { type: "string" }, temp: { type: "boolean" }, note: { type: "string" } }, required: ["key", "label"] } },
+      edges: { type: "array", items: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, kind: { type: "string" }, label: { type: "string" } }, required: ["from", "to"] } },
+      keys: { type: "array", items: { type: "string" } }, task: { type: "number" },
+    }, required: ["mod", "name"] },
+    run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/sketch", { op: a.op || "put", ...a }); },
+  },
+  {
     name: "flow_notes",
     description: "SousVide Flow: notes the operator pinned on blocks of the flow chart. Without arguments, lists the open ones. With id, answers one: reply (shown under the note) and/or done: true. Notes also arrive on their own as context after your tool calls.",
     inputSchema: { type: "object", properties: {

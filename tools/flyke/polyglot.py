@@ -250,6 +250,9 @@ class Repo:
             self.fns[mod_id] = {"id": mod_id, "kind": "module", "lang": lang, "module": rel, "fn": "<module>",
                                 "file": rel, "line": 1, "endLine": None,
                                 "summary": "Top-level code of the file."}
+            role = path_role(rel)
+            if role and role != "source":
+                self.fns[mod_id]["role"] = role
 
     def parse_file(self, rel):
         path = os.path.join(self.root, rel)

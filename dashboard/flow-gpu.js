@@ -44,7 +44,8 @@
       chars: [[" ", "~"], "…▸→·×▾"], style: { fontFamily: "JetBrains Mono, Cascadia Mono, Consolas, monospace", fontSize: 28, fill: 0xffffff } });
     const world = new PIXI.Container();
     const layer = () => { const c = new PIXI.Container(); world.addChild(c); return c; };
-    G.L = { halos: layer(), edges: layer(), hotEdges: layer(), trail: layer(), nodes: layer(), badges: layer() };
+    G.L = { halos: layer(), edges: layer(), hotEdges: layer(), trail: layer(), nodes: layer(), badges: layer(), pins: layer() };
+    G.pinPool = []; G.pins = [];
     G.edgeG = new PIXI.Graphics(); G.L.edges.addChild(G.edgeG);
     G.hotG = new PIXI.Graphics(); G.L.hotEdges.addChild(G.hotG);
     G.haloG = new PIXI.Graphics(); G.L.halos.addChild(G.haloG);
@@ -113,6 +114,7 @@
     G.world.position.set(v.x, v.y); G.world.scale.set(v.k);
     const lod = v.k >= LOD_K;
     if (lod !== G.lod) { G.lod = lod; for (const u of G.units.values()) for (const t of u.texts) t.visible = lod; G.badgeTexts.forEach((t) => (t.visible = lod)); }
+    G.layoutPins();
     G.invalidate();
   };
   G.screenToWorld = (sx, sy) => ({ x: (sx - G.view.x) / G.view.k, y: (sy - G.view.y) / G.view.k });
@@ -155,7 +157,7 @@
     if (look.group) g.roundRect(4, 4, W, H, 6).fill(0x14171a).stroke({ width: 1.2, color: c, alpha: 0.45 });
     g.roundRect(0, 0, W, H, 6).fill(toHex(look.fill));
     const b = look.border;
-    if (b.dash) { g.roundRect(0, 0, W, H, 6).stroke({ width: 1.2, color: c }); dashedRect(g, 0, 0, W, H, b.dash[0], b.dash[1]); g.stroke({ width: b.width, color: toHex(b.color) }); }
+    if (b.dash) { if (!look.ghost) g.roundRect(0, 0, W, H, 6).stroke({ width: 1.2, color: c }); dashedRect(g, 0, 0, W, H, b.dash[0], b.dash[1]); g.stroke({ width: b.width, color: toHex(b.color) }); }
     else g.roundRect(0, 0, W, H, 6).stroke({ width: b.width, color: toHex(b.color) });
     g.rect(0, 0, 5, H).fill(c);
     if (look.task) g.rect(5, 0, W - 5, 3).fill(toHex(look.task));   // the task anchored here
@@ -207,7 +209,7 @@
   };
 
   // ── edges ───────────────────────────────────────────────────────────────
-  const EDGE = { call: [0x4a525a, null], http: [0x7fb2e0, [7, 4]], sql: [0x5fb36b, null], file: [0xb8c0c8, [2, 4]], mirror: [0xd9a441, [3, 3]] };
+  const EDGE = { call: [0x4a525a, null], http: [0x7fb2e0, [7, 4]], sql: [0x5fb36b, null], file: [0xb8c0c8, [2, 4]], mirror: [0xd9a441, [3, 3]], sketch: [0x9aa3ab, [4, 4]] };
   function curve(e) {
     const a = G.units.get(e.from), b = G.units.get(e.to);
     if (!a || !b) return null;
@@ -292,6 +294,36 @@
     }
     for (let i = used; i < G.badgeTexts.length; i++) G.badgeTexts[i].visible = false;
     G.invalidate();
+  };
+
+  // ── pins: task labels over their main tile, the same size at every zoom ──
+  // pins = [{ id (unit), row, text, color, active }]
+  G.setPins = function (pins) { G.pins = pins || []; G.layoutPins(); G.invalidate(); };
+  G.layoutPins = function () {
+    if (!G.L) return;
+    const s = Math.min(5, Math.max(0.7, 1 / G.view.k));
+    let used = 0;
+    for (const p of G.pins) {
+      const u = G.units.get(p.id); if (!u) continue;
+      let pin = G.pinPool[used];
+      if (!pin) {
+        pin = { box: new PIXI.Container(), bg: new PIXI.Graphics(), text: makeText(10.5, 0xd5d8db), key: "" };
+        pin.text.visible = true; pin.text.position.set(10, 3);
+        pin.box.addChild(pin.bg, pin.text); G.L.pins.addChild(pin.box); G.pinPool.push(pin);
+      }
+      const key = p.text + p.color + p.active;
+      if (key !== pin.key) {
+        pin.key = key; setText(pin.text, p.text);
+        const w = pin.text.width + 18, c = toHex(p.color);
+        pin.bg.clear().roundRect(0, 0, w, 19, 5).fill({ color: 0x15181b, alpha: 0.96 }).stroke({ width: p.active ? 2 : 1, color: c });
+        pin.bg.rect(0, 0, 5, 19).fill(c);
+      }
+      pin.box.visible = true; pin.text.visible = true;
+      pin.box.scale.set(s);
+      pin.box.position.set(u.x + 4, u.y - (p.row + 1) * 22 * s);
+      used++;
+    }
+    for (let i = used; i < G.pinPool.length; i++) G.pinPool[i].box.visible = false;
   };
 
   window.FlowGPU = G;

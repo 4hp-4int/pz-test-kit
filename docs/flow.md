@@ -38,6 +38,43 @@ them. URL options: `?f=<mod>|<name>`, `?level=folder|file|block`,
 `?open=d:<folder>,f:<file>`, `?nolive` (no event stream, for headless
 screenshots).
 
+## Roles: tests, checks, tools
+
+The indexer gives every block a role (only non-source roles are stored):
+from a registrar (a function passed to `it("...")`, `test(...)`, or a
+repo's own registrar such as `TestRunner.registerSync`, named
+`callee("first string")`), then the repo's globs, then shared conventions
+(`test/`, `tests/`, `__tests__/`, `spec/`, `test_*`, `*_test.*`, `*.spec.*`).
+A repo declares its own in `flow/flyke.json`:
+
+```json
+{ "roles": { "test": ["tools/analysis/*_tests.lua"], "check": ["mpchecks/*"], "tool": ["tools/*"] },
+  "registrars": { "test": ["TestRunner.registerSync"], "source": ["Events.*.Add"] },
+  "exclude": ["logs", "docs"] }
+```
+
+The viewer colours them (tests teal, checks purple, tools grey), shows a
+test by its string, and the header toggles them. "Cross-language" counts
+source code only.
+
+## Sketches: nodes the agent adds
+
+MCP `flow_sketch` puts nodes on a map that the code does not have (yet): a
+planned function, a test to write, a CI job, an outside service, a note.
+Each is a ghost tile beside a real block (`near`), with edges to real
+blocks or other sketches, optionally tied to a task (plan it as
+`sketch:<key>`). `temp` sketches leave when their task is done or dropped;
+`expect` names the block the code will have, and once the map has it the
+sketch's edges move onto the real block. Kept by the dashboard
+(`POST /api/flow/sketch`).
+
+## Task pins
+
+Each open task is labelled on the map over the tile holding most of its
+anchors, the same size at every zoom. Tasks with nothing on the map sit in
+the "not on this map yet" dock. URL options also take `?task=<id>` and
+`?focus=<block id>`.
+
 ## Selection and summaries
 
 Shift-click or shift-drag to select blocks, then **summarize selection**. The
