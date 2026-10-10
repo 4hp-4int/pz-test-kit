@@ -390,6 +390,18 @@ function codeHash(root, n) {
 }
 // the context pack: the selected blocks with their code, the edges among
 // them, and the BOUNDARY (edges crossing in or out: the region's interface)
+// what the agent is asked to do with a selection, by kind
+function selectionAsk(sel) {
+  const blocks = sel.ids.filter((x) => !x.startsWith("sketch:") && !x.startsWith("g:"));
+  const groups = sel.ids.filter((x) => x.startsWith("g:")).map((x) => x.slice(2));
+  const sketches = sel.ids.filter((x) => x.startsWith("sketch:"));
+  const parts = [];
+  if (blocks.length) parts.push(`${blocks.length} block${blocks.length === 1 ? "" : "s"}: write what each is FOR with flow_summarize (a purpose-first title and a sentence)`);
+  if (groups.length) parts.push(`${groups.length === 1 ? "the container" : "the containers"} ${groups.join(", ")}: summarize ${groups.length === 1 ? "it" : "each"} with flow_summarize under ${groups.length === 1 ? "that key" : "those keys"} (what the file, folder or area is for)`);
+  if (sketches.length) parts.push(`${sketches.length} sketch${sketches.length === 1 ? "" : "es"} (${sketches.map((x) => x.slice(7)).join(", ")}): planned work with no code yet; flesh out its note with flow_sketch (what it will do, where it lands, what it depends on)`);
+  if (!parts.length) return "";
+  return `the operator selected on ${sel.mod}/${sel.name} and asks you to ${sel.request || "summarize"}: read the selection with flow_selection, then ${parts.join("; ")}${sel.note ? ". Operator: " + sel.note : ""}.`;
+}
 function flowPack(sel) {
   const loc = flykeLocation(sel.mod, sel.name);
   if (!loc) return { error: "the selected .flyke is gone", selection: sel };
@@ -408,7 +420,10 @@ function flowPack(sel) {
     const row = { from: e.from, to: e.to, kind: e.kind || "call", data: e.data || "" };
     if (a && b) inside.push(row); else if (b) incoming.push(row); else if (a) outgoing.push(row);
   }
-  return { mod: sel.mod, name: sel.name, request: sel.request, note: sel.note, at: sel.at,
+  const groups = sel.ids.filter((x) => x.startsWith("g:")).map((x) => ({ key: x.slice(2) }));
+  const sketchIds = new Set(sel.ids.filter((x) => x.startsWith("sketch:")).map((x) => x.slice(7)));
+  const sketches = (collab.sketches ? collab.sketches() : []).filter((x) => x.mod === sel.mod && x.name === sel.name && sketchIds.has(x.key));
+  return { containers: groups, sketches, mod: sel.mod, name: sel.name, request: sel.request, note: sel.note, at: sel.at,
            blocks, edges: { inside, incoming, outgoing } };
 }
 
@@ -476,8 +491,9 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         flowSelection = { mod: body.mod, name: body.name, ids: Array.isArray(body.ids) ? body.ids : [], request: body.request || "", note: body.note || "", at: Date.now() };
         // tell the agent (hook context while it works, or a wake if it listens)
-        const n = flowSelection.ids.length, what = flowSelection.request || "summarize";
-        if (n) collab.tell(`the operator selected ${n} block${n === 1 ? "" : "s"} on ${flowSelection.mod}/${flowSelection.name} and asks you to ${what} ${n === 1 ? "it" : "them"}: read the selection with flow_selection (code and boundary), then write what each is FOR with flow_summarize (a purpose-first title and a sentence)${flowSelection.note ? ". Operator: " + flowSelection.note : ""}.`);
+        const n = flowSelection.ids.length, ask = selectionAsk(flowSelection);
+        if (ask) collab.tell(ask);
+        if (false) collab.tell(`the operator selected ${n} block${n === 1 ? "" : "s"} on ${flowSelection.mod}/${flowSelection.name} and asks you to ${what} ${n === 1 ? "it" : "them"}: read the selection with flow_selection (code and boundary), then write what each is FOR with flow_summarize (a purpose-first title and a sentence)${flowSelection.note ? ". Operator: " + flowSelection.note : ""}.`);
         return json(res, 200, { ok: true, count: n, told: n > 0 });
       }
       if (!flowSelection) return json(res, 200, { empty: true });

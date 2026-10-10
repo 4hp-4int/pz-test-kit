@@ -997,6 +997,7 @@ function showTrace(t) {
     <div style="margin-top:10px">${rows}</div>${t.calls.length >= 60 ? `<div class="modl">…truncated</div>` : ""}</div>`;
 }
 async function select(id) {
+  setTimeout(updateSel, 0);   // summarize can act on the selected node
   shownTask = null;
   if (id.startsWith("g:")) {
     selected = id; hotIds = null;
@@ -1118,7 +1119,7 @@ window.addEventListener("mouseup", () => {
     return;
   }
   if (id && id.startsWith("more:")) { showMore(id.slice(5)); return; }
-  if (!id) { selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); return; }
+  if (!id) { selected = null; hotIds = null; document.querySelectorAll(".tl").forEach((x) => x.classList.remove("on")); applyHighlight(); updateSel(); return; }
   const u = V.units.get(id);
   if (p.shift && u) {
     const all = u.members.every((m) => picked.has(m));
@@ -1171,15 +1172,17 @@ FlowGPU.onStats = (st, busy) => {
 function updateSel() {
   const n = picked.size;
   $("selinfo").textContent = n ? `${n} selected` : "shift: select";
-  $("ask").disabled = !n; $("clearSel").disabled = !n;
+  // summarize works on the picked blocks, or on the selected node (a block, container or sketch)
+  $("ask").disabled = !n && !selected; $("clearSel").disabled = !n;
   applyHighlight();
 }
 $("clearSel").onclick = () => { picked = new Set(); updateSel(); };
 $("ask").onclick = async () => {
-  if (!picked.size || !current) return;
+  const ids = picked.size ? [...picked] : selected ? [selected] : [];
+  if (!ids.length || !current) return;
   await fetch("/api/flow/selection", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mod: current.mod, name: current.name, ids: [...picked], request: "summarize" }) });
-  $("selinfo").textContent = `${picked.size} sent to the agent: it gets the request on its next action (or now, if it's listening)`;
+    body: JSON.stringify({ mod: current.mod, name: current.name, ids, request: "summarize" }) });
+  $("selinfo").textContent = `${ids.length} sent to the agent: it gets the request on its next action (or now, if it's listening)`;
 };
 // ── tasks: the work graph, on the map ─────────────────────────────────────
 // The strip across the top: active first, then review, blocked, planned,
