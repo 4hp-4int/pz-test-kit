@@ -45,7 +45,10 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
   // the oldest listener gets it and exits, which wakes the agent. A busy agent
   // gets the same notes from its hooks instead; whichever comes first takes them.
   const waiters = [];
-  const listening = () => broadcast({ type: "listening", n: waiters.length });
+  const listening = () => {
+    broadcast({ type: "listening", n: waiters.length });
+    if (typeof setStatus === "function" && state.session && state.session.status !== "working") setStatus(waiters.length ? "listening" : "waiting");
+  };
   function flushWaiters() {
     if (!waiters.length) return;
     const ctx = pendingContext();
@@ -177,6 +180,8 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
   }
 
   function note(evt) {
+    // a subagent's events belong to its lane
+    if (evt.sub && evt.lane == null && state.lanes) { const lane = state.lanes.find((l) => l.agentId === evt.sub); if (lane) { evt.lane = lane.id; lane.events++; } }
     activity.push(evt);
     try { fs.mkdirSync(cacheDir, { recursive: true }); fs.appendFileSync(LOG, JSON.stringify(evt) + "\n"); } catch (_) {}
     if (activity.length > MAX_EVENTS * 1.25) {   // compact the log now and then
@@ -187,19 +192,198 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     if (typeof stepEvent === "function" && evt.type === "activity") stepEvent(evt);
   }
 
+
+  // ── the session: everything the agent does, on the map or not ────────────
+  // Most of a turn happens off the map: commands, reads of other repos and
+  // decompiled source, engine probes, memory, subagents, long runs. Every tool
+  // call becomes a session event in plain words (a command by the agent's own
+  // description of it), subagents and background commands are LANES with a
+  // live status, and the session knows whose turn it is (working / waiting on
+  // the operator / listening for notes).
+  state.session = state.session || { status: "idle", since: Date.now() };
+  state.lanes = state.lanes || []; state.nextLane = state.nextLane || 1;
+  let curAgent = null;
+  const RAW = path.join(cacheDir, "flow-hook-raw.jsonl");
+  let rawCount = 0;
+  function rawDump(p) {   // the last hook payloads, values trimmed: for learning the hook fields
+    try {
+      const t = {};
+      const cut = (v) => typeof v === "string" ? v.slice(0, 200) : v;
+      for (const [k, v] of Object.entries(p)) t[k] = v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).map(([a, b]) => [a, typeof b === "object" ? JSON.stringify(b).slice(0, 200) : cut(b)])) : cut(v);
+      fs.appendFileSync(RAW, JSON.stringify(t) + "\n");
+      if (++rawCount % 100 === 0) { const ls = fs.readFileSync(RAW, "utf8").split("\n").filter(Boolean); if (ls.length > 300) fs.writeFileSync(RAW, ls.slice(-200).join("\n") + "\n"); }
+    } catch (_) {}
+  }
+  let sessionTimer = null;
+  const sessionChanged = () => { save(); clearTimeout(sessionTimer); sessionTimer = setTimeout(() => broadcast({ type: "session" }), 80); };
+  function setStatus(st) {
+    if (state.session.status === st) return;
+    state.session = { ...state.session, status: st, since: Date.now() };
+    sessionChanged();
+  }
+  const relPath = (f) => {
+    const n = norm(String(f || "")), b = norm(BASE);
+    return n.toLowerCase().startsWith(b.toLowerCase() + "/") ? n.slice(b.length + 1) : n;
+  };
+  const firstLine = (t) => String(t || "").split("\n").map((x) => x.trim()).find((x) => x && !/^--/.test(x)) || "";
+  const respText = (r) => r == null ? "" : typeof r === "string" ? r : Array.isArray(r) ? r.map((x) => x && x.text || "").join("\n")
+    : String(r.stdout || r.output || r.result || r.text || (r.content ? respText(r.content) : JSON.stringify(r)));
+  // a tool call in words; null = not worth a line (the board's own tools, schema lookups)
+  function describe(tool, ti, p) {
+    const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(tool);
+    if (m) {
+      const [, server, name] = m;
+      if (server === "sousvide" && /^(flow_|task_)/.test(name)) return null;
+      if (server === "sousvide" && /eval$/.test(name)) return { label: `Probed the ${ti.mod || "live"} engine: ${firstLine(ti.lua).slice(0, 90)}`, detail: String(ti.lua || "").slice(0, 1500), kind: "probe" };
+      if (server === "sousvide" && name === "test") return { label: `Ran the ${ti.mod} tests${ti.only ? " (" + ti.only + ")" : ""}`, kind: "test" };
+      if (server === "mdb-mem") {
+        if (name === "search_memories") return { label: `Searched memory: "${String(ti.query || "").slice(0, 80)}"`, kind: "memory" };
+        if (name === "add_memory") return { label: `Saved to memory: ${firstLine(ti.content).slice(0, 100)}`, detail: String(ti.content || "").slice(0, 1500), kind: "memory" };
+        return { label: `Memory: ${name.replace(/_/g, " ")}`, kind: "memory" };
+      }
+      return { label: `${server}: ${name.replace(/_/g, " ")}`, kind: "tool" };
+    }
+    switch (tool) {
+      case "Read": return { label: `Read ${relPath(ti.file_path)}${ti.offset ? ` from line ${ti.offset}` : ""}`, file: ti.file_path, kind: "reading" };
+      case "Edit": case "MultiEdit": return { label: `Edited ${relPath(ti.file_path)}`, file: ti.file_path, kind: "edited" };
+      case "Write": return { label: `Wrote ${relPath(ti.file_path)}`, file: ti.file_path, kind: "edited" };
+      case "NotebookEdit": return { label: `Edited ${relPath(ti.notebook_path)}`, file: ti.notebook_path, kind: "edited" };
+      case "Grep": return { label: `Searched for "${String(ti.pattern || "").slice(0, 60)}"${ti.path ? " in " + relPath(ti.path) : ""}${ti.glob ? " (" + ti.glob + ")" : ""}`, kind: "search" };
+      case "Glob": return { label: `Looked for ${ti.pattern}${ti.path ? " in " + relPath(ti.path) : ""}`, kind: "search" };
+      case "WebFetch": return { label: `Fetched ${ti.url}`, kind: "web" };
+      case "WebSearch": return { label: `Searched the web: ${ti.query}`, kind: "web" };
+      case "Skill": return { label: `Used the ${ti.skill} skill`, kind: "tool" };
+      case "AskUserQuestion": {
+        const q = (ti.questions || [])[0] || {};
+        return { label: `Asked you: ${String(q.question || "").slice(0, 140)}`, detail: respText(p.tool_response).slice(0, 600), kind: "question" };
+      }
+      case "ToolSearch": case "TaskStop": case "ScheduleWakeup": case "ListAgents": case "SendMessage": return null;
+      default: return { label: tool, kind: "tool" };
+    }
+  }
+  // lanes: subagents and background commands
+  function laneStart(l) {
+    const lane = { id: state.nextLane++, status: "running", started: Date.now(), ended: null, step: state.openStep, task: state.activeTask, events: 0, agent: curAgent, ...l };
+    state.lanes.push(lane);
+    if (state.lanes.length > 200) state.lanes.splice(0, state.lanes.length - 200);
+    sessionChanged();
+    return lane;
+  }
+  function laneEnd(lane, result, status) {
+    if (!lane || lane.status !== "running") return;
+    lane.status = status || "done"; lane.ended = Date.now(); if (result) lane.result = String(result).slice(0, 1200);
+    sessionChanged();
+  }
+  // a background command has no end event: watch its output file
+  setInterval(() => {
+    let changed = false;
+    for (const l of state.lanes) {
+      if (l.kind !== "command" || l.status !== "running" || !l.outFile) continue;
+      try {
+        const st = fs.statSync(l.outFile);
+        if (st.mtimeMs !== l.lastOutput) { l.lastOutput = st.mtimeMs; changed = true; }
+        if (Date.now() - st.mtimeMs > 6 * 3600e3) { l.status = "quiet"; changed = true; }
+      } catch (_) {}
+    }
+    if (changed) sessionChanged();
+  }, 10000).unref();
+
+  // A step is always open. With none, the board opens one from the action
+  // and asks the agent (once) to name it; the agent's next flow_step open
+  // takes the inferred step over rather than closing it.
+  function ensureStep(label) {
+    const s = state.openStep != null && stepById(state.openStep);
+    if (s && s.status === "open") return null;
+    const t = stepOp({ op: "open", title: label.slice(0, 120), why: "", inferred: true });
+    if (t.error) return null;
+    return `SousVide Flow: no journal step was open, so the board opened one from your last action ("${label.slice(0, 80)}"). Say what you are doing and why: flow_step op open (it takes this step over). The operator follows the session through the journal.`;
+  }
+  // the session event for one tool call (PostToolUse), with lanes and the step
+  function sessionEvent(p, agent) {
+    const r = sessionEvent1(p, agent);
+    if (r && r.ev) { if (p.duration_ms != null) r.ev.ms = p.duration_ms; if (p.prompt_id) r.ev.prompt = String(p.prompt_id).slice(0, 8); }
+    return r;
+  }
+  function sessionEvent1(p, agent) {
+    const tool = p.tool_name || "", ti = p.tool_input || {};
+    const sub = p.agent_id || null;
+    if (tool === "Agent" || tool === "Task") {
+      const text = respText(p.tool_response);
+      const bg = !!ti.run_in_background || /working in the background|launched successfully/i.test(text);
+      const id = (/agentId:\s*(\w+)/.exec(text) || [])[1] || null;
+      const pre = state.lanes.filter((l) => l.toolUse && l.toolUse === p.tool_use_id).pop();
+      const lane = pre || laneStart({ kind: "agent", label: String(ti.description || "subagent").slice(0, 120), detail: String(ti.prompt || "").slice(0, 1500), toolUse: p.tool_use_id, agentType: ti.subagent_type || "" });
+      if (id) lane.agentId = id;
+      if (!bg) laneEnd(lane, text);
+      sessionChanged();
+      return { ev: { type: "activity", kind: "lane", agent, at: Date.now(), lane: lane.id, text: `${bg ? "Started" : "Ran"} a subagent: ${lane.label}`, task: state.activeTask }, label: `Subagent: ${lane.label}` };
+    }
+    if (tool === "Bash" || tool === "PowerShell") {
+      const ce = commandEvent(p, agent);
+      if (!ce) return null;
+      if (ti.run_in_background) {
+        const text = respText(p.tool_response);
+        const outFile = (/(?:written to|output file):\s*(\S+?\.output)/i.exec(text) || [])[1] || null;
+        const bgId = (/with ID:\s*(\w+)/.exec(text) || [])[1] || null;
+        const lane = laneStart({ kind: "command", label: ce.desc || ce.text.slice(0, 120), detail: ce.text, bgId, outFile });
+        ce.lane = lane.id;
+      }
+      if (sub) ce.sub = sub;
+      return { ev: ce, label: ce.desc || ce.text.slice(0, 80) };
+    }
+    const d = describe(tool, ti, p);
+    if (!d) return null;
+    const ev = { type: "activity", kind: d.kind, agent, at: Date.now(), tool, text: d.label, task: state.activeTask };
+    if (d.detail) ev.detail = d.detail;
+    if (d.file) ev.file = d.file;
+    if (sub) ev.sub = sub;
+    if (tool === "TaskStop") for (const l of state.lanes) if (l.bgId && l.bgId === ti.task_id) laneEnd(l, "stopped", "stopped");
+    return { ev, label: d.label };
+  }
+
   // ── the hook endpoint ─────────────────────────────────────────────────────
   function onHook(p) {
     const ev = p.hook_event_name, tool = p.tool_name || "", ti = p.tool_input || {};
     const agent = String(p.session_id || "agent").slice(0, 6);
+    curAgent = agent;
+    rawDump(p);
+    const sub = p.agent_id || null;
+    const withCtx = (name, extra) => {
+      const ctx = [pendingContext(), extra].filter(Boolean).join("\n\n");
+      return ctx ? { hookSpecificOutput: { hookEventName: name, additionalContext: ctx } } : null;
+    };
     if (ev === "UserPromptSubmit") {
-      const ctx = pendingContext();
-      return ctx ? { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } } : null;
+      setStatus("working");
+      if (p.prompt) note({ type: "activity", kind: "prompt", agent, at: Date.now(), text: String(p.prompt).slice(0, 4000), task: state.activeTask, prompt: String(p.prompt_id || "").slice(0, 8) });
+      return withCtx("UserPromptSubmit");
     }
-    if (tool === "Bash" || tool === "PowerShell") {
-      if (ev === "PostToolUse") { const ce = commandEvent(p, agent); if (ce) note(ce); }
-      const ctx = ev === "PostToolUse" ? pendingContext() : null;
-      return ctx ? { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: ctx } } : null;
+    if (ev === "Stop") {   // the agent's turn ended: the operator's move
+      if (!sub) { setStatus(waiters.length ? "listening" : "waiting"); note({ type: "activity", kind: "stop", agent, at: Date.now(), task: state.activeTask }); }
+      return null;
     }
+    if (ev === "SubagentStop") {
+      const lane = state.lanes.find((l) => l.agentId && sub && l.agentId === sub && l.status === "running")
+        || state.lanes.filter((l) => l.kind === "agent" && l.status === "running").slice(-1)[0];
+      laneEnd(lane, "");
+      return null;
+    }
+    if (ev === "PreToolUse" && (tool === "Agent" || tool === "Task")) {
+      laneStart({ kind: "agent", label: String(ti.description || "subagent").slice(0, 120), detail: String(ti.prompt || "").slice(0, 1500), toolUse: p.tool_use_id, agentType: ti.subagent_type || "" });
+      return null;
+    }
+    if (ev === "PostToolUse" && !sub && state.session.status !== "working") setStatus("working");
+    // everything but on-map reads and edits (below) is one session event
+    const onMap = /^(Read|Edit|MultiEdit|Write|NotebookEdit)$/.test(tool);
+    if (ev === "PostToolUse" && !onMap) {
+      const se = sessionEvent(p, agent);
+      let nudge = null;
+      if (se) {
+        if (!sub) nudge = ensureStep(se.label);
+        note(se.ev);
+      }
+      return withCtx("PostToolUse", nudge);
+    }
+    if (!onMap) return null;
     const file = ti.file_path || ti.notebook_path;
     const isEdit = /^(Edit|MultiEdit|Write|NotebookEdit)$/.test(tool);
     let hits = [];
@@ -240,7 +424,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
             permissionDecisionReason: `The operator has locked these blocks in the SousVide Flow chart: ${why}. Leave them as they are, or ask the operator to unlock them.` } };
         }
       }
-      if (hits.length) { note({ type: "activity", kind: isEdit ? "editing" : "reading", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask }); if (!isEdit) taskTouch(hits, "reading"); }
+      if (hits.length) { note({ type: "activity", kind: isEdit ? "editing" : "reading", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask, text: (describe(tool, ti, p) || {}).label, ...(sub ? { sub } : {}) }); if (!isEdit) taskTouch(hits, "reading"); }
       return null;
     }
     if (ev === "PostToolUse") {
@@ -256,11 +440,13 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
           }
           scheduleRegen(h);
         }
-        note({ type: "activity", kind: "edited", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask });
+        note({ type: "activity", kind: "edited", agent, tool, file, at: Date.now(), hits: hits.map(({ root, ...h }) => h), task: state.activeTask, text: describe(tool, ti, p).label, ...(sub ? { sub } : {}) });
         taskTouch(hits, "edited");
       }
-      const ctx = pendingContext();
-      return ctx ? { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: ctx } } : null;
+      let nudge = null;
+      if (!sub) nudge = ensureStep((describe(tool, ti, p) || { label: tool }).label);
+      if (!hits.length) { const se = sessionEvent(p, agent); if (se) note(se.ev); }
+      return withCtx("PostToolUse", nudge);
     }
     return null;
   }
@@ -417,6 +603,7 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
   let stepTimer = null;
   const stepsChanged = () => { save(); clearTimeout(stepTimer); stepTimer = setTimeout(() => broadcast({ type: "steps" }), 120); };
   function stepEvent(e) {
+    if (e.sub || e.kind === "prompt" || e.kind === "stop") return;
     const s = state.openStep != null && stepById(state.openStep);
     if (!s) return;
     s.events.push(e);
@@ -433,12 +620,20 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     if (b.op === "open") {
       if (!String(b.title || "").trim()) return { error: "title" };
       const prev = state.openStep != null && stepById(state.openStep);
+      // the agent names a step the board inferred: take it over, events and all
+      if (prev && prev.status === "open" && prev.inferred && !b.inferred && !b.closed) {
+        prev.title = String(b.title).trim().slice(0, 160); prev.why = String(b.why || "").slice(0, 600); prev.inferred = false;
+        if (b.task != null) prev.task = Number(b.task);
+        for (const id of b.blocks || []) prev.blocks[id] = prev.blocks[id] || { r: 0, e: 0 };
+        stepsChanged();
+        return prev;
+      }
       if (prev && prev.status === "open") { prev.status = "done"; prev.closed = now; }
       const task = b.task != null ? Number(b.task) : state.activeTask;
       const t = task != null ? taskById(task) : null;
       const s = { id: state.nextStep++, task: t ? t.id : null, title: String(b.title).trim().slice(0, 160), why: String(b.why || "").slice(0, 600),
                   result: "", status: "open", opened: b.at || now, closed: null, mod: b.mod || (t && t.mod) || null, name: b.name || (t && t.name) || null,
-                  events: [], blocks: {}, notes: [] };
+                  events: [], blocks: {}, notes: [], inferred: !!b.inferred };
       for (const id of b.blocks || []) s.blocks[id] = { r: 0, e: 0 };
       state.steps.push(s);
       state.openStep = b.closed ? null : s.id;
@@ -468,7 +663,8 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     const result = pick(/KAHLUA TOTAL:[^\n]*/) || pick(/MP CHECKS:[^\n]*/) || pick(/\d+ passed[^\n]*/) || pick(/Results: \d+ passed, \d+ failed/);
     const test = /pztest|mp-check|pytest|npm (run )?test|validator/.test(cmd);
     const failed = /([1-9]\d*) failed|[1-9]\d* errors|FAIL\b/.test(result);
-    return { type: "activity", kind: test ? "test" : "command", agent, at: Date.now(), text: cmd.replace(/\s+/g, " ").slice(0, 240), result, ok: test ? !failed : undefined, task: state.activeTask };
+    const desc = String(ti.description || "").trim().slice(0, 200);
+    return { type: "activity", kind: test ? "test" : "command", agent, at: Date.now(), text: cmd.replace(/\s+/g, " ").slice(0, 240), desc, ...(cmd.length > 240 || cmd.includes(String.fromCharCode(10)) ? { full: cmd.slice(0, 3000) } : {}), result, ok: test ? !failed : undefined, task: state.activeTask };
   }
 
   // The block an edit lands in, read from the file AS IT IS NOW: walk up from
@@ -501,6 +697,51 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       if (ids.length) out.push({ mod: m.mod, name: m.name, root: m.root, ids: ids.slice(0, 1) });
     }
     return out;
+  }
+
+
+  // ── cards: what the session concluded, decided or needs to ask ───────────
+  // The work's real output is often not code: a finding, a correction to an
+  // earlier finding, a decision between alternatives, an assumption not yet
+  // checked, a question only the operator can answer. Each is a card on the
+  // step that made it, with evidence and the blocks it is about. A question
+  // waits on the operator; the answer reaches the agent the way notes do.
+  state.cards = state.cards || []; state.nextCard = state.nextCard || 1;
+  const CARD_KINDS = ["finding", "correction", "decision", "assumption", "question"];
+  const CARD_STATUS = ["open", "answered", "verified", "wrong", "resolved"];
+  function cardOp(b) {
+    const now = Date.now(), by = b.by === "operator" ? "operator" : "agent";
+    if (b.op === "new") {
+      if (!String(b.title || "").trim()) return { error: "title" };
+      const c = { id: state.nextCard++, kind: CARD_KINDS.includes(b.kind) ? b.kind : "finding", title: String(b.title).trim().slice(0, 200),
+        text: String(b.text || "").slice(0, 2000), step: state.openStep, task: b.task != null ? Number(b.task) : state.activeTask,
+        refs: Array.isArray(b.refs) ? b.refs.slice(0, 20) : [], evidence: (b.evidence || []).slice(0, 10).map((e) => ({ kind: String(e.kind || "note").slice(0, 20), text: String(e.text || "").slice(0, 400) })),
+        options: Array.isArray(b.options) ? b.options.map((o) => String(o).slice(0, 200)).slice(0, 6) : [], alternatives: Array.isArray(b.alternatives) ? b.alternatives.map((o) => String(o).slice(0, 300)).slice(0, 6) : [],
+        corrects: b.corrects != null ? String(b.corrects).slice(0, 300) : null, reversible: b.reversible != null ? !!b.reversible : null,
+        status: "open", answer: "", by, at: now, updated: now };
+      state.cards.push(c);
+      if (c.corrects && /^\d+$/.test(c.corrects)) { const old = state.cards.find((x) => x.id === Number(c.corrects)); if (old) { old.status = "wrong"; old.correctedBy = c.id; } }
+      save(); broadcast({ type: "cards" });
+      return c;
+    }
+    const c = state.cards.find((x) => x.id === Number(b.id));
+    if (!c) return { error: "no such card" };
+    if (b.op === "answer") {   // the operator answers a question (or comments on any card)
+      c.answer = String(b.answer || "").slice(0, 2000); if (c.kind === "question") c.status = "answered";
+      c.updated = now;
+      state.taskMsgs.push(`- the operator answered card #${c.id} (${c.kind}) "${c.title}": ${c.answer}`);
+      save(); broadcast({ type: "cards" });
+      return c;
+    }
+    if (b.op === "update") {
+      if (b.status && CARD_STATUS.includes(b.status)) c.status = b.status;
+      if (b.text != null) c.text = String(b.text).slice(0, 2000);
+      if (b.evidence) c.evidence.push({ kind: String(b.evidence.kind || "note").slice(0, 20), text: String(b.evidence.text || "").slice(0, 400) });
+      if (by === "operator" && b.status) state.taskMsgs.push(`- the operator marked card #${c.id} "${c.title}" ${b.status}`);
+      c.updated = now; save(); broadcast({ type: "cards" });
+      return c;
+    }
+    return { error: "op: new | update | answer" };
   }
 
   // ── HTTP ──────────────────────────────────────────────────────────────────
@@ -543,6 +784,36 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       const out = taskOp(b);
       if (b.by === "operator" && !out.error) flushWaiters();
       json(res, out.error ? 400 : 200, out);
+      return true;
+    }
+    if (p === "/api/flow/card" && req.method === "POST") {
+      const b = await readBody(req);
+      const out = cardOp(b);
+      if (b.by === "operator" && !out.error) flushWaiters();
+      json(res, out.error ? 400 : 200, out);
+      return true;
+    }
+    if (p === "/api/flow/session" && req.method === "POST") {
+      // the operator: { op: "lane", id, status } ends a lane by hand (a background run with no end event);
+      // { op: "purge", agent } drops one agent id's events (test traffic)
+      const b = await readBody(req);
+      if (b.op === "lane") { laneEnd(state.lanes.find((l) => l.id === Number(b.id)), b.result || "", b.status || "dismissed"); json(res, 200, { ok: true }); return true; }
+      if (b.op === "purge" && b.agent) {
+        const drop = (e) => e.agent === b.agent;
+        activity = activity.filter((e) => !drop(e));
+        try { fs.writeFileSync(LOG, activity.map((e) => JSON.stringify(e)).join(String.fromCharCode(10)) + String.fromCharCode(10)); } catch (_) {}
+        for (const st of state.steps) st.events = st.events.filter((e) => !drop(e));
+        state.steps = state.steps.filter((st) => !(st.inferred && !st.events.length && st.status !== "open"));
+        state.lanes = state.lanes.filter((l) => !(l.agent === b.agent));
+        sessionChanged(); stepsChanged();
+        json(res, 200, { ok: true }); return true;
+      }
+      json(res, 400, { error: "op: lane | purge" }); return true;
+    }
+    if (p === "/api/flow/session") {
+      const n = Number(url.searchParams.get("events") || 400);
+      json(res, 200, { session: state.session, open: state.openStep, activeTask: state.activeTask, listening: waiters.length,
+        steps: state.steps.slice(-60), lanes: state.lanes.slice(-40), events: activity.slice(-n), cards: state.cards || [] });
       return true;
     }
     if (p === "/api/flow/listening") { json(res, 200, { n: waiters.length }); return true; }

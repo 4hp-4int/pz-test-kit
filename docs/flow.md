@@ -59,6 +59,36 @@ URL options: `?f=<mod>|<name>`, `?open=<group>` (`d:<folder>`, `a:<area>`,
 `f:<file>`: opens and zooms to it), `?focus=<block>`, `?task=<id>`,
 `?follow`, `?nolive` (no event stream, for headless screenshots).
 
+## The session (the main surface)
+
+Flow is for reviewing and steering an agent's session, so the session is the
+main column and the map is the pane beside it (header: session | split | map).
+
+- **Every tool call is an event in words**, on the map or not: a command by the
+  description the agent gave it (the raw command folds open on click), "Searched
+  for X", "Probed the engine: ...", memory searches and saves, reads of other
+  repos. Each carries its duration and the operator prompt it served.
+- **Turns:** the operator's prompt opens a turn; the agent's Stop closes it
+  ("your move"). The head says whose move it is: working, your move, or your
+  move with the agent listening for notes.
+- **A step is always open.** With none, the board opens one from the action and
+  tells the agent once (hook context) to name it; the agent's next
+  `flow_step open` takes it over, events and all.
+- **Lanes:** subagents (Agent PreToolUse to SubagentStop) and background
+  commands (alive while their output file grows; the operator can dismiss one),
+  with a subagent's own events filed in its lane.
+- **Cards** (`flow_card`): finding, correction (what an earlier belief got
+  wrong), decision (alternatives, reversible), assumption (not yet checked),
+  question (options; the operator answers in the strip at the top and the answer
+  reaches the agent like a note).
+
+Hooks: PreToolUse (Read, Edit, MultiEdit, Write, NotebookEdit, Agent, Task),
+PostToolUse (`*`), UserPromptSubmit, Stop, SubagentStop, all running
+`node <kit>/dashboard/flow-hook.js`. Claude Code reads hooks at start: after
+changing them, review them in `/hooks` or restart. `GET /api/flow/session`
+returns the status, steps, lanes, events and cards; `POST /api/flow/card`,
+`POST /api/flow/session` (`{op: "lane", id}` ends a lane).
+
 ## Roles: tests, checks, tools
 
 The indexer gives every block a role (only non-source roles are stored):

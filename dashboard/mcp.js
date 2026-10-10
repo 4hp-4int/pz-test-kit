@@ -165,6 +165,19 @@ const TOOLS = [
     run: async (a) => { await ensureDashboard(); return request("POST", "/api/flow/steps", a); },
   },
   {
+    name: "flow_card",
+    description: "SousVide Flow: put what the session concluded, decided or needs to ask on a card the operator sees beside the journal (filed on the open step). kind: finding (something learned, with evidence) | correction (an earlier belief was wrong: corrects = the card id or the claim, and say what is true now) | decision (a call you made: alternatives you rejected, reversible) | assumption (something the work leans on that is not yet checked) | question (only the operator can answer: options; the answer comes back like a note). refs = block ids it is about; evidence = [{kind: test|probe|source|run|memory, text}]. op update: status open|verified|wrong|resolved, add evidence. Make a card when the result of a step is knowledge, not code; one fact per card.",
+    inputSchema: { type: "object", properties: {
+      op: { type: "string", enum: ["new", "update"] }, id: { type: "number" },
+      kind: { type: "string", enum: ["finding", "correction", "decision", "assumption", "question"] },
+      title: { type: "string" }, text: { type: "string" }, refs: { type: "array", items: { type: "string" } },
+      evidence: { type: "array", items: { type: "object", properties: { kind: { type: "string" }, text: { type: "string" } } } },
+      options: { type: "array", items: { type: "string" } }, alternatives: { type: "array", items: { type: "string" } },
+      corrects: { type: "string" }, reversible: { type: "boolean" }, status: { type: "string", enum: ["open", "verified", "wrong", "resolved"] }, task: { type: "number" },
+    }, required: ["op"] },
+    run: async (a) => { await ensureDashboard(); const b = { ...a }; if (b.op === "update" && Array.isArray(b.evidence)) b.evidence = b.evidence[0]; return request("POST", "/api/flow/card", { by: "agent", ...b }); },
+  },
+  {
     name: "task_list",
     description: "SousVide Flow tasks: the work graph the operator watches beside the flow chart. Lists tasks (state, links, planned blocks, blocks touched while active, checks, evidence) and which one is active. Filter to one map with mod + name.",
     inputSchema: { type: "object", properties: { mod: { type: "string" }, name: { type: "string" } } },
