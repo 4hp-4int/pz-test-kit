@@ -274,7 +274,29 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     lane.status = status || "done"; lane.ended = Date.now(); if (result) lane.result = String(result).slice(0, 1200);
     sessionChanged();
   }
-  // a background command has no end event: watch its output file
+  // Stop and SubagentStop carry the session's background tasks (id, type,
+  // status, description): the truth for lanes. Running ones open or keep a
+  // lane; a lane whose task is gone or finished ends.
+  function reconcileLanes(list) {
+    const byId = new Map(list.map((t) => [String(t.id), t]));
+    for (const t of list) {
+      if (t.status !== "running") continue;
+      const known = state.lanes.find((l) => l.agentId === t.id || l.bgId === t.id);
+      if (known) { if (known.status !== "running") { known.status = "running"; known.ended = null; sessionChanged(); } continue; }
+      const agent = t.type === "subagent";
+      laneStart({ kind: agent ? "agent" : "command", label: String(t.description || t.id).slice(0, 120), detail: String(t.command || "").slice(0, 1500),
+        ...(agent ? { agentId: t.id, agentType: t.agent_type || "" } : { bgId: t.id }) });
+    }
+    for (const l of state.lanes) {
+      if (l.status !== "running") continue;
+      const id = l.agentId || l.bgId;
+      if (!id) continue;
+      const t = byId.get(id);
+      if (!t) laneEnd(l, "", "done");
+      else if (t.status !== "running") laneEnd(l, "", t.status === "completed" ? "done" : t.status === "failed" ? "failed" : t.status === "killed" ? "stopped" : t.status);
+    }
+  }
+  // a background command has no end event of its own: watch its output file too
   setInterval(() => {
     let changed = false;
     for (const l of state.lanes) {
@@ -308,9 +330,10 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     const tool = p.tool_name || "", ti = p.tool_input || {};
     const sub = p.agent_id || null;
     if (tool === "Agent" || tool === "Task") {
+      const r = p.tool_response && typeof p.tool_response === "object" && !Array.isArray(p.tool_response) ? p.tool_response : {};
       const text = respText(p.tool_response);
-      const bg = !!ti.run_in_background || /working in the background|launched successfully/i.test(text);
-      const id = (/agentId:\s*(\w+)/.exec(text) || [])[1] || null;
+      const bg = !!ti.run_in_background || !!r.isAsync || r.status === "async_launched" || /working in the background|launched successfully/i.test(text);
+      const id = r.agentId || (/agentId:\s*(\w+)/.exec(text) || [])[1] || null;
       const pre = state.lanes.filter((l) => l.toolUse && l.toolUse === p.tool_use_id).pop();
       const lane = pre || laneStart({ kind: "agent", label: String(ti.description || "subagent").slice(0, 120), detail: String(ti.prompt || "").slice(0, 1500), toolUse: p.tool_use_id, agentType: ti.subagent_type || "" });
       if (id) lane.agentId = id;
@@ -368,10 +391,11 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
       if (!sub) { setStatus(waiters.length ? "listening" : "waiting"); note({ type: "activity", kind: "stop", agent, at: Date.now(), task: state.activeTask }); }
       return null;
     }
+    if (Array.isArray(p.background_tasks)) reconcileLanes(p.background_tasks);
     if (ev === "SubagentStop") {
-      const lane = state.lanes.find((l) => l.agentId && sub && l.agentId === sub && l.status === "running")
-        || state.lanes.filter((l) => l.kind === "agent" && l.status === "running").slice(-1)[0];
-      laneEnd(lane, "");
+      // only an exact match: helper agents stop all the time with ids of their own
+      const lane = sub && state.lanes.find((l) => l.agentId === sub && l.status === "running");
+      if (lane) laneEnd(lane, p.last_assistant_message || "");
       return null;
     }
     if (ev === "PreToolUse" && (tool === "Agent" || tool === "Task")) {
