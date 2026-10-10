@@ -1065,13 +1065,16 @@ const local = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clien
 cv.onmousedown = (e) => {
   if (e.button !== 0) return;
   const p = local(e);
-  if (e.shiftKey && !FlowGPU.hit(p.x, p.y)) { lasso = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false }; return; }
+  // shift + press starts a lasso anywhere; released without a drag it is a shift-click
+  if (e.shiftKey) { lasso = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false }; return; }
   press = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false, shift: e.shiftKey, at: p };
 };
 window.addEventListener("mousemove", (e) => {
   if (lasso) {
     const p = local(e);
-    lasso.x1 = p.x; lasso.y1 = p.y; lasso.moved = true;
+    lasso.x1 = p.x; lasso.y1 = p.y;
+    if (!lasso.moved && Math.hypot(lasso.x1 - lasso.x0, lasso.y1 - lasso.y0) <= 4) return;
+    lasso.moved = true;
     const L = $("lasso");
     L.style.display = "block";
     L.style.left = Math.min(lasso.x0, lasso.x1) + "px"; L.style.top = Math.min(lasso.y0, lasso.y1) + "px";
@@ -1095,6 +1098,10 @@ window.addEventListener("mouseup", () => {
       for (const [id, q] of Object.entries(pos))
         if (V.units.has(id) && !V.units.get(id).open && q.x + q.w >= a.x && q.x <= b.x && q.y + q.h >= a.y && q.y <= b.y) for (const m of V.units.get(id).members) picked.add(m);
       updateSel();
+    }
+    if (!lasso.moved) {
+      const id = FlowGPU.hit(lasso.x0, lasso.y0), u = id && V.units.get(id);
+      if (u && u.members) { const all = u.members.every((m) => picked.has(m)); for (const m of u.members) all ? picked.delete(m) : picked.add(m); updateSel(); }
     }
     lasso = null; return;
   }
