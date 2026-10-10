@@ -387,10 +387,10 @@ module.exports = function flowCollab({ BASE, norm, flykeRoots, flykeLocation, re
     };
     if (ev === "UserPromptSubmit") {
       setStatus("working");
-      const sys = /^\s*<task-notification>/.test(String(p.prompt || ""));
+      const sys = /^\s*<(task-notification|agent-message|cross-session-message|system-reminder)\b/.test(String(p.prompt || ""));
       if (sys) {
         const t = String(p.prompt);
-        const summary = (/<summary>([\s\S]*?)<\/summary>/.exec(t) || [])[1] || "a background task finished";
+        const summary = (/<summary>([\s\S]*?)<\/summary>/.exec(t) || [])[1] || (/<agent-message from="([^"]*)"/.test(t) ? "A subagent reported back" : /<cross-session-message/.test(t) ? "A message from another session" : "a background task finished");
         const id = (/<task-id>(\w+)<\/task-id>/.exec(t) || [])[1];
         for (const l of state.lanes) if (id && (l.bgId === id || l.agentId === id)) laneEnd(l, summary);
         note({ type: "activity", kind: "notify", agent, at: Date.now(), text: summary.trim().slice(0, 300), task: state.activeTask });

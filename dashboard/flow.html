@@ -1836,7 +1836,7 @@ function sxFeed() {
       ${st.why ? `<div class="why">${esc(st.why)}</div>` : ""}${st.result ? `<div class="res"><b>${esc(st.status === "changed" ? "plan changed" : st.status === "failed" ? "failed" : "result")}</b>${esc(st.result)}</div>` : ""}</div>`);
   };
   for (const it of items) {
-    if (it.e && it.e.kind === "prompt" && /^\s*<task-notification>/.test(it.e.text)) { flush(); out.push(`<div class="sx-yield sys">${esc(((/<summary>([\s\S]*?)<\/summary>/.exec(it.e.text) || [])[1] || "a background task finished").trim())} · ${hhmmS(it.at)}</div>`); continue; }
+    if (it.e && it.e.kind === "prompt" && /^\s*<(task-notification|agent-message|cross-session-message|system-reminder)\b/.test(it.e.text)) { flush(); out.push(`<div class="sx-yield sys">${esc(((/<summary>([\s\S]*?)<\/summary>/.exec(it.e.text) || [])[1] || "a background task finished").trim())} · ${hhmmS(it.at)}</div>`); continue; }
     if (it.e && it.e.kind === "prompt") { openStep(null); out.push(`<div class="sx-turn"><div class="who">You · ${hhmmS(it.at)}</div><div class="tx ${it.e.text.length > 500 ? "long" : ""}" onclick="this.parentNode.classList.toggle('open')">${esc(it.e.text)}</div></div>`); continue; }
     if (it.e && it.e.kind === "stop") { flush(); out.push(`<div class="sx-yield">your move · ${hhmmS(it.at)}</div>`); continue; }
     if (it.e && it.e.kind === "notify") { flush(); out.push(`<div class="sx-yield sys">${esc(it.e.text)} · ${hhmmS(it.at)}</div>`); continue; }
