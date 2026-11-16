@@ -117,6 +117,8 @@ the same state without the server's world boot:
    **stubs/ dir → kahlua-runtime.jar → real PZ classes → synthesized
    empties.** The stubs keep absorbing the GL/FMOD-adjacent edges (Core,
    LuaManager, DebugOptions); everything else resolves real.
+   The jar is read and its classes are defined from their bytes without
+   certificates to avoid SecurityException on mismatched signer info.
 2. Our own walk of `media/scripts` (PZ's `Load()` is welded to
    ZomboidFileSystem's full game-home boot; `ParseScript(mode, text)` is
    public), with the same per-file bookkeeping `Load()` maintains
