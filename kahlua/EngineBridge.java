@@ -2097,6 +2097,9 @@ public final class EngineBridge {
             });
             env.rawset("addSound", (JavaFunction) (frame, n) -> {
                 try {
+                    // Drop sound if the world isn't up yet.
+                    Object world = cls("zombie.iso.IsoWorld").getField("instance").get(null);
+                    if (world == null || world.getClass().getField("currentCell").get(world) == null) return 0;
                     Class<?> wsmCls = cls("zombie.WorldSoundManager");
                     Object wsm = wsmCls.getField("instance").get(null);
                     java.lang.reflect.Method m = wsmCls.getMethod("addSound", Object.class, int.class, int.class, int.class, int.class, int.class);

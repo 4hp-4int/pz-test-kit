@@ -196,6 +196,9 @@ stub has a working `RunLua`). Before this, the first engine call to touch it
 threw, and `IsoGridSquare.AddWorldInventoryItem` among others reached Lua as a
 silent `nil`.
 
+**World sounds without a world.** `addSound` uses the game's `WorldSoundManager`
+once a test has stood up a world. Before that the sound is dropped.
+
 **Where it stops.** Anything that needs a skinned model or the animation
 system: the dying-character `IsoDeadBody(IsoGameCharacter)` constructor (bone
 poses), and grappling. Vanilla's grab (`pickUpCorpseItem`) turns a body into a
