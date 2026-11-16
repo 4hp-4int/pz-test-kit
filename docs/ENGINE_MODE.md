@@ -70,6 +70,9 @@ behavior on the dedi (pz-shell).
 
 ## Other mods' items (`engine_mods`, run with `--engine-mods`)
 
+Mods listed under `dependencies` have their `media/scripts` parsed in
+engine mode and their Lua runs in every test env.
+
 Interop tests want the REAL items of mods you don't own — a gun pack's
 magazines, a framework's ammo. List them in `pz-test.lua`:
 
@@ -117,6 +120,8 @@ the same state without the server's world boot:
    **stubs/ dir → kahlua-runtime.jar → real PZ classes → synthesized
    empties.** The stubs keep absorbing the GL/FMOD-adjacent edges (Core,
    LuaManager, DebugOptions); everything else resolves real.
+   The jar is read and its classes are defined from their bytes without
+   certificates to avoid SecurityException on mismatched signer info.
 2. Our own walk of `media/scripts` (PZ's `Load()` is welded to
    ZomboidFileSystem's full game-home boot; `ParseScript(mode, text)` is
    public), with the same per-file bookkeeping `Load()` maintains
@@ -190,6 +195,9 @@ Boot now also initialises `SandboxOptions.instance` for real (the `LuaManager`
 stub has a working `RunLua`). Before this, the first engine call to touch it
 threw, and `IsoGridSquare.AddWorldInventoryItem` among others reached Lua as a
 silent `nil`.
+
+**World sounds without a world.** `addSound` uses the game's `WorldSoundManager`
+once a test has stood up a world. Before that the sound is dropped.
 
 **Where it stops.** Anything that needs a skinned model or the animation
 system: the dying-character `IsoDeadBody(IsoGameCharacter)` constructor (bone

@@ -311,6 +311,8 @@ All of these, captured by name:
 - `syncHandWeaponFields(player, item)`
 - `syncItemFields(player, item)`
 - `transmitPlayerModData(player)`
+- `syncBodyPart(bodyPart, syncFlags)` (`syncFlags`: `BodyPartSyncPacket.BD_*` bits)
+- `syncPlayerStats(player, syncFlags)`
 
 ### Regression pattern
 

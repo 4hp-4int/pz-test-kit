@@ -39,23 +39,85 @@ public class StubbingClassLoader extends URLClassLoader {
         java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<>());
 
     /**
-     * Engine mode (EngineBridge): append a jar — projectzomboid.jar — at
-     * runtime. URLClassLoader searches in URL order, so everything already
-     * on the classpath (the runtime jar's baked stubs, the stubs/ dir)
-     * keeps overriding the real game classes; the synthetic-stub fallback
-     * below still absorbs anything the jar doesn't have.
+     * Engine mode (EngineBridge): attach a jar — projectzomboid.jar — at
+     * runtime. Everything already on the classpath (the runtime jar's baked
+     * stubs, the stubs/ dir) keeps overriding the real game classes, which
+     * are consulted only after it (findClass / findResource below); the
+     * synthetic-stub fallback still absorbs anything the jar doesn't have.
+     *
+     * Since 42.22 the jar is signed and a URL-loaded class carries its jar's 
+     * signer certificates. The JVM requires every class of a package to share
+     * one signer set, so the classes are defined from the jar's bytes
+     * without certificates instead, like the unsigned jars before 42.22.
      */
     public void addJar(URL url) {
-        super.addURL(url);
         try {
             realJar = new java.util.jar.JarFile(new java.io.File(url.toURI()));
+            realJarUrl = url;
         } catch (Exception ignored) {
             realJar = null;
+            realJarUrl = null;
+            super.addURL(url);
         }
     }
 
     /** The game jar, once engine mode attaches it (see addJar). */
     private java.util.jar.JarFile realJar;
+    private URL realJarUrl;
+
+    /** Defines a class from the game jar's bytes, unsigned (see addJar). Null when the jar lacks it. */
+    private Class<?> defineUnsigned(String name) {
+        if (realJar == null) return null;
+        try {
+            java.util.jar.JarEntry e = realJar.getJarEntry(name.replace('.', '/') + ".class");
+            if (e == null) return null;
+            byte[] bytes;
+            try (java.io.InputStream in = realJar.getInputStream(e)) { bytes = in.readAllBytes(); }
+            return defineClass(name, bytes, 0, bytes.length);
+        } catch (java.io.IOException ex) {
+            return null;
+        }
+    }
+
+    /** Classpath first, then the game jar. */
+    @Override
+    protected Class<?> findClass(String name) throws ClassNotFoundException {
+        try {
+            return super.findClass(name);
+        } catch (ClassNotFoundException e) {
+            Class<?> c = defineUnsigned(name);
+            if (c != null) return c;
+            throw e;
+        }
+    }
+
+    /** Game-jar resources (scripts, service files) stay reachable after the classpath's. */
+    @Override
+    public URL findResource(String name) {
+        URL u = super.findResource(name);
+        if (u != null || realJar == null || realJar.getJarEntry(name) == null) return u;
+        return gameJarResource(name);
+    }
+
+    /** jar:<game jar>!/<name>, the entry name percent-encoded; null if it can't be formed. */
+    private URL gameJarResource(String name) {
+        try {
+            String entry = new java.net.URI(null, null, "/" + name, null).getRawPath();
+            return java.net.URI.create("jar:" + realJarUrl + "!" + entry).toURL();
+        } catch (java.net.URISyntaxException | java.net.MalformedURLException | IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    @Override
+    public java.util.Enumeration<URL> findResources(String name) throws java.io.IOException {
+        java.util.List<URL> out = java.util.Collections.list(super.findResources(name));
+        if (realJar != null && realJar.getJarEntry(name) != null) {
+            URL u = gameJarResource(name);
+            if (u != null) out.add(u);
+        }
+        return java.util.Collections.enumeration(out);
+    }
 
     /**
      * Packages whose REAL classes win over stubs once the game jar is attached.
@@ -68,19 +130,10 @@ public class StubbingClassLoader extends URLClassLoader {
     private static final String[] PREFER_REAL = { "zombie.debug." };
 
     private Class<?> defineFromRealJar(String name) {
-        if (realJar == null) return null;
-        boolean wanted = false;
-        for (String p : PREFER_REAL) if (name.startsWith(p)) { wanted = true; break; }
-        if (!wanted) return null;
-        try {
-            java.util.jar.JarEntry e = realJar.getJarEntry(name.replace('.', '/') + ".class");
-            if (e == null) return null;
-            byte[] bytes;
-            try (java.io.InputStream in = realJar.getInputStream(e)) { bytes = in.readAllBytes(); }
-            return defineClass(name, bytes, 0, bytes.length);
-        } catch (Exception ex) {
-            return null;
+        for (String p : PREFER_REAL) {
+            if (name.startsWith(p)) return defineUnsigned(name);
         }
+        return null;
     }
 
     @Override

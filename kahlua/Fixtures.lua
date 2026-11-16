@@ -704,7 +704,7 @@ function Fixtures.networkSpy()
             "sendClientCommand", "sendServerCommand",
             "sendAddItemToContainer", "sendRemoveItemFromContainer",
             "syncItemModData", "syncHandWeaponFields", "syncItemFields",
-            "transmitPlayerModData",
+            "transmitPlayerModData", "syncBodyPart", "syncPlayerStats",
         }
         for _, n in ipairs(names) do
             self._saved[n] = _G[n]

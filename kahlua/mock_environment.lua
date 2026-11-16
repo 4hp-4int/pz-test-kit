@@ -216,11 +216,16 @@ GameTime._instance = {
     getHour = function(self) return _pz_hour_of_day end,
 }
 function GameTime.getInstance() return GameTime._instance end
+-- LuaManager.GlobalObject.getGameTime global accessor
+function getGameTime() return GameTime.getInstance() end
 
 -- ============================================================================
 -- TIMED ACTION QUEUE (stub)
 -- ============================================================================
 ISTimedActionQueue = { getTimedActionQueue = function(player) return nil end }
+
+-- The inventory window's class table for client/TimedActions/ISInventoryTransferAction.lua.
+ISInventoryPage = ISInventoryPage or {}
 
 -- ============================================================================
 -- ISBASETIMEDACTION (stub for mods that define timed actions)
@@ -624,6 +629,25 @@ _pz_player = {
 
 function getSpecificPlayer(index) return _pz_player end
 function getPlayer() return _pz_player end
+-- Split-screen count: the one mock player.
+function getNumActivePlayers() return _pz_player and 1 or 0 end
+-- Every connected player (GameServer.getPlayers on a server, GameClient's list on a client)
+function getOnlinePlayers()
+    local items = { _pz_player }
+    return {
+        size = function() return #items end,
+        isEmpty = function() return #items == 0 end,
+        get = function(_, i) return items[i + 1] end,
+    }
+end
+
+-- Server packet sync (BodyPartSyncPacket, the stat block of SyncPlayerStatsPacket)
+-- offline there is no peer, so they are no-ops that Fixtures.networkSpy records.
+function syncBodyPart(bodyPart, syncFlags) end
+function syncPlayerStats(player, syncFlags) end
+
+-- WorldSoundManager.addSound: a noise zombies (and animals) can hear. No world offline.
+function addSound(source, x, y, z, radius, volume) end
 
 -- ============================================================================
 -- MOCK WEAPON FACTORY

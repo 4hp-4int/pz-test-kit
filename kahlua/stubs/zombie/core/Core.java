@@ -94,6 +94,8 @@ public class Core {
     // before backing up / writing its .bin files. The harness never writes
     // save data, so: no-save mode, which is exactly what the engine checks.
     public boolean isNoSave() { return true; }
+    // 42.22 moved the game mode to a GameMode registry entry.
+    public zombie.core.GameMode getGameMode() { return zombie.core.GameMode.SANDBOX; }
     // ...and names its log after the save world. Harness world, temp home.
     public static String gameSaveWorld = "pztest";
 
