@@ -95,7 +95,8 @@ return {
 
     -- (Optional) Cross-mod dependencies (sibling directories). Each
     -- dependency's media/lua/ tree gets indexed so `require "OtherMod/X"`
-    -- works from your tests.
+    -- works from your tests. In engine mode its media/scripts are parsed
+    -- too, so PZEngine.instanceItem knows its items.
     dependencies = {
         "../TooltipLib",
     },

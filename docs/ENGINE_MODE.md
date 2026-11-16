@@ -70,6 +70,9 @@ behavior on the dedi (pz-shell).
 
 ## Other mods' items (`engine_mods`, run with `--engine-mods`)
 
+Mods listed under `dependencies` have their `media/scripts` parsed in
+engine mode and their Lua runs in every test env.
+
 Interop tests want the REAL items of mods you don't own — a gun pack's
 magazines, a framework's ammo. List them in `pz-test.lua`:
 

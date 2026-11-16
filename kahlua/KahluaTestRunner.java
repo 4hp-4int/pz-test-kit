@@ -314,6 +314,11 @@ public class KahluaTestRunner {
             }
             // a mod whose Lua runs needs its items too
             for (String sp : luaModSpecs) if (!engineMods.contains(sp)) engineMods.add(sp);
+            // ...and so does a dependency's. Compared by resolved path, so the same
+            // mod named relatively here and absolutely by --lua-mod is parsed once.
+            java.util.Set<String> modKeys = new java.util.HashSet<>();
+            for (String sp : engineMods) modKeys.add(modSpecKey(modRoot, sp));
+            for (String sp : sniffDependencyPaths(cfgPath)) if (modKeys.add(modSpecKey(modRoot, sp))) engineMods.add(sp);
             EngineBridge.fillFromGame = !luaModSpecs.isEmpty();
             EngineBridge.boot(null, modRoot, engineMods, System.out);
         }
@@ -1797,6 +1802,46 @@ public class KahluaTestRunner {
                 .sorted()
                 .collect(Collectors.toList());
         }
+    }
+
+    /** A mod spec's identity: workshop specs as written, paths resolved against the mod root. */
+    private static String modSpecKey(Path modRoot, String spec) {
+        if (spec.startsWith("workshop:")) return spec;
+        try {
+            Path p = Path.of(spec);
+            return (p.isAbsolute() ? p : modRoot.resolve(p)).toAbsolutePath().normalize().toString();
+        } catch (java.nio.file.InvalidPathException e) {
+            return spec;
+        }
+    }
+
+    /**
+     * The `dependencies` paths of pz-test.lua, needed before any Kahlua env may exist.
+     * Brace-balanced so `{ path = "..." }` entries work. Only bare strings and
+     * `path = "..."` values count, either single or double quotes like the engine_mods sniff.
+     */
+    private static List<String> sniffDependencyPaths(Path cfgPath) {
+        List<String> out = new ArrayList<>();
+        if (!Files.exists(cfgPath)) return out;
+        String src;
+        try { src = Files.readString(cfgPath).replaceAll("--[^\\n]*", ""); }
+        catch (IOException e) { return out; }
+        var start = java.util.regex.Pattern.compile("\\bdependencies\\s*=\\s*\\{").matcher(src);
+        if (!start.find()) return out;
+        int depth = 1, i = start.end();
+        while (i < src.length() && depth > 0) {
+            char c = src.charAt(i++);
+            if (c == '{') depth++;
+            else if (c == '}') depth--;
+        }
+        String block = src.substring(start.end(), Math.max(start.end(), i - 1));
+        var str = java.util.regex.Pattern
+            .compile("(?:(\\w+)\\s*=\\s*)?(?:\"([^\"]+)\"|'([^']+)')").matcher(block);
+        while (str.find()) {
+            String key = str.group(1);
+            if (key == null || key.equals("path")) out.add(str.group(2) != null ? str.group(2) : str.group(3));
+        }
+        return out;
     }
 
     /** Read the `dependencies` array from pz-test.lua. Each entry is either
